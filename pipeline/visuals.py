@@ -15,6 +15,7 @@ STYLE_SUFFIX = {
     "text_gradient_ai": ", minimal, high contrast, vertical composition, dramatic lighting, no text",
     "mixed_stock_ai": ", photographic, realistic, vertical 9:16 composition, natural lighting, no text",
     "ai_cinematic": ", cinematic, film still, moody atmospheric lighting, 35mm, vertical 9:16, no text",
+    "educational_ai": ", clean educational infographic style, clear subject separation, simple diagram-friendly composition, arrows or visual relationships when relevant, vertical 9:16, no text, no logos",
 }
 
 def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: int = 1920) -> bool:

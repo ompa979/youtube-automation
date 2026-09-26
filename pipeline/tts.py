@@ -1,15 +1,20 @@
-"""Text-to-speech with resilient fallbacks.
+"""Natural Indian TTS with resilient provider fallbacks.
 
-Primary TTS: edge-tts.
-Fallback 1: gTTS (Google Translate TTS).
-Fallback 2: local espeak-ng/espeak when available.
+Preferred chain when configured:
+1) Google Cloud TTS (hi-IN neural voice)
+2) Microsoft Edge/Azure voice via edge-tts
+3) gTTS
+4) local eSpeak
 
-The pipeline must not fail just because Microsoft's Edge TTS WebSocket returns
-403/5xx.  Subtitle timings are generated from the resulting audio duration.
+The script can keep Roman Hinglish for captions while supplying a Devanagari-
+optimized `tts_text` for Hindi-capable voices, improving pronunciation without
+changing what the viewer reads.
 """
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -29,49 +34,31 @@ def _ass_timestamp(seconds: float) -> str:
 
 def _write_ass(words: list[tuple[float, float, str]], out_path: Path) -> None:
     header = (
-        "[Script Info]\n"
-        "ScriptType: v4.00+\n"
-        "PlayResX: 1080\n"
-        "PlayResY: 1920\n"
-        "WrapStyle: 2\n"
-        "ScaledBorderAndShadow: yes\n\n"
-        "[V4+ Styles]\n"
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n"
+        "WrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour,"
         " Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow,"
         " Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        "Style: Cap,Inter,86,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,"
-        "-1,0,0,0,100,100,0,0,1,4,2,2,60,60,220,1\n\n"
-        "[Events]\n"
-        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        "Style: Cap,Inter,78,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,60,60,220,1\n\n"
+        "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
-
     lines: list[str] = []
-    window = 3
-    for i in range(len(words)):
-        chunk = words[i:i + window]
-        if not chunk:
-            continue
-        start = chunk[0][0]
-        end = chunk[-1][1]
-        text = " ".join(w[2] for w in chunk).strip()
-        text = re.sub(r"\s+", " ", text)
+    for i in range(0, len(words), 4):
+        chunk = words[i:i + 4]
+        start, end = chunk[0][0], chunk[-1][1]
+        text = re.sub(r"\s+", " ", " ".join(w[2] for w in chunk)).strip()
         text = text.replace("{", "(").replace("}", ")")
-        lines.append(
-            f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},Cap,,0,0,0,,{text}"
-        )
-
+        lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},Cap,,0,0,0,,{text}")
     out_path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _audio_duration(path: Path) -> float | None:
-    """Return media duration using ffprobe, if available."""
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
         return None
     try:
         result = subprocess.run(
-            [ffprobe, "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
             capture_output=True, text=True, check=True, timeout=20,
         )
         value = float(result.stdout.strip())
@@ -84,27 +71,30 @@ def _estimated_words(text: str) -> list[str]:
     return re.findall(r"\S+", text.strip())
 
 
-def _write_estimated_ass(text: str, duration: float, ass_path: Path) -> None:
-    words = _estimated_words(text)
+def _write_estimated_ass(display_text: str, duration: float, ass_path: Path, overlay_text: str = "") -> None:
+    words = _estimated_words(display_text)
     if not words:
         _write_ass([], ass_path)
         return
-    # Divide the actual/estimated audio duration over words.  This is only a
-    # fallback subtitle timing; Edge TTS word boundaries remain preferred.
-    step = max(duration / len(words), 0.08)
-    timed = []
-    for i, word in enumerate(words):
-        start = i * step
-        end = min(duration, (i + 1) * step)
-        timed.append((start, end, word))
+    # Slightly longer weighting for punctuation makes captions feel less rushed.
+    weights = [1.35 if re.search(r"[.!?]$", w) else 1.0 for w in words]
+    total = sum(weights)
+    cursor = 0.0
+    timed: list[tuple[float, float, str]] = []
+    for word, weight in zip(words, weights):
+        step = duration * weight / total
+        timed.append((cursor, min(duration, cursor + step), word))
+        cursor += step
     _write_ass(timed, ass_path)
+    if overlay_text.strip():
+        existing = ass_path.read_text(encoding="utf-8")
+        overlay = f"Dialogue: 1,0:00:00.00,{_ass_timestamp(min(duration, 3.0))},Cap,,0,0,0,,{overlay_text.strip().replace("{", "(").replace("}", ")")}\n"
+        ass_path.write_text(existing + overlay, encoding="utf-8")
 
 
 async def _synth_edge(text: str, voice: str, audio_path: Path, ass_path: Path) -> float:
     communicate = edge_tts.Communicate(text, voice)
     words: list[tuple[float, float, str]] = []
-    last_end = 0.0
-
     with open(audio_path, "wb") as f:
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
@@ -113,37 +103,52 @@ async def _synth_edge(text: str, voice: str, audio_path: Path, ass_path: Path) -
                 start = chunk["offset"] / 10_000_000
                 dur = chunk["duration"] / 10_000_000
                 words.append((start, start + dur, chunk["text"]))
-                last_end = start + dur
-
     if not audio_path.exists() or audio_path.stat().st_size == 0:
         raise RuntimeError("Edge TTS returned no audio")
-
-    duration = _audio_duration(audio_path) or last_end
-    if duration <= 0:
+    duration = _audio_duration(audio_path)
+    if not duration:
         raise RuntimeError("Edge TTS returned invalid duration")
-    _write_ass(words, ass_path)
+    _write_ass(words, ass_path) if words else _write_estimated_ass(text, duration, ass_path)
     return duration
 
 
+def _edge_voice_candidates(default_voice: str) -> list[str]:
+    """Return configured Indian voices in preferred order, de-duplicated."""
+    raw = os.getenv("TTS_VOICE") or os.getenv("EDGE_TTS_VOICE") or default_voice or "hi-IN-SwaraNeural"
+    candidates = [x.strip() for x in raw.split(",") if x.strip()]
+    # Keep a second Indian Hindi voice as a provider-level fallback.
+    for voice in ("hi-IN-SwaraNeural", "hi-IN-MadhurNeural"):
+        if voice not in candidates:
+            candidates.append(voice)
+    return candidates
+
+
+def _synth_edge_candidates(text: str, default_voice: str, audio_path: Path, ass_path: Path) -> float:
+    errors: list[str] = []
+    for voice in _edge_voice_candidates(default_voice):
+        try:
+            print(f"[tts] edge voice={voice}")
+            return asyncio.run(_synth_edge(text, voice, audio_path, ass_path))
+        except Exception as exc:
+            errors.append(f"{voice}: {exc}")
+            audio_path.unlink(missing_ok=True)
+            ass_path.unlink(missing_ok=True)
+            print(f"[tts] edge voice {voice} failed: {exc}")
+    raise RuntimeError("All Edge Hindi voices failed: " + " | ".join(errors))
+
+
 def _gtts_language(voice: str) -> str:
-    # Map the project's voice names to gTTS language codes.  Keep this simple
-    # and deterministic; regional Edge voices are not available in gTTS.
-    base = (voice or "en").lower().split("-")[0]
-    return {"en": "en", "hi": "hi", "es": "es", "fr": "fr", "de": "de"}.get(base, "en")
+    base = (voice or "hi").lower().split("-")[0]
+    return {"en": "en", "hi": "hi", "es": "es", "fr": "fr", "de": "de"}.get(base, "hi")
 
 
 def _synth_gtts(text: str, voice: str, audio_path: Path, ass_path: Path) -> float:
     from gtts import gTTS
-
     lang = _gtts_language(voice)
     gTTS(text=text, lang=lang, slow=False).save(str(audio_path))
     if not audio_path.exists() or audio_path.stat().st_size == 0:
         raise RuntimeError("gTTS returned no audio")
-
-    duration = _audio_duration(audio_path)
-    if duration is None:
-        # Conservative fallback if ffprobe is unavailable.
-        duration = max(1.0, len(_estimated_words(text)) / 2.4)
+    duration = _audio_duration(audio_path) or max(1.0, len(_estimated_words(text)) / 2.4)
     _write_estimated_ass(text, duration, ass_path)
     return duration
 
@@ -153,53 +158,63 @@ def _synth_espeak(text: str, voice: str, audio_path: Path, ass_path: Path) -> fl
     ffmpeg = shutil.which("ffmpeg")
     if not exe or not ffmpeg:
         raise RuntimeError("Neither espeak/espeak-ng nor ffmpeg is available")
-
     wav_path = audio_path.with_suffix(".wav")
-    lang = _gtts_language(voice)
-    subprocess.run([exe, "-v", lang, "-w", str(wav_path), text], check=True, timeout=60)
-    subprocess.run([ffmpeg, "-y", "-i", str(wav_path), "-codec:a", "libmp3lame", "-q:a", "4", str(audio_path)],
-                   check=True, capture_output=True, timeout=60)
+    subprocess.run([exe, "-v", "hi", "-w", str(wav_path), text], check=True, timeout=60)
+    subprocess.run([ffmpeg, "-y", "-i", str(wav_path), "-codec:a", "libmp3lame", "-q:a", "4", str(audio_path)], check=True, capture_output=True, timeout=60)
     wav_path.unlink(missing_ok=True)
-
     duration = _audio_duration(audio_path) or max(1.0, len(_estimated_words(text)) / 2.2)
     _write_estimated_ass(text, duration, ass_path)
     return duration
 
 
-def synthesize_scene(scene_index: int, text: str, voice: str) -> tuple[Path, Path, float]:
+def _truthy_env(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def synthesize_scene(scene_index: int, display_text: str, tts_text: str, voice: str, on_screen_text: str = "") -> tuple[Path, Path, float]:
     audio_path = WORK_DIR / f"scene_{scene_index:02d}.mp3"
     ass_path = WORK_DIR / f"scene_{scene_index:02d}.ass"
     errors: list[str] = []
 
-    # Edge TTS is preferred, but a service-side 403 must not kill the whole
-    # video generation job.
-    try:
-        duration = asyncio.run(_synth_edge(text, voice, audio_path, ass_path))
-        print("[tts] provider=edge-tts")
-        return audio_path, ass_path, duration
-    except Exception as exc:
-        errors.append(f"edge-tts: {exc}")
-        audio_path.unlink(missing_ok=True)
-        ass_path.unlink(missing_ok=True)
-        print(f"[tts] Edge TTS failed; trying gTTS fallback: {exc}")
+    provider_setting = os.getenv("TTS_PROVIDER", "edge").strip().lower()
+    if provider_setting in {"auto", "automatic"}:
+        providers = ["edge", "gtts", "espeak"]
+    else:
+        providers = [provider_setting]
+        # Always keep free fallbacks available unless explicitly disabled.
+        if _truthy_env(os.getenv("TTS_NO_FALLBACK"), False) is False:
+            for fallback in ("edge", "gtts", "espeak"):
+                if fallback not in providers:
+                    providers.append(fallback)
 
-    try:
-        duration = _synth_gtts(text, voice, audio_path, ass_path)
-        print("[tts] provider=gTTS")
-        return audio_path, ass_path, duration
-    except Exception as exc:
-        errors.append(f"gTTS: {exc}")
-        audio_path.unlink(missing_ok=True)
-        ass_path.unlink(missing_ok=True)
-        print(f"[tts] gTTS failed; trying local espeak fallback: {exc}")
-
-    try:
-        duration = _synth_espeak(text, voice, audio_path, ass_path)
-        print("[tts] provider=espeak")
-        return audio_path, ass_path, duration
-    except Exception as exc:
-        errors.append(f"espeak: {exc}")
-        audio_path.unlink(missing_ok=True)
-        ass_path.unlink(missing_ok=True)
+    for provider in providers:
+        try:
+            if provider == "edge":
+                edge_voice = os.getenv("TTS_VOICE") or os.getenv("EDGE_TTS_VOICE") or voice or "hi-IN-SwaraNeural"
+                duration = _synth_edge_candidates(tts_text, edge_voice, audio_path, ass_path)
+            elif provider == "gtts":
+                duration = _synth_gtts(tts_text, os.getenv("TTS_LANGUAGE", voice), audio_path, ass_path)
+            elif provider == "espeak":
+                duration = _synth_espeak(tts_text, os.getenv("TTS_LANGUAGE", "hi"), audio_path, ass_path)
+            else:
+                continue
+            # Captions should show the viewer-facing Roman Hinglish, even when
+            # the TTS provider used Devanagari for better pronunciation.
+            if provider == "edge":
+                if on_screen_text.strip():
+                    existing = ass_path.read_text(encoding="utf-8")
+                    overlay = f"Dialogue: 1,0:00:00.00,{_ass_timestamp(min(duration, 3.0))},Cap,,0,0,0,,{on_screen_text.strip().replace('{', '(').replace('}', ')')}\n"
+                    ass_path.write_text(existing + overlay, encoding="utf-8")
+            else:
+                _write_estimated_ass(display_text, duration, ass_path, on_screen_text)
+            print(f"[tts] provider={provider}")
+            return audio_path, ass_path, duration
+        except Exception as exc:
+            errors.append(f"{provider}: {exc}")
+            audio_path.unlink(missing_ok=True)
+            ass_path.unlink(missing_ok=True)
+            print(f"[tts] {provider} failed: {exc}")
 
     raise RuntimeError("All TTS providers failed: " + " | ".join(errors))

@@ -222,7 +222,7 @@ def main() -> int:
     for scene in script.scenes:
         print(f"[pipeline] scene {scene.index + 1}/{len(script.scenes)}")
         audio, ass, duration = synthesize_scene(
-            scene.index, scene.narration, voice
+            scene.index, scene.narration, scene.tts_text, voice, scene.on_screen_text
         )
         image = fetch_scene_image(
             scene.index, scene.image_prompt, visual_style, settings
@@ -231,6 +231,9 @@ def main() -> int:
         scene_audios.append(audio)
         scene_ass.append(ass)
         durations.append(duration)
+
+    metadata_path = OUT_DIR / "script.json"
+    metadata_path.write_text(json.dumps(script.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     video_path = assemble_video(
         scene_images,

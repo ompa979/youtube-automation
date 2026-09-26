@@ -86,6 +86,10 @@ async function handleQueue(
     if (env.OPENROUTER_API_KEY)  secrets.OPENROUTER_API_KEY = env.OPENROUTER_API_KEY;
     if (env.PEXELS_API_KEY)      secrets.PEXELS_API_KEY = env.PEXELS_API_KEY;
     if (env.PIXABAY_API_KEY)     secrets.PIXABAY_API_KEY = env.PIXABAY_API_KEY;
+    secrets.TTS_PROVIDER = "edge";
+    secrets.TTS_LANGUAGE = "hi-IN";
+    secrets.TTS_VOICE = "hi-IN-MadhurNeural,hi-IN-SwaraNeural";
+    secrets.TTS_NO_FALLBACK = "false";
 
     // ── 3. Run the container ───────────────────────────────────────────────
     const result = await runPipelineJob(env, job, secrets);
@@ -203,9 +207,9 @@ export default {
     // Manual trigger for testing: POST /trigger
     if (request.method === "POST" && url.pathname === "/trigger") {
       const job: ShortsJob = {
-        niche: "facts",
-        topic: "manual test topic",
-        language: "en",
+        niche: "exam_concepts",
+        topic: "why the sky is blue and what Rayleigh scattering actually means",
+        language: "hinglish",
         requestedAt: new Date().toISOString(),
       };
       await env.SHORTS_QUEUE.send(job);

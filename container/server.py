@@ -63,7 +63,7 @@ async def generate(request: Request):
 
     niche = payload.get("niche", "facts")
     topic = payload.get("topic", "")
-    language = payload.get("language", "en")
+    language = payload.get("language", "hinglish")
 
     if not topic:
         return JSONResponse(
@@ -84,6 +84,13 @@ async def generate(request: Request):
 
     settings = _Settings()
 
+    # TTS providers read these from the process environment. The Worker passes
+    # them as job-scoped secrets/config so Cloudflare and GitHub use the same
+    # pipeline behavior.
+    for key in ("TTS_PROVIDER", "TTS_LANGUAGE", "TTS_VOICE", "TTS_NO_FALLBACK"):
+        if key in payload and payload[key]:
+            os.environ[key] = str(payload[key])
+
     if not settings.gemini_api_key and not settings.openrouter_api_key:
         return JSONResponse(
             {"success": False, "error": "No LLM API key provided."},
@@ -94,10 +101,9 @@ async def generate(request: Request):
     # full content plan in the payload so the container doesn't need R2 access.
     content_plan = payload.get("content_plan", {})
     niche_cfg = content_plan.get(niche, {
-        "video_length_sec": 45,
         "visual_style": "text_gradient_ai",
         "voice": {"en": "en-US-GuyNeural"},
-        "system_prompt": "You are a scriptwriter for viral YouTube Shorts.",
+        "system_prompt": "You are a knowledgeable Indian exam teacher creating helpful educational videos.",
     })
 
     try:
@@ -116,7 +122,7 @@ async def generate(request: Request):
 
         for scene in script.scenes:
             print(f"[server] Scene {scene.index + 1}/{len(script.scenes)}")
-            audio, ass, dur = synthesize_scene(scene.index, scene.narration, voice)
+            audio, ass, dur = synthesize_scene(scene.index, scene.narration, scene.tts_text, voice, scene.on_screen_text)
             img = fetch_scene_image(scene.index, scene.image_prompt, visual_style, settings)
             scene_images.append(img)
             scene_audios.append(audio)

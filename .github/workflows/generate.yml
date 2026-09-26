@@ -39,7 +39,7 @@ jobs:
       - name: Install system deps (ffmpeg + Inter font)
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y ffmpeg fonts-inter
+          sudo apt-get install -y ffmpeg fonts-inter espeak-ng
 
       - name: Install Python deps
         run: pip install -r requirements.txt
@@ -50,12 +50,16 @@ jobs:
           OPENROUTER_API_KEY:  ${{ secrets.OPENROUTER_API_KEY }}
           PEXELS_API_KEY:      ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY:     ${{ secrets.PIXABAY_API_KEY }}
+          TTS_PROVIDER:         edge
+          TTS_LANGUAGE:         hi-IN
+          TTS_VOICE:            hi-IN-MadhurNeural,hi-IN-SwaraNeural
+          TTS_NO_FALLBACK:      false
           YT_CREDS_1:          ${{ secrets.YT_CREDS_1 }}
           YT_CREDS_2:          ${{ secrets.YT_CREDS_2 }}
           YT_CREDS_3:          ${{ secrets.YT_CREDS_3 }}
           YT_CREDS_4:          ${{ secrets.YT_CREDS_4 }}
-          NICHES_ENABLED:      'facts,explainers,stories'
-          LANGUAGES_ENABLED:   'en,hinglish'
+          NICHES_ENABLED:      'exam_concepts,science_explainers'
+          LANGUAGES_ENABLED:   'hinglish'
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "[i] Dry run — skipping upload."
@@ -70,7 +74,11 @@ jobs:
           mkdir -p out
           if compgen -G "/tmp/out/*.mp4" > /dev/null; then
             cp -v /tmp/out/*.mp4 out/
-          else
+          fi
+          if [ -f /tmp/out/script.json ]; then
+            cp -v /tmp/out/script.json out/
+          fi
+          if ! compgen -G "out/*.mp4" > /dev/null; then
             echo "[i] No rendered MP4 found in /tmp/out"
           fi
           ls -lah out || true
@@ -80,7 +88,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rendered-video-${{ github.run_number }}
-          path: out/*.mp4
+          path: out/*
           retention-days: 7
           if-no-files-found: error
 

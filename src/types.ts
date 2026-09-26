@@ -20,6 +20,10 @@ export interface Env {
   OPENROUTER_API_KEY?: string;
   PEXELS_API_KEY?: string;
   PIXABAY_API_KEY?: string;
+  TTS_PROVIDER?: string;
+  TTS_LANGUAGE?: string;
+  TTS_VOICE?: string;
+  TTS_NO_FALLBACK?: string;
   YT_CREDS_1?: string;
   YT_CREDS_2?: string;
   YT_CREDS_3?: string;

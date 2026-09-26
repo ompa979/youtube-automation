@@ -1,92 +1,59 @@
 {
-  "version": 1,
-  "last_updated": "2026-09-26T00:00:00Z",
+  "version": 2,
+  "last_updated": "2026-09-26T08:50:00Z",
   "niches": {
-    "facts": {
-      "display_name": "Did You Know",
-      "video_length_sec": 40,
-      "visual_style": "text_gradient_ai",
+    "exam_concepts": {
+      "display_name": "Exam Concepts",
+      "visual_style": "educational_ai",
       "voice": {
-        "en": "en-US-GuyNeural",
-        "hi": "hi-IN-MadhurNeural",
-        "hinglish": "en-IN-PrabhatNeural"
-      },
-      "system_prompt": "You are a scriptwriter for viral YouTube Shorts in the 'Did You Know' niche. Every video is a single surprising, verifiable fact. You write punchy hooks, use concrete numbers, and never exaggerate. Only state facts you are highly confident are true and widely documented. If unsure, pick a different fact. Avoid anything that could be misinformation.",
-      "topics": [
-        "octopus has three hearts and blue blood",
-        "honey never spoils if stored properly",
-        "bananas are radioactive enough to trigger some detectors",
-        "sharks existed before trees",
-        "the Eiffel Tower grows about 15 cm taller in summer",
-        "a day on Venus is longer than its year",
-        "cleopatra lived closer to the Moon landing than to the Great Pyramid",
-        "there are more trees on Earth than stars in the Milky Way",
-        "your body contains enough iron to make a 3-inch nail",
-        "wombat poop is cube-shaped",
-        "the human nose can distinguish over a trillion scents",
-        "hot water can freeze faster than cold water (Mpemba effect)",
-        "a teaspoon of neutron star material would weigh a billion tons",
-        "bacteria outnumber human cells in your body roughly 1.3 to 1",
-        "the Sahara desert is roughly the size of the United States",
-        "lightning strikes Earth about 100 times every second",
-        "the deepest part of the ocean is deeper than Everest is tall",
-        "a cloud can weigh over a million pounds",
-        "there is a species of jellyfish that is biologically immortal",
-        "the first computer bug was a literal moth"
-      ]
-    },
-    "explainers": {
-      "display_name": "Explained in 60s",
-      "video_length_sec": 55,
-      "visual_style": "mixed_stock_ai",
-      "voice": {
-        "en": "en-US-AriaNeural",
+        "hinglish": "hi-IN-SwaraNeural",
         "hi": "hi-IN-SwaraNeural",
-        "hinglish": "en-IN-NeerjaNeural"
+        "en": "en-IN-PrabhatNeural"
       },
-      "system_prompt": "You are a scriptwriter for educational explainer Shorts. You break down one concept in under 60 seconds: setup, key mechanism, payoff. Use simple analogies. Never use jargon without immediately defining it.",
+      "system_prompt": "Create genuinely useful educational content for Indian competitive-exam aspirants. Focus on one coherent concept from UPSC, SSC, Banking, Railway, RBI, SEBI, NABARD or similar exams. Difficult older concepts are welcome. Explain the reasoning clearly and avoid generic motivational filler. Prefer a natural teacher-student feel over a viral-template feel.",
       "topics": [
-        "how compound interest actually works",
-        "what a blockchain really is",
-        "how vaccines train the immune system",
-        "why the sky is blue (Rayleigh scattering)",
-        "how GPS knows where you are",
-        "what dark matter is and isn't",
-        "how noise-cancelling headphones work",
-        "why we dream (current theories)",
-        "how mRNA vaccines differ from traditional ones",
-        "what a black hole actually is",
-        "how the stock market sets prices",
-        "why planes can fly (Bernoulli is not the whole story)",
-        "how your phone battery degrades",
-        "what inflation really means",
-        "how CRISPR edits genes",
-        "why antibiotic resistance happens"
+        "why the sky is blue and what Rayleigh scattering actually means",
+        "Fundamental Rights versus Directive Principles and the enforceability difference",
+        "why inflation can rise even when a person feels prices of some goods are falling",
+        "how repo rate changes can influence borrowing and demand",
+        "why monsoon winds reverse direction in the Indian subcontinent",
+        "difference between weather and climate with a concrete Indian example",
+        "why a weak acid can have a strong conjugate base and how to reason about it",
+        "how opportunity cost differs from explicit money cost",
+        "why parliamentary government has collective responsibility",
+        "difference between fiscal deficit and primary deficit",
+        "why a metal spoon feels colder than a wooden spoon in the same room",
+        "why octopus blood is blue and why it has three hearts",
+        "why antibiotic resistance is natural selection rather than the body becoming immune",
+        "how GPS determines position using multiple satellites",
+        "why pressure decreases with altitude and what that means for boiling point",
+        "how a balance of payments differs from a trade balance",
+        "why fundamental frequency and resonance are not the same thing",
+        "how El Nino can affect Indian monsoon variability",
+        "why the Constitution uses both Fundamental Rights and Directive Principles",
+        "how compound interest differs from simple interest using a small numerical example"
       ]
     },
-    "stories": {
-      "display_name": "True Stories",
-      "video_length_sec": 55,
-      "visual_style": "ai_cinematic",
+    "science_explainers": {
+      "display_name": "Science Explained",
+      "visual_style": "educational_ai",
       "voice": {
-        "en": "en-US-DavisNeural",
-        "hi": "hi-IN-MadhurNeural",
-        "hinglish": "en-IN-PrabhatNeural"
+        "hinglish": "hi-IN-SwaraNeural",
+        "hi": "hi-IN-SwaraNeural",
+        "en": "en-IN-PrabhatNeural"
       },
-      "system_prompt": "You are a narrator for true, atmospheric short stories drawn from real history, science, or strange events. Tone: cinematic, calm, slightly suspenseful. Never invent facts — stick to verifiable events. End with a short reflective line.",
+      "system_prompt": "Explain one science or technology concept accurately for a serious Indian exam learner. Use a simple mental model, then give the technical explanation. Do not oversimplify into an incorrect statement. Use equations only when they materially improve understanding.",
       "topics": [
-        "the Dyatlov Pass incident",
-        "the disappearance of the Roanoke colony",
-        "the dancing plague of 1518",
-        "the last message from the Franklin expedition",
-        "the Antikythera mechanism",
-        "the wow signal of 1977",
-        "the Voynich manuscript",
-        "the Somerton Man mystery",
-        "the Mary Celeste ghost ship",
-        "the Taos Hum",
-        "the Bloop underwater sound",
-        "the Bermuda Triangle's real history"
+        "how a transformer changes AC voltage",
+        "why satellites stay in orbit instead of falling straight down",
+        "why blue light scatters more strongly than red light",
+        "how antibodies recognize antigens",
+        "why increasing temperature can speed up a chemical reaction",
+        "what activation energy means in a real reaction",
+        "how semiconductors differ from conductors and insulators",
+        "why the sky near sunset appears red or orange",
+        "how vaccines create immune memory",
+        "why the pH scale is logarithmic"
       ]
     }
   }

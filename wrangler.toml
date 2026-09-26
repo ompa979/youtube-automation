@@ -66,13 +66,14 @@ bucket_name = "youtube-shorts-output"
 # Set to "0" to render only (dry run).
 UPLOAD_ENABLED = "1"
 # Comma-separated niches to enable: facts,explainers,stories
-NICHES_ENABLED = "facts,explainers,stories"
+NICHES_ENABLED = "exam_concepts,science_explainers"
 # Comma-separated languages: en,hi,hinglish
-LANGUAGES_ENABLED = "en,hinglish"
+LANGUAGES_ENABLED = "hinglish"
 
 # ─── Secrets (set via `wrangler secret put`) ──────────────────────────────────
 # GEMINI_API_KEY
 # OPENROUTER_API_KEY
+# TTS_PROVIDER / TTS_LANGUAGE / TTS_VOICE are configured by the Worker.
 # PEXELS_API_KEY
 # PIXABAY_API_KEY
 # YT_CREDS_1 … YT_CREDS_6

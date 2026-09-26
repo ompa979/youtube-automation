@@ -21,7 +21,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-from .config import Settings, YouTubeCredentials, CONTENT_PLAN_PATH, ensure_dirs
+from .config import Settings, YouTubeCredentials, CONTENT_PLAN_PATH, WORK_DIR, OUT_DIR, ensure_dirs
 from .render import assemble_video
 from .script_gen import generate_script
 from .tts import synthesize_scene
@@ -221,9 +221,35 @@ def main() -> int:
 
     for scene in script.scenes:
         print(f"[pipeline] scene {scene.index + 1}/{len(script.scenes)}")
-        audio, ass, duration = synthesize_scene(
-            scene.index, scene.narration, scene.tts_text, voice, scene.on_screen_text
+
+        # tts_text is the Hindi-friendly speech version. If the model omits it,
+        # safely fall back to narration rather than passing empty text to TTS.
+        narration = (scene.narration or "").strip()
+        tts_text = (scene.tts_text or "").strip() or narration
+
+        if not tts_text:
+            raise ValueError(
+                f"Scene {scene.index + 1} has empty narration and tts_text. "
+                "The script generator returned a scene without spoken content."
+            )
+
+        audio_path = WORK_DIR / f"scene_{scene.index:02d}.mp3"
+        ass_path = WORK_DIR / f"scene_{scene.index:02d}.ass"
+
+        print(
+            f"[pipeline] scene {scene.index + 1}: "
+            f"narration_chars={len(narration)} "
+            f"tts_chars={len(tts_text)}"
         )
+
+        audio, ass, duration = synthesize_scene(
+            tts_text,
+            voice,
+            audio_path,
+            ass_path,
+            scene.on_screen_text,
+        )
+
         image = fetch_scene_image(
             scene.index, scene.image_prompt, visual_style, settings
         )

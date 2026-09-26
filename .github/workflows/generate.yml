@@ -43,20 +43,22 @@ jobs:
           python - <<'PY'
           import json
           d=json.load(open('content_plan.json',encoding='utf-8'))
-          assert all(v.get('visual_style') == 'handwritten_notes' for v in d['niches'].values())
-          print('PASS: handwritten_notes visual style configured')
+          assert all(v.get('visual_style') == 'educational_ai' for v in d['niches'].values())
+          print('PASS: educational_ai visual style configured')
           PY
       - name: Generate
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+          OPENROUTER_TTS_MODEL: ${{ secrets.OPENROUTER_TTS_MODEL }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           UPLOAD_ENABLED: 'false'
           NICHES_ENABLED: 'exam_concepts,science_explainers'
           LANGUAGES_ENABLED: 'en'
-          TTS_PROVIDER: gtts
-          TTS_LANGUAGE: en-IN
-          TTS_VOICE: en-IN
+          TTS_PROVIDER: ${{ secrets.TTS_PROVIDER }}
+          TTS_LANGUAGE: ${{ secrets.TTS_LANGUAGE }}
+          TTS_VOICE: ${{ secrets.TTS_VOICE }}
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m pipeline.generate --dry-run

@@ -53,9 +53,37 @@ def _motion_filter(direction: int, total_frames: int) -> str:
     )
 
 
-def _ken_burns_clip(image: Path, duration: float, out: Path, direction: int = 1) -> None:
+def _escape_drawtext(text: str) -> str:
+    # Escape characters that are meaningful to ffmpeg's drawtext filter syntax.
+    return (
+        text.replace("\\", "\\\\")
+        .replace(":", "\\:")
+        .replace("'", "\u2019")  # avoid breaking out of the quoted text
+        .replace("%", "\\%")
+    )
+
+
+def _drawtext_filter(text: str) -> str:
+    # Rendered by FFmpeg with a real installed font (Inter, via fonts-inter),
+    # so it is always crisp and legible — unlike text baked into an AI image,
+    # which frequently comes out garbled. Short keyword/memory-cue captions
+    # only; this is not a subtitle track.
+    safe = _escape_drawtext(text.strip().upper())
+    if not safe:
+        return ""
+    return (
+        f"drawtext=font='Inter':text='{safe}':fontcolor=white:fontsize=58:"
+        "borderw=6:bordercolor=black@0.85:box=1:boxcolor=black@0.35:boxborderw=24:"
+        "x=(w-text_w)/2:y=h*0.80:line_spacing=8"
+    )
+
+
+def _ken_burns_clip(image: Path, duration: float, out: Path, direction: int = 1, on_screen_text: str = "") -> None:
     total_frames = max(int(duration * FPS), 1)
     vf = _motion_filter(direction, total_frames)
+    text_filter = _drawtext_filter(on_screen_text) if on_screen_text else ""
+    if text_filter:
+        vf = f"{vf},{text_filter}"
     _run([
         "ffmpeg", "-y", "-loop", "1", "-i", str(image),
         "-vf", vf, "-t", f"{duration:.3f}", "-r", str(FPS),
@@ -108,7 +136,7 @@ def _pick_music() -> Path | None:
 
 
 def assemble_video(scene_images: list[Path], scene_audios: list[Path], scene_ass: list[Path] | None,
-                   scene_durations: list[float], slug: str) -> Path:
+                   scene_durations: list[float], slug: str, scene_texts: list[str] | None = None) -> Path:
     del scene_ass
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     if not scene_images or not scene_audios or len(scene_images) != len(scene_audios):
@@ -119,7 +147,8 @@ def assemble_video(scene_images: list[Path], scene_audios: list[Path], scene_ass
     for i, (img, dur) in enumerate(zip(scene_images, scene_durations)):
         actual = max(float(dur), 1.0)
         clip = WORK_DIR / f"clip_{i:02d}.mp4"
-        _ken_burns_clip(img, actual, clip, direction=i)
+        text = scene_texts[i] if scene_texts and i < len(scene_texts) else ""
+        _ken_burns_clip(img, actual, clip, direction=i, on_screen_text=text)
         clips.append(clip)
         actual_durations.append(actual)
 

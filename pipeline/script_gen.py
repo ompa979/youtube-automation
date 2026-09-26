@@ -96,7 +96,7 @@ Return EXACTLY this JSON shape (no markdown):
     {{
       "narration": "natural Indian-English spoken line",
       "tts_text": "same English spoken line optimized for natural TTS",
-      "image_prompt": "unique premium handwritten study-notes visual, 20-45 words, vertical 9:16, hand-drawn diagrams and selective legible handwritten labels, no typed UI, no logos, no watermark",
+      "image_prompt": "unique premium cinematic educational visual, 20-45 words, vertical 9:16, clear conceptual diagram or illustration of the mechanism, no embedded text or labels (on-screen captions are added separately), no typed UI, no logos, no watermark",
       "on_screen_text": ""
     }}
   ]
@@ -263,7 +263,20 @@ def _generate_gemini(prompt: str, api_key: str) -> str:
 def _generate_openrouter(prompt: str, api_key: str) -> str:
     endpoint = os.getenv("OPENROUTER_ENDPOINT", "https://openrouter.ai/api/v1/chat/completions")
     configured = os.getenv("OPENROUTER_MODEL")
-    models = [configured] if configured else ["openrouter/free", "openai/gpt-oss-120b:free"]
+    if configured:
+        models = [configured]
+    else:
+        # No OPENROUTER_MODEL secret set. Previously this silently fell back
+        # to "openrouter/free", one of OpenRouter's weakest routed models,
+        # which is the main reason script quality was poor. deepseek-chat-v3.1
+        # is a real, current, inexpensive (~$0.25/$0.95 per 1M tokens) model
+        # that writes far better educational content. Set OPENROUTER_MODEL in
+        # your repo secrets to override this.
+        print(
+            "[!] OPENROUTER_MODEL not set — defaulting to deepseek/deepseek-chat-v3.1. "
+            "Add an OPENROUTER_MODEL secret to control this explicitly."
+        )
+        models = ["deepseek/deepseek-chat-v3.1", "openai/gpt-oss-120b:free"]
     last_error: Exception | None = None
     for model_name in models:
         if not model_name:

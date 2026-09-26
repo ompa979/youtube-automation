@@ -119,6 +119,7 @@ async def generate(request: Request):
         scene_audios: list[Path] = []
         scene_ass: list[Path] = []
         durations: list[float] = []
+        scene_texts: list[str] = []
 
         for scene in script.scenes:
             print(f"[server] Scene {scene.index + 1}/{len(script.scenes)}")
@@ -135,11 +136,12 @@ async def generate(request: Request):
             scene_audios.append(audio)
             scene_ass.append(ass)
             durations.append(dur)
+            scene_texts.append(scene.on_screen_text or "")
 
         # 3. Render
         print("[server] Assembling video...")
         slug = _slug(script.title)
-        video_path = assemble_video(scene_images, scene_audios, scene_ass, durations, slug)
+        video_path = assemble_video(scene_images, scene_audios, scene_ass, durations, slug, scene_texts=scene_texts)
 
         # 4. Base64-encode the MP4 for transport back to the Worker.
         video_bytes = video_path.read_bytes()

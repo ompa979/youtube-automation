@@ -221,6 +221,7 @@ def main() -> int:
 
     scene_dir = WORK_DIR / "scenes"
     scene_dir.mkdir(parents=True, exist_ok=True)
+    scene_texts: list[str] = []
 
     for scene in script.scenes:
         scene_no = scene.index + 1
@@ -254,6 +255,7 @@ def main() -> int:
         scene_audios.append(audio)
         scene_ass.append(ass)
         durations.append(duration)
+        scene_texts.append(scene.on_screen_text or "")
 
     metadata_path = OUT_DIR / "script.json"
     metadata_path.write_text(json.dumps(script.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -264,6 +266,7 @@ def main() -> int:
         scene_ass,
         durations,
         _slug(script.title),
+        scene_texts=scene_texts,
     )
     print(f"[pipeline] rendered={video_path} "
           f"size={video_path.stat().st_size / 1024 / 1024:.1f} MB")

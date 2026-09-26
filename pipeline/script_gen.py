@@ -1,8 +1,9 @@
 """Natural Indian-English educational script generation.
 
-OpenRouter is the primary LLM and Gemini is the fallback. The V5 pipeline is
-English-only: narration is conversational Indian English, while technical
-terms remain in standard English. No subtitles are generated.
+Gemini 2.5 Flash is the PRIMARY model — it's Google's best free-tier model
+with superior reasoning and long context. Gemini 1.5 Flash is the fallback.
+OpenRouter is intentionally removed so you never silently downgrade to a
+weak model.
 """
 from __future__ import annotations
 
@@ -12,7 +13,6 @@ import re
 from dataclasses import dataclass, asdict
 
 import google.generativeai as genai
-import requests
 
 from .quality import validate_script
 
@@ -109,24 +109,14 @@ Do not split a sentence just to create more scenes.
 
 
 def _extract_json_candidates(raw: str) -> list[str]:
-    """Return likely JSON object candidates from an LLM response.
-
-    Models sometimes wrap JSON in markdown or append a short explanation.  We
-    scan for balanced JSON objects instead of using rfind("}") because that
-    can accidentally include trailing braces/text and produce misleading
-    JSONDecodeError messages.
-    """
     text = (raw or "").strip()
     candidates: list[str] = []
 
-    # Prefer fenced JSON blocks when present.
     for match in re.finditer(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.I | re.S):
         block = match.group(1).strip()
         if block.startswith("{") and block.endswith("}"):
             candidates.append(block)
 
-    # Scan for balanced object boundaries while respecting quoted strings and
-    # escaped quotes. This also handles extra prose before/after the object.
     for start in [m.start() for m in re.finditer(r"\{", text)]:
         depth = 0
         in_string = False
@@ -151,13 +141,11 @@ def _extract_json_candidates(raw: str) -> list[str]:
                     candidates.append(text[start:i + 1].strip())
                     break
 
-    # Last-resort legacy slice.
     first = text.find("{")
     last = text.rfind("}")
     if first >= 0 and last > first:
         candidates.append(text[first:last + 1])
 
-    # Preserve order but remove duplicates.
     unique: list[str] = []
     seen: set[str] = set()
     for candidate in candidates:
@@ -168,7 +156,6 @@ def _extract_json_candidates(raw: str) -> list[str]:
 
 
 def _remove_trailing_commas(text: str) -> str:
-    """Remove JSON trailing commas without touching commas inside strings."""
     out: list[str] = []
     in_string = False
     escaped = False
@@ -225,96 +212,30 @@ def _parse_json(raw: str) -> dict:
                 pass
 
     raise ValueError(
-        "OpenRouter returned invalid JSON: " + " | ".join(errors[:4])
+        "Gemini returned invalid JSON: " + " | ".join(errors[:4])
         + f"\nRAW:\n{(raw or '')[:1200]}"
     )
 
 
-def _repair_invalid_json_openrouter(raw: str, original_prompt: str, api_key: str) -> str:
-    """Ask OpenRouter to convert malformed model output into strict JSON."""
-    repair_prompt = f"""
-Return ONLY one valid JSON object matching the schema in the original prompt.
-Do not add markdown fences, comments, explanations, or trailing commas.
-Preserve the educational content and all required fields. Fix only JSON syntax.
-
-ORIGINAL PROMPT:
-{original_prompt}
-
-MALFORMED MODEL OUTPUT:
-{raw[:12000]}
-""".strip()
-    return _generate_openrouter(repair_prompt, api_key)
-
-
-def _generate_gemini(prompt: str, api_key: str) -> str:
+def _generate_gemini(prompt: str, api_key: str, model_name: str | None = None) -> str:
+    """Call Gemini. model_name defaults to gemini-2.5-flash (best free tier)."""
     genai.configure(api_key=api_key)
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-    model = genai.GenerativeModel(model_name, generation_config={
+    # gemini-2.5-flash is the best free-quota model as of mid-2025.
+    # It has superior reasoning vs 1.5-flash and a 1M token context window.
+    # Fallback: gemini-1.5-flash (older but very reliable).
+    model_to_use = model_name or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model = genai.GenerativeModel(model_to_use, generation_config={
         "temperature": 0.75,
         "response_mime_type": "application/json",
     })
     resp = model.generate_content(prompt)
     text = getattr(resp, "text", None)
     if not text:
-        raise RuntimeError("Gemini returned an empty response")
+        raise RuntimeError(f"Gemini ({model_to_use}) returned an empty response")
     return text
 
 
-def _generate_openrouter(prompt: str, api_key: str) -> str:
-    endpoint = os.getenv("OPENROUTER_ENDPOINT", "https://openrouter.ai/api/v1/chat/completions")
-    configured = os.getenv("OPENROUTER_MODEL")
-    if configured:
-        models = [configured]
-    else:
-        # No OPENROUTER_MODEL secret set. Previously this silently fell back
-        # to "openrouter/free", one of OpenRouter's weakest routed models,
-        # which is the main reason script quality was poor. deepseek-chat-v3.1
-        # is a real, current, inexpensive (~$0.25/$0.95 per 1M tokens) model
-        # that writes far better educational content. Set OPENROUTER_MODEL in
-        # your repo secrets to override this.
-        print(
-            "[!] OPENROUTER_MODEL not set — defaulting to deepseek/deepseek-chat-v3.1. "
-            "Add an OPENROUTER_MODEL secret to control this explicitly."
-        )
-        models = ["deepseek/deepseek-chat-v3.1", "openai/gpt-oss-120b:free"]
-    last_error: Exception | None = None
-    for model_name in models:
-        if not model_name:
-            continue
-        try:
-            r = requests.post(
-                endpoint,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://examcracker-ai.onrender.com",
-                    "X-Title": "ExamCracker YouTube Automation",
-                },
-                json={
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": "Return only valid JSON. You are an expert Indian educational content creator."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.75,
-                    "response_format": {"type": "json_object"},
-                },
-                timeout=90,
-            )
-            if not r.ok:
-                raise RuntimeError(f"OpenRouter model {model_name} returned HTTP {r.status_code}: {r.text[:800]}")
-            data = r.json()
-            content = data["choices"][0]["message"]["content"]
-            if not content:
-                raise RuntimeError(f"OpenRouter model {model_name} returned empty content")
-            return content
-        except Exception as exc:
-            last_error = exc
-    raise RuntimeError(str(last_error) if last_error else "No OpenRouter model configured")
-
-
 def _first_text(raw: dict, *keys: str) -> str:
-    """Return the first non-empty text field from an LLM scene object."""
     for key in keys:
         value = raw.get(key)
         if isinstance(value, str) and value.strip():
@@ -332,9 +253,6 @@ def _to_script(data: dict) -> Script:
         if not isinstance(raw, dict):
             raise ValueError(f"Scene {i + 1} is not an object")
 
-        # narration is the canonical spoken/caption text.
-        # Accept common aliases so an otherwise valid model response cannot
-        # silently turn into an empty TTS scene.
         narration = _first_text(
             raw, "narration", "voiceover", "voice_over", "spoken_text",
             "speech", "dialogue", "text", "script",
@@ -354,8 +272,6 @@ def _to_script(data: dict) -> Script:
                 f"Generated scene {i + 1} has no usable narration/tts text. "
                 f"Available fields: {sorted(raw.keys())}"
             )
-        # V5 is English-only. Reject Devanagari so a fallback model cannot
-        # silently reintroduce Hindi text into an English voice track.
         if any("\u0900" <= ch <= "\u097F" for ch in narration + tts_text):
             raise ValueError(f"Generated scene {i + 1} contains Devanagari/Hindi text; English-only output required")
 
@@ -389,72 +305,42 @@ def _to_script(data: dict) -> Script:
 
 
 def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Script:
+    if not settings.gemini_api_key:
+        raise RuntimeError("GEMINI_API_KEY is not set. This pipeline is Google-only.")
+
     prompt = _build_prompt(topic, niche_cfg, language)
+
+    # PRIMARY: Gemini 2.5 Flash — Google's best free-quota model (as of 2025)
+    # FALLBACK: Gemini 1.5 Flash — older but very reliable
     raw: str | None = None
-    errors: list[str] = []
-
-    if settings.openrouter_api_key:
-        print("[pipeline] Script generator: OpenRouter (PRIMARY)")
+    for model_name in ["gemini-2.5-flash", "gemini-1.5-flash"]:
         try:
-            raw = _generate_openrouter(prompt, settings.openrouter_api_key)
+            print(f"[pipeline] Script generator: Gemini ({model_name})")
+            raw = _generate_gemini(prompt, settings.gemini_api_key, model_name)
+            break
         except Exception as e:
-            errors.append(f"openrouter: {e}")
-            print(f"[!] OpenRouter primary failed: {e}")
-
-    if raw is None and settings.gemini_api_key:
-        print("[pipeline] Script generator: Gemini (FALLBACK)")
-        try:
-            raw = _generate_gemini(prompt, settings.gemini_api_key)
-        except Exception as e:
-            errors.append(f"gemini: {e}")
-            print(f"[!] Gemini fallback failed: {e}")
+            print(f"[!] Gemini {model_name} failed: {e}")
 
     if raw is None:
-        raise RuntimeError(f"All script generators failed: {errors}")
+        raise RuntimeError("All Gemini models failed for script generation")
 
-    # Parse the model response separately so malformed JSON can be repaired
-    # without throwing away a successful OpenRouter generation.
     try:
         parsed = _parse_json(raw)
     except Exception as parse_exc:
         print(f"[!] Script JSON invalid: {parse_exc}")
-        repaired_raw = None
-        repair_errors: list[str] = []
-
-        if settings.openrouter_api_key:
-            try:
-                print("[pipeline] JSON repair: OpenRouter (PRIMARY)")
-                repaired_raw = _repair_invalid_json_openrouter(
-                    raw, prompt, settings.openrouter_api_key
-                )
-            except Exception as e:
-                repair_errors.append(f"openrouter-json-repair: {e}")
-                print(f"[!] OpenRouter JSON repair failed: {e}")
-
-        if repaired_raw is None and settings.gemini_api_key:
-            try:
-                print("[pipeline] JSON repair: Gemini (FALLBACK)")
-                repaired_raw = _generate_gemini(
-                    "Convert the following malformed output into ONLY the exact JSON schema requested. "
-                    "Do not add markdown or explanations.\n\n" + raw[:12000],
-                    settings.gemini_api_key,
-                )
-            except Exception as e:
-                repair_errors.append(f"gemini-json-repair: {e}")
-
-        if repaired_raw is None:
-            raise RuntimeError(
-                "OpenRouter returned invalid JSON and JSON repair failed: "
-                + "; ".join(repair_errors)
-            ) from parse_exc
-
+        # Ask Gemini 1.5 flash to repair the JSON (it's very good at this)
         try:
+            print("[pipeline] JSON repair: Gemini 1.5 Flash")
+            repaired_raw = _generate_gemini(
+                "Convert the following malformed output into ONLY the exact JSON schema requested. "
+                "Do not add markdown or explanations.\n\n" + raw[:12000],
+                settings.gemini_api_key,
+                "gemini-1.5-flash",
+            )
             parsed = _parse_json(repaired_raw)
             print("[qa] JSON repair succeeded")
-        except Exception as repair_parse_exc:
-            raise RuntimeError(
-                f"OpenRouter returned invalid JSON; repair output was also invalid: {repair_parse_exc}"
-            ) from parse_exc
+        except Exception as repair_exc:
+            raise RuntimeError(f"Gemini returned invalid JSON and repair failed: {repair_exc}") from parse_exc
 
     script = _to_script(parsed)
     qa = validate_script(script, language)
@@ -465,14 +351,8 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Scr
     print("[qa] first script needs repair: " + "; ".join(qa.issues))
     repair_prompt = _build_prompt(topic, niche_cfg, language, "; ".join(qa.issues))
     try:
-        if settings.openrouter_api_key:
-            print("[pipeline] Script repair: OpenRouter (PRIMARY)")
-            raw2 = _generate_openrouter(repair_prompt, settings.openrouter_api_key)
-        elif settings.gemini_api_key:
-            print("[pipeline] Script repair: Gemini (FALLBACK)")
-            raw2 = _generate_gemini(repair_prompt, settings.gemini_api_key)
-        else:
-            raise RuntimeError("No LLM key available for script repair")
+        print("[pipeline] Script repair: Gemini 2.5 Flash")
+        raw2 = _generate_gemini(repair_prompt, settings.gemini_api_key, "gemini-2.5-flash")
         repaired = _to_script(_parse_json(raw2))
         qa2 = validate_script(repaired, language)
         if not qa2.ok:

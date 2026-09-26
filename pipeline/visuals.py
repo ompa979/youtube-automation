@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import random
+import time
 import urllib.parse
 from pathlib import Path
 
@@ -65,29 +66,37 @@ def _valid_image(path: Path) -> bool:
         return False
 
 
-def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: int = 1920) -> bool:
+def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: int = 1920, attempts: int = 3) -> bool:
     encoded = urllib.parse.quote(prompt, safe="")
     url = POLLINATIONS.format(prompt=encoded)
-    params = {
-        "width": width,
-        "height": height,
-        "nologo": "true",
-        "model": "flux",
-        "seed": random.randint(1, 2_000_000_000),
-    }
-    try:
-        r = requests.get(url, params=params, timeout=150)
-        r.raise_for_status()
-        if len(r.content) < 20_000:
-            return False
-        out_path.write_bytes(r.content)
-        if not _valid_image(out_path):
+    last_error: Exception | None = None
+
+    for attempt in range(1, attempts + 1):
+        params = {
+            "width": width,
+            "height": height,
+            "nologo": "true",
+            "model": "flux",
+            "seed": random.randint(1, 2_000_000_000),
+        }
+        try:
+            r = requests.get(url, params=params, timeout=150)
+            r.raise_for_status()
+            if len(r.content) < 20_000:
+                raise RuntimeError(f"response too small ({len(r.content)} bytes) — likely an error page, not an image")
+            out_path.write_bytes(r.content)
+            if not _valid_image(out_path):
+                raise RuntimeError("downloaded file failed image validation (bad dimensions/corrupt)")
+            return True
+        except Exception as exc:
+            last_error = exc
             out_path.unlink(missing_ok=True)
-            return False
-        return True
-    except Exception:
-        out_path.unlink(missing_ok=True)
-        return False
+            print(f"[visuals] pollinations attempt {attempt}/{attempts} failed: {exc}")
+            if attempt < attempts:
+                time.sleep(3 * attempt)  # 3s, 6s backoff — pollinations is often just momentarily overloaded
+
+    print(f"[visuals] pollinations exhausted all attempts: {last_error}")
+    return False
 
 
 def _fetch_pexels(query: str, out_path: Path, api_key: str) -> bool:
@@ -105,6 +114,9 @@ def _fetch_pexels(query: str, out_path: Path, api_key: str) -> bool:
         )
         r.raise_for_status()
         photos = r.json().get("photos", [])
+        if not photos:
+            print(f"[visuals] pexels returned 0 results for query {query!r}")
+            return False
         # Pick the highest-resolution candidate instead of blindly taking photo 1.
         candidates = sorted(
             photos,
@@ -121,19 +133,32 @@ def _fetch_pexels(query: str, out_path: Path, api_key: str) -> bool:
             if _valid_image(out_path):
                 return True
             out_path.unlink(missing_ok=True)
+        print(f"[visuals] pexels: none of {len(candidates)} candidates passed image validation for query {query!r}")
         return False
-    except Exception:
+    except Exception as exc:
         out_path.unlink(missing_ok=True)
+        print(f"[visuals] pexels failed for query {query!r}: {exc}")
         return False
 
 
 def _premium_prompt(image_prompt: str, visual_style: str) -> str:
     base = " ".join((image_prompt or "").split())
+    # Very long prompts can make free image APIs time out or silently reject
+    # the request. Cap it defensively — the schema already asks the LLM for
+    # 20-45 words, so this only trims runaway outliers.
+    if len(base) > 600:
+        base = base[:600].rsplit(" ", 1)[0]
     suffix = STYLE_SUFFIX.get(visual_style, STYLE_SUFFIX["educational_ai"])
     composition_hint = (
         " Build a distinct composition for this scene; do not reuse a generic template. "
         "The visual must look hand-created for this exact explanation, with the main mechanism "
         "obvious at first glance and the important relationship drawn rather than merely written."
+    )
+    text_note = (
+        " Do not replace the concept with unrelated decorative imagery."
+        if visual_style == "handwritten_notes"
+        else " Do not replace the concept with unrelated decorative imagery. Do not render any words, "
+             "letters, labels or numbers in the image — any on-screen text is added separately."
     )
     return (
         "Create this exact visual concept: "
@@ -141,8 +166,7 @@ def _premium_prompt(image_prompt: str, visual_style: str) -> str:
         + composition_hint
         + GLOBAL_QUALITY
         + suffix
-        + ". Do not replace the concept with unrelated decorative imagery. Keep handwritten labels "
-        "short and legible; never generate paragraphs of text."
+        + text_note
     )
 
 
@@ -161,6 +185,13 @@ def fetch_scene_image(scene_index: int, image_prompt: str, visual_style: str, se
         # Pexels works best with a concise photographic search phrase.
         short = " ".join((image_prompt or "cinematic educational concept").split()[:10])
         if _fetch_pexels(short, out_path, settings.pexels_api_key):
+            return out_path
+        # The specific phrase can return zero results; retry once with a
+        # broad, near-guaranteed-to-match fallback query rather than failing
+        # the whole scene (and wasting every scene generated before it).
+        broad_query = "education abstract concept illustration"
+        print(f"[visuals] scene {scene_index}: specific pexels query failed, retrying with broad fallback")
+        if _fetch_pexels(broad_query, out_path, settings.pexels_api_key):
             return out_path
 
     raise RuntimeError(

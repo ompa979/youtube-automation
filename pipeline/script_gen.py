@@ -309,17 +309,63 @@ def _generate_openrouter(prompt: str, api_key: str) -> str:
     raise RuntimeError(str(last_error) if last_error else "No OpenRouter model configured")
 
 
+def _first_text(raw: dict, *keys: str) -> str:
+    """Return the first non-empty text field from an LLM scene object."""
+    for key in keys:
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 def _to_script(data: dict) -> Script:
+    raw_scenes = data.get("scenes")
+    if not isinstance(raw_scenes, list) or not raw_scenes:
+        raise ValueError("Generated script contains no scenes")
+
     scenes: list[Scene] = []
-    for i, raw in enumerate(data.get("scenes", [])):
-        narration = str(raw.get("narration", "")).strip()
+    for i, raw in enumerate(raw_scenes):
+        if not isinstance(raw, dict):
+            raise ValueError(f"Scene {i + 1} is not an object")
+
+        # narration is the canonical spoken/caption text.
+        # Accept common aliases so an otherwise valid model response cannot
+        # silently turn into an empty TTS scene.
+        narration = _first_text(
+            raw, "narration", "voiceover", "voice_over", "spoken_text",
+            "speech", "dialogue", "text", "script",
+        )
+        tts_text = _first_text(
+            raw, "tts_text", "tts", "voice_text", "voiceover", "voice_over",
+            "narration", "spoken_text", "speech", "dialogue", "text", "script",
+        )
+
+        if not narration and tts_text:
+            narration = tts_text
+        if not tts_text and narration:
+            tts_text = narration
+
+        if not narration:
+            raise ValueError(
+                f"Generated scene {i + 1} has no usable narration/tts text. "
+                f"Available fields: {sorted(raw.keys())}"
+            )
+
+        image_prompt = _first_text(
+            raw, "image_prompt", "visual_prompt", "visual", "image", "prompt"
+        )
+        on_screen_text = _first_text(
+            raw, "on_screen_text", "caption", "keyword", "memory_cue"
+        )
+
         scenes.append(Scene(
             index=i,
             narration=narration,
-            tts_text=str(raw.get("tts_text") or narration).strip(),
-            image_prompt=str(raw.get("image_prompt", "")).strip(),
-            on_screen_text=str(raw.get("on_screen_text", "")).strip().upper(),
+            tts_text=tts_text,
+            image_prompt=image_prompt,
+            on_screen_text=on_screen_text.upper(),
         ))
+
     return Script(
         title=str(data.get("title", "")).strip(),
         hook=str(data.get("hook", "")).strip(),

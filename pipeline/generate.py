@@ -21,7 +21,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-from .config import Settings, YouTubeCredentials, CONTENT_PLAN_PATH, ensure_dirs
+from .config import Settings, YouTubeCredentials, CONTENT_PLAN_PATH, WORK_DIR, OUT_DIR, ensure_dirs
 from .render import assemble_video
 from .script_gen import generate_script
 from .tts import synthesize_scene
@@ -219,11 +219,34 @@ def main() -> int:
     scene_ass = []
     durations = []
 
+    scene_dir = WORK_DIR / "scenes"
+    scene_dir.mkdir(parents=True, exist_ok=True)
+
     for scene in script.scenes:
-        print(f"[pipeline] scene {scene.index + 1}/{len(script.scenes)}")
+        scene_no = scene.index + 1
+        print(f"[pipeline] scene {scene_no}/{len(script.scenes)}")
+
+        narration = (scene.narration or "").strip()
+        tts_text = (scene.tts_text or narration).strip()
+        if not narration:
+            raise ValueError(
+                f"Scene {scene_no} has empty narration after script normalization"
+            )
+        if not tts_text:
+            tts_text = narration
+
+        audio_path = scene_dir / f"scene_{scene.index:02d}.mp3"
+        ass_path = scene_dir / f"scene_{scene.index:02d}.ass"
+
         audio, ass, duration = synthesize_scene(
-            scene.index, scene.narration, scene.tts_text, voice, scene.on_screen_text
+            subtitle_text=narration,
+            tts_text=tts_text,
+            voice=voice,
+            audio_path=audio_path,
+            ass_path=ass_path,
+            overlay_text=None,
         )
+
         image = fetch_scene_image(
             scene.index, scene.image_prompt, visual_style, settings
         )

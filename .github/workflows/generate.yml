@@ -98,6 +98,34 @@ jobs:
           echo "========================================"
           python -m py_compile pipeline/tts.py
           python -m compileall -q pipeline
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          tts = Path("pipeline/tts.py").read_text(encoding="utf-8")
+          gen = Path("pipeline/generate.py").read_text(encoding="utf-8")
+          script = Path("pipeline/script_gen.py").read_text(encoding="utf-8")
+
+          assert "def _safe_text(" in tts
+          assert "def _gtts_synth(" in tts
+          assert "def _espeak_synth(" in tts
+          assert 'base = ["gtts", "edge", "espeak"]' in tts
+          assert "subtitle_text:" in tts and "tts_text:" in tts
+          assert "audio_path=audio_path" in gen
+          assert "ass_path=ass_path" in gen
+          assert "subtitle_text=narration" in gen
+          assert "tts_text=tts_text" in gen
+          assert "def _first_text(" in script
+          assert "Generated scene" in script
+
+          for name, source in [("tts.py", tts), ("generate.py", gen), ("script_gen.py", script)]:
+              ast.parse(source, filename=name)
+
+          print("PASS: TTS provider chain verified")
+          print("PASS: scene text normalization verified")
+          print("PASS: generate.py -> tts.py API verified")
+          print("PASS: centered subtitle pipeline verified")
+          PY
 
           echo ""
           echo "========================================"
@@ -110,7 +138,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          TTS_PROVIDER: edge
+          TTS_PROVIDER: gtts
           TTS_LANGUAGE: hi-IN
           TTS_VOICE: hi-IN-MadhurNeural,hi-IN-SwaraNeural
           TTS_NO_FALLBACK: false

@@ -144,38 +144,47 @@ def _estimate_duration(text: str) -> float:
 def _write_ass(
     ass_path: Path,
     duration: float,
-    overlay_text: str,
+    subtitle_text: str,
+    overlay_text: str | None = None,
 ) -> None:
+    """Write centered, timed subtitles for exactly what is spoken.
+
+    The full spoken narration is the primary caption. A short optional
+    on-screen cue is deliberately not substituted for the narration.
     """
-    Create a minimal ASS subtitle file.
+    safe_subtitle = _safe_text(subtitle_text)
+    if not safe_subtitle:
+        raise ValueError("Cannot create subtitles from empty spoken text")
 
-    IMPORTANT:
-    Do not put nested replace("{", ...)/replace("}", ...) calls inside
-    an f-string expression. That was the syntax error in the previous build.
-    """
-    safe_overlay = _safe_text(overlay_text)
+    # ASS \N creates deliberate two-line wrapping without requiring a fixed
+    # number of seconds or splitting the educational content.
+    words = safe_subtitle.split()
+    if len(words) > 12:
+        mid = len(words) // 2
+        safe_subtitle = " ".join(words[:mid]) + r"\N" + " ".join(words[mid:])
 
-    end_timestamp = _ass_timestamp(min(max(duration, 1.0), 3.0))
-
-    overlay = (
-        "Dialogue: 1,0:00:00.00,"
-        f"{end_timestamp},Cap,,0,0,0,,{safe_overlay}\n"
+    end_timestamp = _ass_timestamp(max(duration, 0.5))
+    dialogue = (
+        "Dialogue: 0,0:00:00.00,"
+        f"{end_timestamp},Cap,,0,0,0,,{safe_subtitle}\n"
     )
 
+    # Optional short cue at the top is intentionally disabled by default;
+    # captions remain the exact spoken content in the centre.
     ass_content = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
+WrapStyle: 2
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,Inter,58,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,1,0,0,0,100,100,0,0,1,3,1,2,60,60,260,1
+Style: Cap,Inter,70,&H00FFFFFF,&H00FFFFFF,&H00111111,&H99000000,1,0,0,0,100,100,0,0,1,4,2,5,70,70,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-{overlay}"""
-
+{dialogue}"""
     ass_path.write_text(ass_content, encoding="utf-8")
 
 
@@ -370,30 +379,31 @@ def _provider_order() -> list[str]:
 
 
 def synthesize_scene(
-    text: str,
+    subtitle_text: str,
+    tts_text: str,
     voice: str | None,
     audio_path: str | Path,
     ass_path: str | Path,
     overlay_text: str | None = None,
 ) -> tuple[Path, Path, float]:
-    """
-    Synthesize one scene.
+    """Synthesize one scene and generate centered subtitles.
 
-    Returns:
-        (audio_path, ass_path, duration)
+    subtitle_text: exact viewer-facing narration/caption text.
+    tts_text: pronunciation-optimized text sent to the TTS provider.
     """
-    text = _safe_text(text)
+    subtitle_text = _safe_text(subtitle_text)
+    tts_text = _safe_text(tts_text) or subtitle_text
 
-    if not text:
-        raise ValueError("Cannot synthesize empty text")
+    if not subtitle_text:
+        raise ValueError("Cannot synthesize scene: narration text is empty")
+    if not tts_text:
+        raise ValueError("Cannot synthesize scene: TTS text is empty")
 
     audio_path = Path(audio_path)
     ass_path = Path(ass_path)
-
     audio_path.parent.mkdir(parents=True, exist_ok=True)
     ass_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Remove stale files from previous attempts.
     for path in (audio_path, ass_path):
         try:
             path.unlink()
@@ -408,118 +418,38 @@ def synthesize_scene(
 
             if provider == "edge":
                 voices = [voice] if voice else _edge_voice_for_language()
-
-                # If a single voice was explicitly supplied, still make sure
-                # the configured Hindi fallback voices are available.
-                if not TTS_NO_FALLBACK:
-                    for candidate in _edge_voice_for_language():
-                        if candidate not in voices:
-                            voices.append(candidate)
-
-                last_error: Exception | None = None
-
+                last_edge_error = None
                 for edge_voice in voices:
                     try:
                         print(f"[tts] edge voice={edge_voice}")
-
                         duration = asyncio.run(
-                            _edge_synth(
-                                text,
-                                edge_voice,
-                                audio_path,
-                            )
+                            _edge_synth(tts_text, edge_voice, audio_path)
                         )
-
-                        print(
-                            f"[tts] success provider=edge "
-                            f"voice={edge_voice} duration={duration:.2f}s"
-                        )
-
-                        _write_ass(
-                            ass_path,
-                            duration,
-                            overlay_text or "",
-                        )
-
+                        _write_ass(ass_path, duration, subtitle_text, overlay_text)
                         return audio_path, ass_path, duration
-
                     except Exception as exc:
-                        last_error = exc
-                        print(
-                            f"[tts] edge voice={edge_voice} failed: "
-                            f"{type(exc).__name__}: {exc}"
-                        )
-
-                        try:
-                            audio_path.unlink()
-                        except FileNotFoundError:
-                            pass
-
-                if last_error is not None:
-                    raise last_error
-
-                raise RuntimeError("No Edge TTS voices available")
-
-            elif provider == "gtts":
-                duration = _gtts_synth(
-                    text,
-                    audio_path,
-                )
-
-                print(
-                    f"[tts] success provider=gtts "
-                    f"duration={duration:.2f}s"
-                )
-
-                _write_ass(
-                    ass_path,
-                    duration,
-                    overlay_text or "",
-                )
-
-                return audio_path, ass_path, duration
-
-            elif provider in {"espeak", "espeak-ng"}:
-                duration = _espeak_synth(
-                    text,
-                    audio_path,
-                )
-
-                print(
-                    f"[tts] success provider=espeak "
-                    f"duration={duration:.2f}s"
-                )
-
-                _write_ass(
-                    ass_path,
-                    duration,
-                    overlay_text or "",
-                )
-
-                return audio_path, ass_path, duration
-
-            else:
+                        last_edge_error = exc
+                        print(f"[tts] edge voice {edge_voice} failed: {exc}")
                 raise RuntimeError(
-                    f"Unknown TTS_PROVIDER: {provider}"
+                    "All Edge Hindi voices failed: "
+                    + str(last_edge_error or "unknown Edge error")
                 )
+
+            if provider == "gtts":
+                duration = _gtts_synth(tts_text, audio_path)
+                _write_ass(ass_path, duration, subtitle_text, overlay_text)
+                return audio_path, ass_path, duration
+
+            if provider == "espeak":
+                duration = _espeak_synth(tts_text, audio_path)
+                _write_ass(ass_path, duration, subtitle_text, overlay_text)
+                return audio_path, ass_path, duration
+
+            raise RuntimeError(f"Unknown TTS provider: {provider}")
 
         except Exception as exc:
-            message = f"{provider}: {type(exc).__name__}: {exc}"
-            errors.append(message)
+            errors.append(f"{provider}: {exc}")
+            print(f"[tts] {provider} failed: {exc}")
 
-            print(f"[tts] provider failed: {message}")
-
-            try:
-                audio_path.unlink()
-            except FileNotFoundError:
-                pass
-
-            try:
-                ass_path.unlink()
-            except FileNotFoundError:
-                pass
-
-    raise RuntimeError(
-        "All TTS providers failed: " + "; ".join(errors)
-    )
+    raise RuntimeError("All TTS providers failed: " + " | ".join(errors))
 

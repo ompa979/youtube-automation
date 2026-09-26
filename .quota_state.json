@@ -1,8 +1,15 @@
 {
+<<<<<<< HEAD
   "niche": 6,
   "language": 6,
   "topic": 6,
   "project": 0,
   "last_successful_topic": "what activation energy means in a real reaction",
   "last_failed_topic": null
+=======
+  "niche": 4,
+  "language": 4,
+  "topic": 4,
+  "project": 0
+>>>>>>> 708aacb (New changes)
 }

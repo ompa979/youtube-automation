@@ -1,6 +1,6 @@
 """End-to-end GitHub Actions YouTube Shorts pipeline.
 
-Optimizations active:
+Round 1 optimizations:
   #1  Thumbnail auto-extracted and uploaded
   #2  Hook image (scene 0) forced to striking single-subject visual (in script_gen)
   #3  SEO title optimized via second Gemini call (in script_gen)
@@ -11,6 +11,20 @@ Optimizations active:
   #8  Scene count guardrail 3-8 (quality.py)
   #9  Upload cron scheduled for 7 PM IST (workflow)
   #10 Quota state tracks last successful topic for retry
+
+Round 2 optimizations — anti-monotone variety pass:
+  #1  Accent color per niche/category, threaded into render.py via `category=niche`
+  #2  Caption box style rotates bar/pill/card per scene (render.py)
+  #3  Subtitle + keyword text fades in instead of popping in (render.py)
+  #4  Crossfade transition type rotates per cut (render.py)
+  #5  Background music track picked per-video by hash of the slug, not always
+      the alphabetically-first track (render.py)
+  #6  Whoosh SFX layered under every scene cut (render.py + assets/sfx/)
+  #7  Hook style (question/shocking-fact/numbered) rotates per topic (script_gen.py)
+  #8  Prompt now asks for varied scene pacing instead of uniform length (script_gen.py)
+  #9  Rotating outro CTA card appended as a final "scene" (render.py)
+  #10 Thumbnail is now the best of 4 scored candidate frames from scene 0,
+      not always a fixed 0.5s grab (render.py)
 """
 from __future__ import annotations
 
@@ -244,6 +258,7 @@ def main() -> int:
         _slug(script.title),
         scene_texts=scene_texts,
         scene_narrations=scene_narrations,
+        category=niche,
     )
     print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
 

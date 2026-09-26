@@ -7,9 +7,14 @@ All models are Google — no OpenRouter dependency.
 Also provides:
   - seo_optimize_title(): second Gemini call to maximize CTR/search rank
   - Hook image rule: scene 0 always forced to a striking single-subject visual
+  - Hook STYLE rotation (question / shocking-fact / numbered) per topic, so
+    every video doesn't open the same way (anti-monotone optimization #7)
+  - A pacing rule asking the model to vary scene length naturally instead of
+    uniform-length scenes (anti-monotone optimization #8)
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -18,6 +23,36 @@ from dataclasses import dataclass, asdict
 import google.generativeai as genai
 
 from .quality import validate_script
+
+
+def _stable_hash(text: str) -> int:
+    """Deterministic hash so the same topic always rotates to the same hook
+    style (reproducible repairs/retries), while different topics differ."""
+    return int(hashlib.md5(text.encode("utf-8")).hexdigest(), 16)
+
+
+# #7 Hook style rotation — picked once per topic so the opening line style
+# varies across videos instead of every script reaching for the same pattern.
+_HOOK_STYLES = {
+    "question": (
+        "Open the very first spoken line as a genuine question the viewer "
+        "would actually wonder about — not a rhetorical setup, a real question."
+    ),
+    "shocking_fact": (
+        "Open the very first spoken line with a surprising, counter-intuitive "
+        "fact stated directly as a statement (no question mark)."
+    ),
+    "numbered": (
+        "Open the very first spoken line around a short number cue (for example "
+        "'Two things decide this...' or 'One invisible factor...'), stated "
+        "naturally — not a clickbait numbered-listicle tone."
+    ),
+}
+
+
+def _pick_hook_style(topic: str) -> str:
+    keys = list(_HOOK_STYLES)
+    return keys[_stable_hash(topic) % len(keys)]
 
 
 @dataclass
@@ -47,7 +82,16 @@ class Script:
         }
 
 
-def _build_prompt(topic: str, niche_cfg: dict, language: str, repair: str | None = None) -> str:
+def _build_prompt(
+    topic: str,
+    niche_cfg: dict,
+    language: str,
+    repair: str | None = None,
+    hook_style: str | None = None,
+) -> str:
+    hook_style = hook_style or _pick_hook_style(topic)
+    hook_instruction = _HOOK_STYLES[hook_style]
+
     lang_instruction = """
 Write the viewer-facing narration in clear, natural conversational Indian English.
 Use an Indian English speaking style: simple phrasing, natural rhythm, familiar
@@ -72,8 +116,7 @@ Do NOT optimize for a fixed duration. Let the concept determine narration length
 
 CONTENT RULES:
 - Teach ONE coherent idea well.
-- Start naturally with a question, surprising observation, or exam connection.
-  Do not reuse the same hook pattern repeatedly.
+- HOOK STYLE FOR THIS SCRIPT: {hook_instruction}
 - Explain the mechanism or reasoning, not just the fact.
 - Use an analogy or example only when it genuinely improves understanding.
 - Connect to exam relevance only when it naturally fits.
@@ -81,6 +124,9 @@ CONTENT RULES:
 - Never use generic filler: 'guys today we are going to', 'welcome back',
   'don't forget to subscribe'.
 - Never invent facts.
+- PACING: vary scene length naturally across the script — let some scenes be
+  short, punchy one-liners and others longer explanations. Do not force every
+  scene to be roughly the same length; uniform pacing reads as mechanical.
 
 VISUAL RULES:
 - Scene 0 (the FIRST scene) MUST have the single most visually striking image prompt:
@@ -333,7 +379,9 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Scr
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is not set. This pipeline is Google-only.")
 
-    prompt = _build_prompt(topic, niche_cfg, language)
+    hook_style = _pick_hook_style(topic)
+    print(f"[pipeline] hook style for this topic: {hook_style}")
+    prompt = _build_prompt(topic, niche_cfg, language, hook_style=hook_style)
     raw: str | None = None
 
     for model_name in ["gemini-2.0-flash", "gemini-3.8-flash", "gemini-2.0-flash-lite"]:
@@ -373,7 +421,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Scr
         return script
 
     print("[qa] first script needs repair: " + "; ".join(qa.issues))
-    repair_prompt = _build_prompt(topic, niche_cfg, language, "; ".join(qa.issues))
+    repair_prompt = _build_prompt(topic, niche_cfg, language, "; ".join(qa.issues), hook_style=hook_style)
     try:
         print("[pipeline] Script repair: Gemini 2.0 Flash")
         raw2 = _generate_gemini(repair_prompt, settings.gemini_api_key, "gemini-2.0-flash")

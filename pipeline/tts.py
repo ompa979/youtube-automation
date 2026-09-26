@@ -89,7 +89,12 @@ def _write_estimated_ass(display_text: str, duration: float, ass_path: Path, ove
     _write_ass(timed, ass_path)
     if overlay_text.strip():
         existing = ass_path.read_text(encoding="utf-8")
-        overlay = f"Dialogue: 1,0:00:00.00,{_ass_timestamp(min(duration, 3.0))},Cap,,0,0,0,,{overlay_text.strip().replace("{", "(").replace("}", ")")}\n"
+        safe_overlay = _safe_text(overlay_text)
+        end_timestamp = _ass_timestamp(min(max(duration, 1.0), 3.0))
+        overlay = (
+            "Dialogue: 1,0:00:00.00,"
+            f"{end_timestamp},Cap,,0,0,0,,{safe_overlay}\n"
+        )
         ass_path.write_text(existing + overlay, encoding="utf-8")
 
 

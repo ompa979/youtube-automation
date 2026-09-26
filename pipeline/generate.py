@@ -247,7 +247,9 @@ def main() -> int:
             voice,
             audio_path,
             ass_path,
-            scene.on_screen_text,
+            # Center subtitles should match exactly what the Hindi/Hinglish
+            # TTS voice is saying, rather than a separate headline.
+            tts_text,
         )
 
         image = fetch_scene_image(

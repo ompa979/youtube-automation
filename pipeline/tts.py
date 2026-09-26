@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Iterable
 
 try:
     import edge_tts
@@ -141,42 +140,100 @@ def _estimate_duration(text: str) -> float:
     return max(1.5, duration)
 
 
+def _caption_segments(text: str, duration: float) -> list[tuple[float, float, str]]:
+    """Create natural subtitle chunks from the spoken text.
+
+    Captions are split on punctuation/phrases, not fixed seconds. Their timing
+    is proportional to word count so the spoken content remains intact.
+    """
+    import re
+
+    clean = _safe_text(text)
+    if not clean:
+        return []
+
+    # Prefer natural sentence/phrase boundaries.
+    pieces = [x.strip() for x in re.split(r"(?<=[.!?।,:;])\s+", clean) if x.strip()]
+
+    # Keep captions readable on a 1080x1920 Short. Long phrases are wrapped
+    # by words, never by dropping content.
+    chunks: list[str] = []
+    for piece in pieces:
+        words = piece.split()
+        if len(words) <= 10:
+            chunks.append(piece)
+            continue
+        for i in range(0, len(words), 10):
+            chunks.append(" ".join(words[i:i + 10]))
+
+    if not chunks:
+        chunks = [clean]
+
+    total_words = sum(max(1, len(c.split())) for c in chunks)
+    usable_duration = max(float(duration), 0.5)
+    result: list[tuple[float, float, str]] = []
+    cursor = 0.0
+
+    for index, chunk in enumerate(chunks):
+        weight = max(1, len(chunk.split())) / total_words
+        segment_duration = usable_duration * weight
+
+        # Avoid extremely fast flashes for tiny punctuation fragments while
+        # preserving the full scene duration.
+        if index < len(chunks) - 1:
+            segment_duration = max(segment_duration, 0.85)
+
+        end = usable_duration if index == len(chunks) - 1 else min(
+            usable_duration, cursor + segment_duration
+        )
+
+        if end > cursor:
+            result.append((cursor, end, chunk))
+            cursor = end
+
+    return result
+
+
 def _write_ass(
     ass_path: Path,
     duration: float,
     overlay_text: str,
 ) -> None:
-    """
-    Create a minimal ASS subtitle file.
+    """Write centered subtitles containing the actual spoken narration."""
+    segments = _caption_segments(overlay_text, duration)
 
-    IMPORTANT:
-    Do not put nested replace("{", ...)/replace("}", ...) calls inside
-    an f-string expression. That was the syntax error in the previous build.
-    """
-    safe_overlay = _safe_text(overlay_text)
-
-    end_timestamp = _ass_timestamp(min(max(duration, 1.0), 3.0))
-
-    overlay = (
-        "Dialogue: 1,0:00:00.00,"
-        f"{end_timestamp},Cap,,0,0,0,,{safe_overlay}\n"
-    )
-
-    ass_content = f"""[Script Info]
+    header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
+WrapStyle: 2
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,Inter,58,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,1,0,0,0,100,100,0,0,1,3,1,2,60,60,260,1
+Style: Cap,Inter,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,0,0,1,4,2,5,90,90,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-{overlay}"""
+"""
 
-    ass_path.write_text(ass_content, encoding="utf-8")
+    lines: list[str] = []
+    for start, end, caption in segments:
+        # ASS uses \N for an explicit line break. Keep captions visually
+        # centered and readable without removing any spoken words.
+        words = caption.split()
+        if len(words) > 6:
+            mid = len(words) // 2
+            caption = " ".join(words[:mid]) + r"\N" + " ".join(words[mid:])
+
+        safe_caption = _safe_text(caption).replace("\\N", r"\N")
+        lines.append(
+            "Dialogue: 1,"
+            f"{_ass_timestamp(start)},"
+            f"{_ass_timestamp(end)},Cap,,0,0,0,,{safe_caption}"
+        )
+
+    ass_path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

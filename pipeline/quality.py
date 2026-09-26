@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -20,6 +19,10 @@ GENERIC_FILLERS = [
     "hello everyone", "welcome back", "guys aaj", "today we are going to",
     "in this video we will", "don't forget to subscribe",
 ]
+
+MIN_SCENES = 3
+MAX_SCENES = 8
+
 
 @dataclass
 class QAResult:
@@ -40,8 +43,20 @@ def validate_script(script: Any, language: str) -> QAResult:
         issues.append("missing title")
     if not script.hook.strip():
         issues.append("missing hook")
-    if not (3 <= len(script.scenes) <= 8):
-        issues.append(f"scene count {len(script.scenes)} outside natural range 3-8")
+
+    # Hard scene count guardrail — enforced strictly for Shorts format
+    scene_count = len(script.scenes)
+    if scene_count < MIN_SCENES:
+        issues.append(
+            f"too few scenes ({scene_count}); minimum {MIN_SCENES} — "
+            "add more scenes to cover the concept properly"
+        )
+    if scene_count > MAX_SCENES:
+        issues.append(
+            f"too many scenes ({scene_count}) for a Short; maximum {MAX_SCENES} — "
+            "merge the least distinct scenes without losing the explanation"
+        )
+
     if words < 25:
         issues.append("explanation is too thin to teach the concept; add the missing reasoning")
     if words > 500:
@@ -63,6 +78,4 @@ def validate_script(script: Any, language: str) -> QAResult:
     if language != "en":
         issues.append(f"V5 requires language=en; received {language!r}")
 
-    # We intentionally do not enforce a duration or word count target beyond
-    # sanity limits. Audio length should emerge from the teaching content.
     return QAResult(ok=not issues, issues=issues)

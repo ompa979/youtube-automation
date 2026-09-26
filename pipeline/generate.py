@@ -1,11 +1,16 @@
 """End-to-end GitHub Actions YouTube Shorts pipeline.
 
-Generates one video:
-topic rotation -> Gemini/OpenRouter script -> Edge-TTS -> visuals -> FFmpeg
-and optionally uploads it to YouTube.
-
-The Cloudflare/container path uses the same lower-level pipeline modules, while
-this entrypoint provides the missing GitHub Actions entrypoint.
+Optimizations active:
+  #1  Thumbnail auto-extracted and uploaded
+  #2  Hook image (scene 0) forced to striking single-subject visual (in script_gen)
+  #3  SEO title optimized via second Gemini call (in script_gen)
+  #4  Trending topics via Google Trends (pytrends) with static fallback
+  #5  Pinned comment with per-scene timestamps after upload
+  #6  Background music from assets/music/ (render.py)
+  #7  Dynamic subtitle font size (render.py)
+  #8  Scene count guardrail 3-8 (quality.py)
+  #9  Upload cron scheduled for 7 PM IST (workflow)
+  #10 Quota state tracks last successful topic for retry
 """
 from __future__ import annotations
 
@@ -24,7 +29,9 @@ from googleapiclient.http import MediaFileUpload
 from .config import Settings, YouTubeCredentials, CONTENT_PLAN_PATH, WORK_DIR, OUT_DIR, ensure_dirs
 from .render import assemble_video
 from .script_gen import generate_script
+from .trending import get_trending_topic
 from .tts import synthesize_scene
+from .upload import upload_video
 from .visuals import fetch_scene_image
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,7 +74,7 @@ def _load_settings() -> Settings:
 
     return Settings(
         gemini_api_key=os.getenv("GEMINI_API_KEY"),
-        openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
+        openrouter_api_key=None,   # intentionally removed
         pexels_api_key=os.getenv("PEXELS_API_KEY"),
         pixabay_api_key=os.getenv("PIXABAY_API_KEY"),
         youtube_projects=creds,
@@ -84,9 +91,10 @@ def _load_plan() -> dict[str, Any]:
     return data.get("niches", data)
 
 
-def _load_state() -> dict[str, int]:
+def _load_state() -> dict[str, Any]:
     if not STATE_PATH.exists():
-        return {"niche": 0, "language": 0, "topic": 0, "project": 0}
+        return {"niche": 0, "language": 0, "topic": 0, "project": 0,
+                "last_successful_topic": None, "last_failed_topic": None}
     try:
         data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
         return {
@@ -94,12 +102,15 @@ def _load_state() -> dict[str, int]:
             "language": int(data.get("language", 0)),
             "topic": int(data.get("topic", 0)),
             "project": int(data.get("project", 0)),
+            "last_successful_topic": data.get("last_successful_topic"),
+            "last_failed_topic": data.get("last_failed_topic"),
         }
     except Exception:
-        return {"niche": 0, "language": 0, "topic": 0, "project": 0}
+        return {"niche": 0, "language": 0, "topic": 0, "project": 0,
+                "last_successful_topic": None, "last_failed_topic": None}
 
 
-def _save_state(state: dict[str, int]) -> None:
+def _save_state(state: dict[str, Any]) -> None:
     STATE_PATH.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
 
@@ -109,7 +120,7 @@ def _slug(text: str, max_len: int = 60) -> str:
     return s[:max_len] or "youtube-short"
 
 
-def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, int]):
+def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, Any]):
     available_niches = [
         n for n in settings.niches_enabled
         if n in plan and plan[n].get("topics")
@@ -135,60 +146,23 @@ def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, int]):
 
     language = languages[state["language"] % len(languages)]
     topics = cfg["topics"]
-    topic = topics[state["topic"] % len(topics)]
+    static_topic = topics[state["topic"] % len(topics)]
 
-    # Advance independently so each successful run moves the rotation.
-    state["niche"] += 1
-    state["language"] += 1
-    state["topic"] += 1
+    # Optimization #4: try Google Trends first, fall back to static topic
+    topic = get_trending_topic(niche, static_topic)
+
+    # Optimization #10: if last run failed on a topic, retry it first
+    if state.get("last_failed_topic") and state["last_failed_topic"] != state.get("last_successful_topic"):
+        retry = state["last_failed_topic"]
+        print(f"[pipeline] retrying previously failed topic: {retry!r}")
+        topic = retry
+        state["last_failed_topic"] = None
+    else:
+        state["niche"] += 1
+        state["language"] += 1
+        state["topic"] += 1
+
     return niche, cfg, language, topic
-
-
-def _upload(video_path: Path, script, cred: YouTubeCredentials) -> str:
-    payload = cred.payload
-    credentials = Credentials(
-        token=payload.get("token"),
-        refresh_token=payload["refresh_token"],
-        token_uri=payload.get("token_uri", "https://oauth2.googleapis.com/token"),
-        client_id=payload["client_id"],
-        client_secret=payload["client_secret"],
-        scopes=payload.get("scopes", ["https://www.googleapis.com/auth/youtube.upload"]),
-    )
-
-    youtube = build("youtube", "v3", credentials=credentials, cache_discovery=False)
-    body = {
-        "snippet": {
-            "title": script.title[:100],
-            "description": script.description[:4900],
-            "tags": script.tags[:15],
-            "categoryId": "27",
-        },
-        "status": {
-            "privacyStatus": "public",
-            "selfDeclaredMadeForKids": False,
-        },
-    }
-
-    media = MediaFileUpload(
-        str(video_path),
-        mimetype="video/mp4",
-        resumable=True,
-        chunksize=8 * 1024 * 1024,
-    )
-    request = youtube.videos().insert(
-        part="snippet,status",
-        body=body,
-        media_body=media,
-    )
-
-    response = None
-    while response is None:
-        status, response = request.next_chunk()
-        if status:
-            print(f"[upload] {int(status.progress() * 100)}%")
-
-    video_id = response["id"]
-    return f"https://youtu.be/{video_id}"
 
 
 def main() -> int:
@@ -202,11 +176,15 @@ def main() -> int:
     plan = _load_plan()
     state = _load_state()
 
-    if not settings.openrouter_api_key and not settings.gemini_api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is required (GEMINI_API_KEY is optional fallback)")
+    if not settings.gemini_api_key:
+        raise RuntimeError("GEMINI_API_KEY is required")
 
     niche, niche_cfg, language, topic = _choose(plan, settings, state)
     print(f"[pipeline] niche={niche} language={language} topic={topic}")
+
+    # Mark topic as in-progress so a crash is retryable
+    state["last_failed_topic"] = topic
+    _save_state(state)
 
     script = generate_script(topic, niche_cfg, language, settings)
     print(f"[pipeline] title={script.title!r}; scenes={len(script.scenes)}")
@@ -214,14 +192,15 @@ def main() -> int:
     voice = niche_cfg.get("voice", {}).get(language, "en-IN")
     visual_style = niche_cfg.get("visual_style", "handwritten_notes")
 
-    scene_images = []
-    scene_audios = []
-    scene_ass = []  # compatibility only; V5 render ignores subtitles
-    durations = []
+    scene_images: list[Path] = []
+    scene_audios: list[Path] = []
+    scene_ass: list[Path] = []
+    durations: list[float] = []
+    scene_texts: list[str] = []
+    scene_narrations: list[str] = []
 
     scene_dir = WORK_DIR / "scenes"
     scene_dir.mkdir(parents=True, exist_ok=True)
-    scene_texts: list[str] = []
 
     for scene in script.scenes:
         scene_no = scene.index + 1
@@ -230,9 +209,7 @@ def main() -> int:
         narration = (scene.narration or "").strip()
         tts_text = (scene.tts_text or narration).strip()
         if not narration:
-            raise ValueError(
-                f"Scene {scene_no} has empty narration after script normalization"
-            )
+            raise ValueError(f"Scene {scene_no} has empty narration after script normalization")
         if not tts_text:
             tts_text = narration
 
@@ -248,14 +225,13 @@ def main() -> int:
             overlay_text=None,
         )
 
-        image = fetch_scene_image(
-            scene.index, scene.image_prompt, visual_style, settings
-        )
+        image = fetch_scene_image(scene.index, scene.image_prompt, visual_style, settings)
         scene_images.append(image)
         scene_audios.append(audio)
         scene_ass.append(ass)
         durations.append(duration)
         scene_texts.append(scene.on_screen_text or "")
+        scene_narrations.append(narration)
 
     metadata_path = OUT_DIR / "script.json"
     metadata_path.write_text(json.dumps(script.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -267,9 +243,13 @@ def main() -> int:
         durations,
         _slug(script.title),
         scene_texts=scene_texts,
+        scene_narrations=scene_narrations,
     )
-    print(f"[pipeline] rendered={video_path} "
-          f"size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
+    print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
+
+    # Mark topic as successfully rendered
+    state["last_successful_topic"] = topic
+    state["last_failed_topic"] = None
 
     if args.dry_run:
         print("[i] Dry run — skipping upload.")
@@ -282,12 +262,8 @@ def main() -> int:
         return 0
 
     if not settings.youtube_projects:
-        raise RuntimeError(
-            "Upload requested but no YT_CREDS_N secrets are configured."
-        )
+        raise RuntimeError("Upload requested but no YT_CREDS_N secrets are configured.")
 
-    # Rotate credentials on successful uploads. If one project fails, try the
-    # next configured project before failing the workflow.
     start = state["project"] % len(settings.youtube_projects)
     last_error: Exception | None = None
 
@@ -295,10 +271,15 @@ def main() -> int:
         idx = (start + offset) % len(settings.youtube_projects)
         cred = settings.youtube_projects[idx]
         try:
-            url = _upload(video_path, script, cred)
+            result = upload_video(
+                video_path,
+                script,
+                [cred],
+                scene_durations=durations,   # for pinned timestamp comment
+            )
             state["project"] = idx + 1
             _save_state(state)
-            print(f"[✓] Uploaded with YT_CREDS_{cred.index}: {url}")
+            print(f"[✓] Uploaded with YT_CREDS_{cred.index}: {result['url']}")
             return 0
         except Exception as exc:
             last_error = exc

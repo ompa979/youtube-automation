@@ -10,4 +10,8 @@ google-api-python-client==2.149.0
 google-auth-oauthlib==1.2.1
 google-auth-httplib2==0.2.0
 
+# TTS
 gTTS==2.5.4
+
+# Trending topics (Optimization #4)
+pytrends==4.9.2

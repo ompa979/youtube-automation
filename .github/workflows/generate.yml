@@ -63,19 +63,33 @@ jobs:
           echo "========================================"
           echo "=== SUBTITLE IMPLEMENTATION CHECK ==="
           echo "========================================"
-          grep -n "_safe_text" pipeline/tts.py
-          grep -n "safe_caption" pipeline/tts.py
-          grep -n "Dialogue:" pipeline/tts.py
+
+          # Do not depend on an internal helper variable name.
+          # Different valid TTS implementations may use safe_overlay,
+          # safe_caption, or another local name.
+          if grep -n "Dialogue:" pipeline/tts.py; then
+            echo "PASS: ASS dialogue/subtitle event generation found"
+          else
+            echo "ERROR: No ASS Dialogue subtitle event found in pipeline/tts.py"
+            exit 1
+          fi
+
+          if grep -n "Style: Cap" pipeline/tts.py; then
+            echo "PASS: caption style found"
+          else
+            echo "ERROR: Caption style not found"
+            exit 1
+          fi
 
           echo ""
           echo "========================================"
           echo "=== OLD BROKEN F-STRING CHECK ==="
           echo "========================================"
           if grep -n 'overlay_text.strip().replace' pipeline/tts.py; then
-            echo "ERROR: OLD BROKEN TTS CODE IS STILL PRESENT"
+            echo "ERROR: OLD BROKEN TTS F-STRING IS STILL PRESENT"
             exit 1
           else
-            echo "PASS: old broken overlay code is not present"
+            echo "PASS: old broken overlay f-string is not present"
           fi
 
           echo ""

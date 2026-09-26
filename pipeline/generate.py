@@ -202,8 +202,8 @@ def main() -> int:
     plan = _load_plan()
     state = _load_state()
 
-    if not settings.gemini_api_key and not settings.openrouter_api_key:
-        raise RuntimeError("GEMINI_API_KEY or OPENROUTER_API_KEY is required")
+    if not settings.openrouter_api_key and not settings.gemini_api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is required (GEMINI_API_KEY is optional fallback)")
 
     niche, niche_cfg, language, topic = _choose(plan, settings, state)
     print(f"[pipeline] niche={niche} language={language} topic={topic}")

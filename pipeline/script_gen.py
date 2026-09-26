@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, asdict
 
@@ -80,34 +81,76 @@ def _parse_json(raw: str) -> dict:
     return json.loads(raw[start:end + 1])
 
 def _generate_gemini(prompt: str, api_key: str) -> str:
+    """Generate JSON using the currently available Gemini Flash model."""
     genai.configure(api_key=api_key)
+    model_name = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     model = genai.GenerativeModel(
-        "gemini-2.5-flash",
+        model_name,
         generation_config={
             "temperature": 0.9,
             "response_mime_type": "application/json",
         },
     )
     resp = model.generate_content(prompt)
-    return resp.text
+    text = getattr(resp, "text", None)
+    if not text:
+        raise RuntimeError("Gemini returned an empty response")
+    return text
+
 
 def _generate_openrouter(prompt: str, api_key: str) -> str:
-    r = requests.post(
+    """Generate JSON through OpenRouter with current model fallbacks."""
+    endpoint = os.getenv(
+        "OPENROUTER_ENDPOINT",
         "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "meta-llama/llama-3.3-70b-instruct:free",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.9,
-            "response_format": {"type": "json_object"},
-        },
-        timeout=90,
     )
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+
+    # Keep this configurable because free model availability changes.
+    configured = os.getenv("OPENROUTER_MODEL")
+    models = [configured] if configured else [
+        "openrouter/free",
+        "openai/gpt-oss-120b:free",
+    ]
+
+    last_error: Exception | None = None
+    for model_name in models:
+        if not model_name:
+            continue
+        try:
+            r = requests.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://examcracker-ai.onrender.com",
+                    "X-Title": "ExamCracker YouTube Automation",
+                },
+                json={
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.9,
+                    "response_format": {"type": "json_object"},
+                },
+                timeout=90,
+            )
+            if not r.ok:
+                body = r.text[:800]
+                raise RuntimeError(
+                    f"OpenRouter model {model_name} returned HTTP "
+                    f"{r.status_code}: {body}"
+                )
+            data = r.json()
+            content = data["choices"][0]["message"]["content"]
+            if not content:
+                raise RuntimeError(
+                    f"OpenRouter model {model_name} returned empty content"
+                )
+            return content
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(str(last_error) if last_error else "No OpenRouter model configured")
+
 
 def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Script:
     target_seconds = int(niche_cfg.get("video_length_sec", 45))
@@ -116,17 +159,22 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Scr
     raw: str | None = None
     errors: list[str] = []
 
-    if settings.gemini_api_key:
-        try:
-            raw = _generate_gemini(prompt, settings.gemini_api_key)
-        except Exception as e:
-            errors.append(f"gemini: {e}")
-
-    if raw is None and settings.openrouter_api_key:
+    # OpenRouter is intentionally PRIMARY. Gemini is only the fallback.
+    if settings.openrouter_api_key:
+        print("[pipeline] Script generator: OpenRouter (PRIMARY)")
         try:
             raw = _generate_openrouter(prompt, settings.openrouter_api_key)
         except Exception as e:
             errors.append(f"openrouter: {e}")
+            print(f"[!] OpenRouter primary failed: {e}")
+
+    if raw is None and settings.gemini_api_key:
+        print("[pipeline] Script generator: Gemini (FALLBACK)")
+        try:
+            raw = _generate_gemini(prompt, settings.gemini_api_key)
+        except Exception as e:
+            errors.append(f"gemini: {e}")
+            print(f"[!] Gemini fallback failed: {e}")
 
     if raw is None:
         raise RuntimeError(f"All script generators failed: {errors}")

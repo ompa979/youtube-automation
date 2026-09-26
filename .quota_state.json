@@ -1,6 +1,8 @@
 {
-  "niche": 4,
-  "language": 4,
-  "topic": 4,
-  "project": 0
+  "niche": 5,
+  "language": 5,
+  "topic": 5,
+  "project": 0,
+  "last_successful_topic": "why monsoon winds reverse direction in the Indian subcontinent",
+  "last_failed_topic": null
 }

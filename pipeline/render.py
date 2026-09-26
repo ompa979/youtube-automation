@@ -2,8 +2,10 @@
 
 Layers per scene clip (bottom to top):
   1. Ken Burns motion on the AI image
-  2. Narration subtitle strip  (y≈88%, dynamic fontsize, dark pill bg)
-  3. Keyword caption            (y≈80%, ALL-CAPS, larger font)
+  2. Narration subtitle strip  (bottom-anchored 170px safe margin, max 3
+                                 lines, font shrinks to fit, dark pill bg)
+  3. Keyword caption            (y≈70%, ALL-CAPS, larger font, fixed clearance
+                                 above the subtitle block)
 
 Also extracts a thumbnail from scene 0 at 0.5 s → thumbnail.jpg in OUT_DIR.
 """
@@ -71,38 +73,72 @@ def _escape_drawtext(text: str) -> str:
 
 
 def _dynamic_fontsize(narration: str) -> int:
-    """Scale subtitle font down for longer narration lines."""
+    """Starting font size guess for a narration length. _fit_subtitle() will
+    shrink further if the wrapped text still doesn't fit in 3 lines."""
     char_count = len(narration)
     if char_count < 60:
         return 48
     if char_count < 100:
         return 42
-    return 36
+    if char_count < 140:
+        return 36
+    return 30
 
 
-def _wrap_subtitle(text: str, max_chars: int = 38) -> str:
-    lines = textwrap.wrap(text.strip(), width=max_chars, break_long_words=False)
-    return "\n".join(lines) if lines else text.strip()
+def _max_chars_for_fontsize(fontsize: int) -> int:
+    """Character width that keeps a wrapped line at roughly the same pixel
+    width (~900px, safely inside the 1080px canvas) regardless of font size,
+    so smaller tiers don't randomly produce wider or narrower lines."""
+    return max(18, int(900 / (fontsize * 0.55)))
+
+
+def _fit_subtitle(narration: str) -> tuple[int, str]:
+    """Pick a font size + line-wrap that (a) matches the length tier and
+    (b) is HARD CAPPED at 3 lines, shrinking further if needed. This is what
+    keeps a long sentence from growing tall enough to run off the bottom of
+    the frame."""
+    text = narration.strip()
+    fontsize = _dynamic_fontsize(text)
+    while fontsize >= 24:
+        max_chars = _max_chars_for_fontsize(fontsize)
+        lines = textwrap.wrap(text, width=max_chars, break_long_words=False)
+        if len(lines) <= 3:
+            return fontsize, "\n".join(lines)
+        fontsize -= 4
+    # Extreme fallback (shouldn't normally trigger): smallest size, hard-cut to 3 lines.
+    max_chars = _max_chars_for_fontsize(24)
+    lines = textwrap.wrap(text, width=max_chars, break_long_words=False)[:3]
+    return 24, "\n".join(lines)
 
 
 def _keyword_filter(text: str) -> str:
-    """Keyword/memory-cue caption at y≈80% — short ALL-CAPS label."""
+    """Keyword/memory-cue caption at y≈70% — short ALL-CAPS label.
+    Fixed (not bottom-anchored) because it's always short/1 line, and sitting
+    at 70% leaves guaranteed clearance above the subtitle block even in the
+    worst-case 3-line subtitle scenario."""
     safe = _escape_drawtext(text.strip().upper())
     if not safe:
         return ""
     return (
         f"drawtext=font='Inter':text='{safe}':fontcolor=white:fontsize=58:"
         "borderw=6:bordercolor=black@0.85:box=1:boxcolor=black@0.35:boxborderw=24:"
-        "x=(w-text_w)/2:y=h*0.80:line_spacing=8"
+        "x=(w-text_w)/2:y=h*0.70:line_spacing=8"
     )
 
 
 def _subtitle_filter(narration: str) -> str:
-    """Burned-in subtitle strip at y≈88% with dynamic font size."""
+    """Burned-in subtitle strip, BOTTOM-anchored with a 170px safe margin.
+
+    Previous bug: y=h*0.88 is the TOP of the text and text grows downward,
+    so a wrapped 3-4 line subtitle ran off the bottom of the 1920px frame.
+    Fix: y=h-text_h-170 uses ffmpeg's own rendered-height variable, so as
+    the text gets taller the block grows UPWARD and the bottom edge always
+    stays a fixed 170px above the frame edge (clear of YouTube Shorts' own
+    UI — progress bar / caption toggle).
+    """
     if not narration or not narration.strip():
         return ""
-    fontsize = _dynamic_fontsize(narration)
-    wrapped = _wrap_subtitle(narration, max_chars=38)
+    fontsize, wrapped = _fit_subtitle(narration)
     safe = _escape_drawtext(wrapped)
     if not safe:
         return ""
@@ -110,7 +146,7 @@ def _subtitle_filter(narration: str) -> str:
         f"drawtext=font='Inter':text='{safe}':fontcolor=white:fontsize={fontsize}:"
         "borderw=4:bordercolor=black@0.9:"
         "box=1:boxcolor=black@0.55:boxborderw=20:"
-        "x=(w-text_w)/2:y=h*0.88:"
+        "x=(w-text_w)/2:y=h-text_h-170:"
         "line_spacing=10"
     )
 

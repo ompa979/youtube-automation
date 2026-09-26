@@ -117,15 +117,142 @@ Do not split a sentence just to create more scenes.
 """.strip()
 
 
+def _extract_json_candidates(raw: str) -> list[str]:
+    """Return likely JSON object candidates from an LLM response.
+
+    Models sometimes wrap JSON in markdown or append a short explanation.  We
+    scan for balanced JSON objects instead of using rfind("}") because that
+    can accidentally include trailing braces/text and produce misleading
+    JSONDecodeError messages.
+    """
+    text = (raw or "").strip()
+    candidates: list[str] = []
+
+    # Prefer fenced JSON blocks when present.
+    for match in re.finditer(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.I | re.S):
+        block = match.group(1).strip()
+        if block.startswith("{") and block.endswith("}"):
+            candidates.append(block)
+
+    # Scan for balanced object boundaries while respecting quoted strings and
+    # escaped quotes. This also handles extra prose before/after the object.
+    for start in [m.start() for m in re.finditer(r"\{", text)]:
+        depth = 0
+        in_string = False
+        escaped = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidates.append(text[start:i + 1].strip())
+                    break
+
+    # Last-resort legacy slice.
+    first = text.find("{")
+    last = text.rfind("}")
+    if first >= 0 and last > first:
+        candidates.append(text[first:last + 1])
+
+    # Preserve order but remove duplicates.
+    unique: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            unique.append(candidate)
+    return unique
+
+
+def _remove_trailing_commas(text: str) -> str:
+    """Remove JSON trailing commas without touching commas inside strings."""
+    out: list[str] = []
+    in_string = False
+    escaped = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == ",":
+            j = i + 1
+            while j < len(text) and text[j].isspace():
+                j += 1
+            if j < len(text) and text[j] in "}]":
+                i += 1
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _parse_json(raw: str) -> dict:
-    raw = raw.strip()
-    raw = re.sub(r"^```(?:json)?", "", raw).strip()
-    raw = re.sub(r"```$", "", raw).strip()
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start == -1 or end == -1:
-        raise ValueError(f"No JSON object found in LLM output:\n{raw[:500]}")
-    return json.loads(raw[start:end + 1])
+    candidates = _extract_json_candidates(raw)
+    if not candidates:
+        raise ValueError(f"No JSON object found in LLM output:\n{(raw or '')[:800]}")
+
+    errors: list[str] = []
+    for candidate in candidates:
+        try:
+            value = json.loads(candidate)
+            if isinstance(value, dict):
+                return value
+            errors.append("JSON root was not an object")
+        except json.JSONDecodeError as exc:
+            errors.append(f"line {exc.lineno} col {exc.colno}: {exc.msg}")
+            try:
+                repaired = _remove_trailing_commas(candidate)
+                value = json.loads(repaired)
+                if isinstance(value, dict):
+                    return value
+            except json.JSONDecodeError:
+                pass
+
+    raise ValueError(
+        "OpenRouter returned invalid JSON: " + " | ".join(errors[:4])
+        + f"\nRAW:\n{(raw or '')[:1200]}"
+    )
+
+
+def _repair_invalid_json_openrouter(raw: str, original_prompt: str, api_key: str) -> str:
+    """Ask OpenRouter to convert malformed model output into strict JSON."""
+    repair_prompt = f"""
+Return ONLY one valid JSON object matching the schema in the original prompt.
+Do not add markdown fences, comments, explanations, or trailing commas.
+Preserve the educational content and all required fields. Fix only JSON syntax.
+
+ORIGINAL PROMPT:
+{original_prompt}
+
+MALFORMED MODEL OUTPUT:
+{raw[:12000]}
+""".strip()
+    return _generate_openrouter(repair_prompt, api_key)
 
 
 def _generate_gemini(prompt: str, api_key: str) -> str:
@@ -226,7 +353,51 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Scr
     if raw is None:
         raise RuntimeError(f"All script generators failed: {errors}")
 
-    script = _to_script(_parse_json(raw))
+    # Parse the model response separately so malformed JSON can be repaired
+    # without throwing away a successful OpenRouter generation.
+    try:
+        parsed = _parse_json(raw)
+    except Exception as parse_exc:
+        print(f"[!] Script JSON invalid: {parse_exc}")
+        repaired_raw = None
+        repair_errors: list[str] = []
+
+        if settings.openrouter_api_key:
+            try:
+                print("[pipeline] JSON repair: OpenRouter (PRIMARY)")
+                repaired_raw = _repair_invalid_json_openrouter(
+                    raw, prompt, settings.openrouter_api_key
+                )
+            except Exception as e:
+                repair_errors.append(f"openrouter-json-repair: {e}")
+                print(f"[!] OpenRouter JSON repair failed: {e}")
+
+        if repaired_raw is None and settings.gemini_api_key:
+            try:
+                print("[pipeline] JSON repair: Gemini (FALLBACK)")
+                repaired_raw = _generate_gemini(
+                    "Convert the following malformed output into ONLY the exact JSON schema requested. "
+                    "Do not add markdown or explanations.\n\n" + raw[:12000],
+                    settings.gemini_api_key,
+                )
+            except Exception as e:
+                repair_errors.append(f"gemini-json-repair: {e}")
+
+        if repaired_raw is None:
+            raise RuntimeError(
+                "OpenRouter returned invalid JSON and JSON repair failed: "
+                + "; ".join(repair_errors)
+            ) from parse_exc
+
+        try:
+            parsed = _parse_json(repaired_raw)
+            print("[qa] JSON repair succeeded")
+        except Exception as repair_parse_exc:
+            raise RuntimeError(
+                f"OpenRouter returned invalid JSON; repair output was also invalid: {repair_parse_exc}"
+            ) from parse_exc
+
+    script = _to_script(parsed)
     qa = validate_script(script, language)
     if qa.ok:
         print(f"[qa] script passed: scenes={len(script.scenes)} words={sum(len(s.narration.split()) for s in script.scenes)}")

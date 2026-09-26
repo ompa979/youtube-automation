@@ -1,10 +1,11 @@
-"""Natural Indian TTS with resilient provider fallbacks.
+"""Natural Indian TTS with resilient free-provider fallbacks.
 
 Preferred chain when configured:
-1) Google Cloud TTS (hi-IN neural voice)
-2) Microsoft Edge/Azure voice via edge-tts
-3) gTTS
-4) local eSpeak
+1) Microsoft Edge/Azure voice via edge-tts
+2) gTTS
+3) local eSpeak
+
+No Google Cloud TTS dependency is required.
 
 The script can keep Roman Hinglish for captions while supplying a Devanagari-
 optimized `tts_text` for Hindi-capable voices, improving pronunciation without
@@ -200,12 +201,15 @@ def synthesize_scene(scene_index: int, display_text: str, tts_text: str, voice: 
                 duration = _synth_espeak(tts_text, os.getenv("TTS_LANGUAGE", "hi"), audio_path, ass_path)
             else:
                 continue
-            # Captions should show the viewer-facing Roman Hinglish, even when
-            # the TTS provider used Devanagari for better pronunciation.
+            # Captions should show the viewer-facing Roman Hinglish.
             if provider == "edge":
                 if on_screen_text.strip():
                     existing = ass_path.read_text(encoding="utf-8")
-                    overlay = f"Dialogue: 1,0:00:00.00,{_ass_timestamp(min(duration, 3.0))},Cap,,0,0,0,,{on_screen_text.strip().replace('{', '(').replace('}', ')')}\n"
+                    safe_overlay = on_screen_text.strip().replace("{", "(").replace("}", ")")
+                    overlay = (
+                        "Dialogue: 1,0:00:00.00,"
+                        f"{_ass_timestamp(min(duration, 3.0))},Cap,,0,0,0,,{safe_overlay}\n"
+                    )
                     ass_path.write_text(existing + overlay, encoding="utf-8")
             else:
                 _write_estimated_ass(display_text, duration, ass_path, on_screen_text)

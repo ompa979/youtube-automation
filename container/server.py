@@ -63,7 +63,7 @@ async def generate(request: Request):
 
     niche = payload.get("niche", "facts")
     topic = payload.get("topic", "")
-    language = payload.get("language", "hinglish")
+    language = payload.get("language", "en")
 
     if not topic:
         return JSONResponse(
@@ -102,7 +102,7 @@ async def generate(request: Request):
     content_plan = payload.get("content_plan", {})
     niche_cfg = content_plan.get(niche, {
         "visual_style": "text_gradient_ai",
-        "voice": {"en": "en-US-GuyNeural"},
+        "voice": {"en": "en-IN"},
         "system_prompt": "You are a knowledgeable Indian exam teacher creating helpful educational videos.",
     })
 
@@ -122,7 +122,14 @@ async def generate(request: Request):
 
         for scene in script.scenes:
             print(f"[server] Scene {scene.index + 1}/{len(script.scenes)}")
-            audio, ass, dur = synthesize_scene(scene.index, scene.narration, scene.tts_text, voice, scene.on_screen_text)
+            audio, ass, dur = synthesize_scene(
+                subtitle_text=scene.narration,
+                tts_text=scene.tts_text,
+                voice=voice,
+                audio_path=WORK_DIR / f"scene_{scene.index:02d}.mp3",
+                ass_path=None,
+                overlay_text=None,
+            )
             img = fetch_scene_image(scene.index, scene.image_prompt, visual_style, settings)
             scene_images.append(img)
             scene_audios.append(audio)

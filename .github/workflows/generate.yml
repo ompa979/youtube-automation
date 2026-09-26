@@ -44,7 +44,7 @@ jobs:
 
       - name: Verify pipeline source
         run: |
-          set -e
+          set -euo pipefail
 
           echo "========================================"
           echo "=== COMMIT ==="
@@ -52,85 +52,55 @@ jobs:
           git rev-parse HEAD
           git log -1 --oneline
 
-          echo ""
-          echo "========================================"
-          echo "=== TTS FILE ==="
-          echo "========================================"
-          test -f pipeline/tts.py
-          ls -lh pipeline/tts.py
-
-          echo ""
-          echo "========================================"
-          echo "=== SUBTITLE IMPLEMENTATION CHECK ==="
-          echo "========================================"
-
-          # Do not depend on an internal helper variable name.
-          # Different valid TTS implementations may use safe_overlay,
-          # safe_caption, or another local name.
-          if grep -n "Dialogue:" pipeline/tts.py; then
-            echo "PASS: ASS dialogue/subtitle event generation found"
-          else
-            echo "ERROR: No ASS Dialogue subtitle event found in pipeline/tts.py"
-            exit 1
-          fi
-
-          if grep -n "Style: Cap" pipeline/tts.py; then
-            echo "PASS: caption style found"
-          else
-            echo "ERROR: Caption style not found"
-            exit 1
-          fi
-
-          echo ""
-          echo "========================================"
-          echo "=== OLD BROKEN F-STRING CHECK ==="
-          echo "========================================"
-          if grep -n 'overlay_text.strip().replace' pipeline/tts.py; then
-            echo "ERROR: OLD BROKEN TTS F-STRING IS STILL PRESENT"
-            exit 1
-          else
-            echo "PASS: old broken overlay f-string is not present"
-          fi
-
-          echo ""
-          echo "========================================"
           echo "=== PYTHON COMPILE ==="
-          echo "========================================"
-          python -m py_compile pipeline/tts.py
-          python -m compileall -q pipeline
+          python -m compileall -q pipeline container
+
+          echo "=== V5 ARCHITECTURE CHECK ==="
           python - <<'PY'
           import ast
           from pathlib import Path
 
+          files = ["pipeline/tts.py", "pipeline/render.py",
+                   "pipeline/generate.py", "pipeline/script_gen.py",
+                   "pipeline/visuals.py", "pipeline/quality.py",
+                   "container/server.py"]
+
+          for name in files:
+              ast.parse(Path(name).read_text(encoding="utf-8"), filename=name)
+
           tts = Path("pipeline/tts.py").read_text(encoding="utf-8")
-          gen = Path("pipeline/generate.py").read_text(encoding="utf-8")
+          render = Path("pipeline/render.py").read_text(encoding="utf-8")
           script = Path("pipeline/script_gen.py").read_text(encoding="utf-8")
+          visuals = Path("pipeline/visuals.py").read_text(encoding="utf-8")
+          quality = Path("pipeline/quality.py").read_text(encoding="utf-8")
+          plan = Path("content_plan.json").read_text(encoding="utf-8")
 
-          assert "def _safe_text(" in tts
-          assert "def _gtts_synth(" in tts
-          assert "def _espeak_synth(" in tts
-          assert 'base = ["gtts", "edge", "espeak"]' in tts
-          assert "subtitle_text:" in tts and "tts_text:" in tts
-          assert "audio_path=audio_path" in gen
-          assert "ass_path=ass_path" in gen
-          assert "subtitle_text=narration" in gen
-          assert "tts_text=tts_text" in gen
-          assert "def _first_text(" in script
-          assert "Generated scene" in script
+          assert "gTTS(" in tts
+          assert 'tld="co.in"' in tts
+          assert "espeak-ng" in tts
+          assert "Dialogue:" not in tts
+          assert "Style: Cap" not in tts
+          assert "ass=" not in render
+          assert "captions" not in render.lower()
+          assert "Indian English" in script
+          assert "Devanagari" in script
+          assert "premium cinematic" in visuals
+          assert "English-only pipeline" in quality
+          assert '"en": "en-IN"' in plan
 
-          for name, source in [("tts.py", tts), ("generate.py", gen), ("script_gen.py", script)]:
-              ast.parse(source, filename=name)
-
-          print("PASS: TTS provider chain verified")
-          print("PASS: scene text normalization verified")
-          print("PASS: generate.py -> tts.py API verified")
-          print("PASS: centered subtitle pipeline verified")
+          print("PASS: English-only script contract")
+          print("PASS: free Indian-English TTS contract")
+          print("PASS: subtitle/ASS rendering removed")
+          print("PASS: premium visual pipeline enabled")
+          print("PASS: Python AST validation passed")
           PY
 
-          echo ""
-          echo "========================================"
-          echo "=== SOURCE VERIFICATION PASSED ==="
-          echo "========================================"
+          echo "=== NO LEGACY SUBTITLE PATH ==="
+          if grep -RniE 'Style: Cap|Dialogue:|filter_complex.*ass=|-[vf].*ass=' pipeline; then
+            echo "ERROR: Legacy subtitle path detected"
+            exit 1
+          fi
+          echo "PASS: no legacy subtitle rendering"
 
       - name: Generate & upload
         env:
@@ -139,15 +109,15 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           TTS_PROVIDER: gtts
-          TTS_LANGUAGE: hi-IN
-          TTS_VOICE: hi-IN-MadhurNeural,hi-IN-SwaraNeural
+          TTS_LANGUAGE: en-IN
+          TTS_VOICE: en-IN
           TTS_NO_FALLBACK: false
           YT_CREDS_1: ${{ secrets.YT_CREDS_1 }}
           YT_CREDS_2: ${{ secrets.YT_CREDS_2 }}
           YT_CREDS_3: ${{ secrets.YT_CREDS_3 }}
           YT_CREDS_4: ${{ secrets.YT_CREDS_4 }}
           NICHES_ENABLED: 'exam_concepts,science_explainers'
-          LANGUAGES_ENABLED: 'hinglish'
+          LANGUAGES_ENABLED: 'en'
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "[i] Dry run — skipping upload."

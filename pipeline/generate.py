@@ -211,12 +211,12 @@ def main() -> int:
     script = generate_script(topic, niche_cfg, language, settings)
     print(f"[pipeline] title={script.title!r}; scenes={len(script.scenes)}")
 
-    voice = niche_cfg.get("voice", {}).get(language, "en-US-GuyNeural")
+    voice = niche_cfg.get("voice", {}).get(language, "en-IN")
     visual_style = niche_cfg.get("visual_style", "text_gradient_ai")
 
     scene_images = []
     scene_audios = []
-    scene_ass = []
+    scene_ass = []  # compatibility only; V5 render ignores subtitles
     durations = []
 
     scene_dir = WORK_DIR / "scenes"

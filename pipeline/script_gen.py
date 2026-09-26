@@ -1,8 +1,8 @@
-"""Natural Hinglish educational script generation.
+"""Natural Indian-English educational script generation.
 
-OpenRouter is the primary LLM and Gemini is the fallback. Duration is never a
-prompt constraint: the amount of explanation required to teach the concept
-controls the final runtime.
+OpenRouter is the primary LLM and Gemini is the fallback. The V5 pipeline is
+English-only: narration is conversational Indian English, while technical
+terms remain in standard English. No subtitles are generated.
 """
 from __future__ import annotations
 
@@ -43,23 +43,14 @@ class Script:
 
 
 def _build_prompt(topic: str, niche_cfg: dict, language: str, repair: str | None = None) -> str:
-    if language == "hinglish":
-        lang_instruction = """
-Write the viewer-facing narration in natural Indian Hinglish using Roman Hindi
-plus English technical terms. It should sound like a knowledgeable Indian
-teacher speaking naturally to an aspirant. Use respectful conversational Hindi
-(aap/hum) where natural. Do NOT translate every technical term into Hindi.
-Do NOT use Devanagari in narration.
-
-Also provide `tts_text`: the same spoken content optimized for a Hindi-capable
-voice. For Hindi words, use Devanagari; keep technical terms, acronyms, proper
-nouns and common English words in Latin script where that improves pronunciation.
-Do not change the meaning between narration and tts_text.
+    lang_instruction = """
+Write the viewer-facing narration in clear, natural conversational Indian English.
+Use an Indian English speaking style: simple phrasing, natural rhythm, familiar
+Indian examples where useful, but do NOT use Hinglish, Roman Hindi, Devanagari,
+or forced Indian slang. Keep technical terms in standard English.
+The `tts_text` must be the same English spoken content, optimized only for natural
+speech pauses and pronunciation. Do not translate it into Hindi.
 """.strip()
-    elif language == "hi":
-        lang_instruction = "Write natural spoken Hindi in Devanagari, keeping technical terms in English when useful."
-    else:
-        lang_instruction = "Write clear, conversational English suitable for an Indian exam learner."
 
     repair_text = f"\nREPAIR REQUEST:\n{repair}\n" if repair else ""
     return f"""
@@ -103,10 +94,10 @@ Return EXACTLY this JSON shape (no markdown):
   "tags": ["8-12 lowercase tags"],
   "scenes": [
     {{
-      "narration": "Roman Hinglish spoken line for captions",
-      "tts_text": "same spoken line optimized for Hindi-capable TTS",
-      "image_prompt": "educational visual description, 15-35 words, vertical 9:16, no text, no logos",
-      "on_screen_text": "2-8 word keyword or memory cue"
+      "narration": "natural Indian-English spoken line",
+      "tts_text": "same English spoken line optimized for natural TTS",
+      "image_prompt": "premium educational visual description, 15-35 words, vertical 9:16, no text, no logos",
+      "on_screen_text": ""
     }}
   ]
 }}
@@ -350,6 +341,10 @@ def _to_script(data: dict) -> Script:
                 f"Generated scene {i + 1} has no usable narration/tts text. "
                 f"Available fields: {sorted(raw.keys())}"
             )
+        # V5 is English-only. Reject Devanagari so a fallback model cannot
+        # silently reintroduce Hindi text into an English voice track.
+        if any("\u0900" <= ch <= "\u097F" for ch in narration + tts_text):
+            raise ValueError(f"Generated scene {i + 1} contains Devanagari/Hindi text; English-only output required")
 
         image_prompt = _first_text(
             raw, "image_prompt", "visual_prompt", "visual", "image", "prompt"

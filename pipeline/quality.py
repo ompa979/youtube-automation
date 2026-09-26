@@ -47,6 +47,9 @@ def validate_script(script: Any, language: str) -> QAResult:
     if words > 500:
         issues.append("script is too long for a Short-format video; simplify only redundant material, never the core explanation")
 
+    if any("\u0900" <= ch <= "\u097F" for ch in all_text):
+        issues.append("English-only pipeline: Devanagari/Hindi text detected")
+
     for i, scene in enumerate(script.scenes, start=1):
         if not scene.narration.strip():
             issues.append(f"scene {i}: empty narration")
@@ -57,13 +60,8 @@ def validate_script(script: Any, language: str) -> QAResult:
         if any(x in scene.narration.lower() for x in GENERIC_FILLERS):
             issues.append(f"scene {i}: generic AI filler/opening")
 
-    if language == "hinglish":
-        tokens = re.findall(r"\b[a-zA-Z][a-zA-Z'-]*\b", all_text.lower())
-        marker_hits = sum(1 for t in tokens if t in HINDI_MARKERS)
-        if marker_hits < 3:
-            issues.append("Hinglish language signal is weak; rewrite in natural Roman Hindi + English terms")
-        if any("subscribe" in s.narration.lower() for s in script.scenes):
-            issues.append("CTA is too dominant; remove command-style subscribe language")
+    if language != "en":
+        issues.append(f"V5 requires language=en; received {language!r}")
 
     # We intentionally do not enforce a duration or word count target beyond
     # sanity limits. Audio length should emerge from the teaching content.

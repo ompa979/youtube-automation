@@ -1,16 +1,14 @@
 {
-  "version": 2,
-  "last_updated": "2026-09-26T08:50:00Z",
+  "version": 3,
+  "last_updated": "2026-09-26T11:20:00Z",
   "niches": {
     "exam_concepts": {
       "display_name": "Exam Concepts",
       "visual_style": "educational_ai",
       "voice": {
-        "hinglish": "hi-IN-SwaraNeural",
-        "hi": "hi-IN-SwaraNeural",
-        "en": "en-IN-PrabhatNeural"
+        "en": "en-IN"
       },
-      "system_prompt": "Create genuinely useful educational content for Indian competitive-exam aspirants. Focus on one coherent concept from UPSC, SSC, Banking, Railway, RBI, SEBI, NABARD or similar exams. Difficult older concepts are welcome. Explain the reasoning clearly and avoid generic motivational filler. Prefer a natural teacher-student feel over a viral-template feel.",
+      "system_prompt": "Create genuinely useful educational content for Indian competitive-exam aspirants. Focus on one coherent concept from UPSC, SSC, Banking, Railway, RBI, SEBI, NABARD or similar exams. Difficult older concepts are welcome. Explain the reasoning clearly and avoid generic motivational filler. Prefer a natural teacher-student feel over a viral-template feel. Write exclusively in clear conversational Indian English. No Hinglish or Hindi.",
       "topics": [
         "why the sky is blue and what Rayleigh scattering actually means",
         "Fundamental Rights versus Directive Principles and the enforceability difference",
@@ -38,11 +36,9 @@
       "display_name": "Science Explained",
       "visual_style": "educational_ai",
       "voice": {
-        "hinglish": "hi-IN-SwaraNeural",
-        "hi": "hi-IN-SwaraNeural",
-        "en": "en-IN-PrabhatNeural"
+        "en": "en-IN"
       },
-      "system_prompt": "Explain one science or technology concept accurately for a serious Indian exam learner. Use a simple mental model, then give the technical explanation. Do not oversimplify into an incorrect statement. Use equations only when they materially improve understanding.",
+      "system_prompt": "Explain one science or technology concept accurately for a serious Indian exam learner. Use a simple mental model, then give the technical explanation. Do not oversimplify into an incorrect statement. Use equations only when they materially improve understanding. Write exclusively in clear conversational Indian English. No Hinglish or Hindi.",
       "topics": [
         "how a transformer changes AC voltage",
         "why satellites stay in orbit instead of falling straight down",

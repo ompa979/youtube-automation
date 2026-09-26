@@ -212,7 +212,7 @@ def main() -> int:
     print(f"[pipeline] title={script.title!r}; scenes={len(script.scenes)}")
 
     voice = niche_cfg.get("voice", {}).get(language, "en-IN")
-    visual_style = niche_cfg.get("visual_style", "text_gradient_ai")
+    visual_style = niche_cfg.get("visual_style", "handwritten_notes")
 
     scene_images = []
     scene_audios = []

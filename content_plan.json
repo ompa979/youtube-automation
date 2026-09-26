@@ -4,7 +4,7 @@
   "niches": {
     "exam_concepts": {
       "display_name": "Exam Concepts",
-      "visual_style": "educational_ai",
+      "visual_style": "handwritten_notes",
       "voice": {
         "en": "en-IN"
       },
@@ -34,7 +34,7 @@
     },
     "science_explainers": {
       "display_name": "Science Explained",
-      "visual_style": "educational_ai",
+      "visual_style": "handwritten_notes",
       "voice": {
         "en": "en-IN"
       },

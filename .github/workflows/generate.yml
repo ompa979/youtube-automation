@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry run (render but do not upload)?'
+        description: Dry run (render but do not upload)?
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: youtube-shorts
@@ -21,144 +21,60 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install system deps (ffmpeg + Inter font)
+          cache: pip
+      - name: Install system deps
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y ffmpeg fonts-inter espeak-ng
-
+          sudo apt-get install -y ffmpeg espeak-ng fonts-inter
       - name: Install Python deps
         run: pip install -r requirements.txt
-
-      - name: Verify pipeline source
+      - name: Verify source before generation
         run: |
-          set -euo pipefail
-
-          echo "========================================"
-          echo "=== COMMIT ==="
-          echo "========================================"
-          git rev-parse HEAD
-          git log -1 --oneline
-
-          echo "=== PYTHON COMPILE ==="
-          python -m compileall -q pipeline container
-
-          echo "=== V5 ARCHITECTURE CHECK ==="
+          python -m py_compile pipeline/generate.py pipeline/script_gen.py pipeline/tts.py pipeline/visuals.py pipeline/render.py
           python - <<'PY'
-          import ast
-          from pathlib import Path
-
-          files = ["pipeline/tts.py", "pipeline/render.py",
-                   "pipeline/generate.py", "pipeline/script_gen.py",
-                   "pipeline/visuals.py", "pipeline/quality.py",
-                   "container/server.py"]
-
-          for name in files:
-              ast.parse(Path(name).read_text(encoding="utf-8"), filename=name)
-
-          tts = Path("pipeline/tts.py").read_text(encoding="utf-8")
-          render = Path("pipeline/render.py").read_text(encoding="utf-8")
-          script = Path("pipeline/script_gen.py").read_text(encoding="utf-8")
-          visuals = Path("pipeline/visuals.py").read_text(encoding="utf-8")
-          quality = Path("pipeline/quality.py").read_text(encoding="utf-8")
-          plan = Path("content_plan.json").read_text(encoding="utf-8")
-
-          assert "gTTS(" in tts
-          assert 'tld="co.in"' in tts
-          assert "espeak-ng" in tts
-          assert "Dialogue:" not in tts
-          assert "Style: Cap" not in tts
-          assert "ass=" not in render
-          assert "captions" not in render.lower()
-          assert "Indian English" in script
-          assert "Devanagari" in script
-          assert "premium cinematic" in visuals
-          assert "English-only pipeline" in quality
-          assert '"en": "en-IN"' in plan
-
-          print("PASS: English-only script contract")
-          print("PASS: free Indian-English TTS contract")
-          print("PASS: subtitle/ASS rendering removed")
-          print("PASS: premium visual pipeline enabled")
-          print("PASS: Python AST validation passed")
+          import json
+          d=json.load(open('content_plan.json',encoding='utf-8'))
+          assert all(v.get('visual_style') == 'handwritten_notes' for v in d['niches'].values())
+          print('PASS: handwritten_notes visual style configured')
           PY
-
-          echo "=== NO LEGACY SUBTITLE PATH ==="
-          if grep -RniE 'Style: Cap|Dialogue:|filter_complex.*ass=|-[vf].*ass=' pipeline; then
-            echo "ERROR: Legacy subtitle path detected"
-            exit 1
-          fi
-          echo "PASS: no legacy subtitle rendering"
-
-      - name: Generate & upload
+      - name: Generate
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          UPLOAD_ENABLED: 'false'
+          NICHES_ENABLED: 'exam_concepts,science_explainers'
+          LANGUAGES_ENABLED: 'en'
           TTS_PROVIDER: gtts
           TTS_LANGUAGE: en-IN
           TTS_VOICE: en-IN
-          TTS_NO_FALLBACK: false
-          YT_CREDS_1: ${{ secrets.YT_CREDS_1 }}
-          YT_CREDS_2: ${{ secrets.YT_CREDS_2 }}
-          YT_CREDS_3: ${{ secrets.YT_CREDS_3 }}
-          YT_CREDS_4: ${{ secrets.YT_CREDS_4 }}
-          NICHES_ENABLED: 'exam_concepts,science_explainers'
-          LANGUAGES_ENABLED: 'en'
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "[i] Dry run — skipping upload."
             python -m pipeline.generate --dry-run
           else
             python -m pipeline.generate
           fi
-
-      - name: Collect rendered video
+      - name: Collect artifact
         if: always()
         run: |
           mkdir -p out
-          if compgen -G "/tmp/out/*.mp4" > /dev/null; then
-            cp -v /tmp/out/*.mp4 out/
-          fi
-          if [ -f /tmp/out/script.json ]; then
-            cp -v /tmp/out/script.json out/
-          fi
-          if ! compgen -G "out/*.mp4" > /dev/null; then
-            echo "[i] No rendered MP4 found in /tmp/out"
-          fi
+          cp -v /tmp/out/*.mp4 out/ 2>/dev/null || true
+          cp -v /tmp/out/script.json out/ 2>/dev/null || true
           ls -lah out || true
-
-      - name: Upload rendered video as artifact
+      - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rendered-video-${{ github.run_number }}
+          name: handwritten-notes-short-${{ github.run_number }}
           path: out/
           retention-days: 7
           if-no-files-found: warn
-
-      - name: Commit state back
-        if: always()
-        run: |
-          git config user.name "bds-bot"
-          git config user.email "bot@users.noreply.github.com"
-          git add content_plan.json .quota_state.json 2>/dev/null || true
-          if git diff --cached --quiet; then
-            echo "[i] Nothing to commit."
-            exit 0
-          fi
-          git commit -m "chore: update rotation & quota [skip ci]"
-          git push

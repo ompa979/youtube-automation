@@ -1,0 +1,10 @@
+V6 HANDWRITTEN NOTES BUILD
+
+- English-only narration retained.
+- No subtitles are rendered.
+- OpenRouter remains primary script generator.
+- Visual style is handwritten_notes for both enabled niches.
+- Scene prompts require unique hand-drawn diagrams and varied compositions.
+- FFmpeg uses four different camera motion paths and scene-derived transition offsets.
+- Workflow compiles all core Python modules before generation.
+- Dry-run artifacts are collected from /tmp/out.

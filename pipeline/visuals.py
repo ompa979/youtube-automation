@@ -19,6 +19,13 @@ from .config import WORK_DIR
 POLLINATIONS = "https://image.pollinations.ai/prompt/{prompt}"
 
 STYLE_SUFFIX = {
+    "handwritten_notes": (
+        ", premium handwritten study-notes aesthetic on textured off-white notebook paper, "
+        "realistic ink and pencil strokes, hand-drawn diagrams, arrows, circles, underlines, "
+        "selective short handwritten labels, varied page composition, subtle marker highlights, "
+        "teacher-made revision sheet, tactile paper texture, intelligent visual hierarchy, "
+        "vertical 9:16, no typed UI, no logos, no watermark"
+    ),
     "text_gradient_ai": (
         ", premium cinematic editorial illustration, strong focal subject, "
         "dramatic but natural lighting, rich depth, high contrast, realistic materials, "
@@ -123,12 +130,19 @@ def _fetch_pexels(query: str, out_path: Path, api_key: str) -> bool:
 def _premium_prompt(image_prompt: str, visual_style: str) -> str:
     base = " ".join((image_prompt or "").split())
     suffix = STYLE_SUFFIX.get(visual_style, STYLE_SUFFIX["educational_ai"])
+    composition_hint = (
+        " Build a distinct composition for this scene; do not reuse a generic template. "
+        "The visual must look hand-created for this exact explanation, with the main mechanism "
+        "obvious at first glance and the important relationship drawn rather than merely written."
+    )
     return (
         "Create this exact visual concept: "
         + base
+        + composition_hint
         + GLOBAL_QUALITY
         + suffix
-        + ". Do not replace the concept with unrelated decorative imagery."
+        + ". Do not replace the concept with unrelated decorative imagery. Keep handwritten labels "
+        "short and legible; never generate paragraphs of text."
     )
 
 

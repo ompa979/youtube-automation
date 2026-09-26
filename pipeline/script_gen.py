@@ -96,7 +96,7 @@ Return EXACTLY this JSON shape (no markdown):
     {{
       "narration": "natural Indian-English spoken line",
       "tts_text": "same English spoken line optimized for natural TTS",
-      "image_prompt": "premium educational visual description, 15-35 words, vertical 9:16, no text, no logos",
+      "image_prompt": "unique premium handwritten study-notes visual, 20-45 words, vertical 9:16, hand-drawn diagrams and selective legible handwritten labels, no typed UI, no logos, no watermark",
       "on_screen_text": ""
     }}
   ]
@@ -349,6 +349,11 @@ def _to_script(data: dict) -> Script:
         image_prompt = _first_text(
             raw, "image_prompt", "visual_prompt", "visual", "image", "prompt"
         )
+        if not image_prompt:
+            image_prompt = (
+                "A fresh handwritten study-notes composition that visually explains the narration "
+                "with hand-drawn diagrams, arrows, circles and selective handwritten labels."
+            )
         on_screen_text = _first_text(
             raw, "on_screen_text", "caption", "keyword", "memory_cue"
         )

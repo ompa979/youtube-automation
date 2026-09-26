@@ -223,7 +223,7 @@ def _generate_gemini(prompt: str, api_key: str, model_name: str | None = None) -
     # gemini-2.5-flash is the best free-quota model as of mid-2025.
     # It has superior reasoning vs 1.5-flash and a 1M token context window.
     # Fallback: gemini-1.5-flash (older but very reliable).
-    model_to_use = model_name or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model_to_use = model_name or os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     model = genai.GenerativeModel(model_to_use, generation_config={
         "temperature": 0.75,
         "response_mime_type": "application/json",
@@ -313,7 +313,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Scr
     # PRIMARY: Gemini 2.5 Flash — Google's best free-quota model (as of 2025)
     # FALLBACK: Gemini 1.5 Flash — older but very reliable
     raw: str | None = None
-    for model_name in ["gemini-2.5-flash", "gemini-1.5-flash"]:
+    for model_name in ["gemini-2.0-flash", "gemini-3.8-flash", "gemini-2.0-flash-lite"]:
         try:
             print(f"[pipeline] Script generator: Gemini ({model_name})")
             raw = _generate_gemini(prompt, settings.gemini_api_key, model_name)
@@ -335,7 +335,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Scr
                 "Convert the following malformed output into ONLY the exact JSON schema requested. "
                 "Do not add markdown or explanations.\n\n" + raw[:12000],
                 settings.gemini_api_key,
-                "gemini-1.5-flash",
+                "gemini-2.0-flash-lite",
             )
             parsed = _parse_json(repaired_raw)
             print("[qa] JSON repair succeeded")
@@ -352,7 +352,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Scr
     repair_prompt = _build_prompt(topic, niche_cfg, language, "; ".join(qa.issues))
     try:
         print("[pipeline] Script repair: Gemini 2.5 Flash")
-        raw2 = _generate_gemini(repair_prompt, settings.gemini_api_key, "gemini-2.5-flash")
+        raw2 = _generate_gemini(repair_prompt, settings.gemini_api_key, "gemini-2.0-flash")
         repaired = _to_script(_parse_json(raw2))
         qa2 = validate_script(repaired, language)
         if not qa2.ok:

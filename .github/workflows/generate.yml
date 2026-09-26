@@ -1,52 +1,152 @@
-- name: Verify pipeline source
-  run: |
-    set -e
+name: Generate YouTube Short
 
-    echo "========================================"
-    echo "=== COMMIT ==="
-    echo "========================================"
-    git rev-parse HEAD
-    git log -1 --oneline
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (render but do not upload)?'
+        type: boolean
+        default: false
 
-    echo ""
-    echo "========================================"
-    echo "=== TTS FILE ==="
-    echo "========================================"
-    test -f pipeline/tts.py
-    ls -lh pipeline/tts.py
+concurrency:
+  group: youtube-shorts
+  cancel-in-progress: false
 
-    echo ""
-    echo "========================================"
-    echo "=== SUBTITLE IMPLEMENTATION CHECK ==="
-    echo "========================================"
-    grep -n "_safe_text" pipeline/tts.py
-    grep -n "safe_caption" pipeline/tts.py
-    grep -n "Dialogue:" pipeline/tts.py
+permissions:
+  contents: write
 
-    echo ""
-    echo "========================================"
-    echo "=== OLD BROKEN F-STRING CHECK ==="
-    echo "========================================"
-    if grep -n 'overlay_text.strip().replace' pipeline/tts.py; then
-      echo "ERROR: OLD BROKEN TTS CODE IS STILL PRESENT"
-      exit 1
-    else
-      echo "PASS: old broken overlay code is not present"
-    fi
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
-    echo ""
-    echo "========================================"
-    echo "=== PYTHON COMPILE ==="
-    echo "========================================"
-    python -m py_compile pipeline/tts.py
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-    echo ""
-    echo "========================================"
-    echo "=== COMPILE ALL PIPELINE FILES ==="
-    echo "========================================"
-    python -m compileall -q pipeline
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
 
-    echo ""
-    echo "========================================"
-    echo "=== SOURCE VERIFICATION PASSED ==="
-    echo "========================================"
+      - name: Install system deps (ffmpeg + Inter font)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg fonts-inter espeak-ng
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Verify pipeline source
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "=== COMMIT ==="
+          echo "========================================"
+          git rev-parse HEAD
+          git log -1 --oneline
+
+          echo ""
+          echo "========================================"
+          echo "=== TTS FILE ==="
+          echo "========================================"
+          test -f pipeline/tts.py
+          ls -lh pipeline/tts.py
+
+          echo ""
+          echo "========================================"
+          echo "=== SUBTITLE IMPLEMENTATION CHECK ==="
+          echo "========================================"
+          grep -n "_safe_text" pipeline/tts.py
+          grep -n "safe_caption" pipeline/tts.py
+          grep -n "Dialogue:" pipeline/tts.py
+
+          echo ""
+          echo "========================================"
+          echo "=== OLD BROKEN F-STRING CHECK ==="
+          echo "========================================"
+          if grep -n 'overlay_text.strip().replace' pipeline/tts.py; then
+            echo "ERROR: OLD BROKEN TTS CODE IS STILL PRESENT"
+            exit 1
+          else
+            echo "PASS: old broken overlay code is not present"
+          fi
+
+          echo ""
+          echo "========================================"
+          echo "=== PYTHON COMPILE ==="
+          echo "========================================"
+          python -m py_compile pipeline/tts.py
+          python -m compileall -q pipeline
+
+          echo ""
+          echo "========================================"
+          echo "=== SOURCE VERIFICATION PASSED ==="
+          echo "========================================"
+
+      - name: Generate & upload
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          TTS_PROVIDER: edge
+          TTS_LANGUAGE: hi-IN
+          TTS_VOICE: hi-IN-MadhurNeural,hi-IN-SwaraNeural
+          TTS_NO_FALLBACK: false
+          YT_CREDS_1: ${{ secrets.YT_CREDS_1 }}
+          YT_CREDS_2: ${{ secrets.YT_CREDS_2 }}
+          YT_CREDS_3: ${{ secrets.YT_CREDS_3 }}
+          YT_CREDS_4: ${{ secrets.YT_CREDS_4 }}
+          NICHES_ENABLED: 'exam_concepts,science_explainers'
+          LANGUAGES_ENABLED: 'hinglish'
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "[i] Dry run — skipping upload."
+            python -m pipeline.generate --dry-run
+          else
+            python -m pipeline.generate
+          fi
+
+      - name: Collect rendered video
+        if: always()
+        run: |
+          mkdir -p out
+          if compgen -G "/tmp/out/*.mp4" > /dev/null; then
+            cp -v /tmp/out/*.mp4 out/
+          fi
+          if [ -f /tmp/out/script.json ]; then
+            cp -v /tmp/out/script.json out/
+          fi
+          if ! compgen -G "out/*.mp4" > /dev/null; then
+            echo "[i] No rendered MP4 found in /tmp/out"
+          fi
+          ls -lah out || true
+
+      - name: Upload rendered video as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-video-${{ github.run_number }}
+          path: out/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Commit state back
+        if: always()
+        run: |
+          git config user.name "bds-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add content_plan.json .quota_state.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "[i] Nothing to commit."
+            exit 0
+          fi
+          git commit -m "chore: update rotation & quota [skip ci]"
+          git push

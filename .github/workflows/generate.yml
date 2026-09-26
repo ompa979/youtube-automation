@@ -1,0 +1,87 @@
+name: Generate YouTube Short
+
+on:
+  schedule:
+    # Every hour at :17 UTC (GitHub drops many jobs scheduled exactly on the hour).
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (render but do not upload)?'
+        type: boolean
+        default: false
+
+concurrency:
+  # Never let two generation jobs overlap.
+  group: youtube-shorts
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # needed to commit state back
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system deps (ffmpeg + Inter font)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg fonts-inter
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Generate & upload
+        env:
+          GEMINI_API_KEY:      ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY:  ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY:      ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY:     ${{ secrets.PIXABAY_API_KEY }}
+          YT_CREDS_1:          ${{ secrets.YT_CREDS_1 }}
+          YT_CREDS_2:          ${{ secrets.YT_CREDS_2 }}
+          YT_CREDS_3:          ${{ secrets.YT_CREDS_3 }}
+          YT_CREDS_4:          ${{ secrets.YT_CREDS_4 }}
+          NICHES_ENABLED:      'facts,explainers,stories'
+          LANGUAGES_ENABLED:   'en,hinglish'
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "[i] Dry run — skipping upload."
+            python -m pipeline.generate --dry-run
+          else
+            python -m pipeline.generate
+          fi
+
+      - name: Upload rendered video as artifact (backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-video-${{ github.run_number }}
+          path: out/*.mp4
+          retention-days: 3
+          if-no-files-found: ignore
+
+      - name: Commit state back
+        if: always()
+        run: |
+          git config user.name  "bds-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add content_plan.json .quota_state.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "[i] Nothing to commit."
+            exit 0
+          fi
+          git commit -m "chore: update rotation & quota [skip ci]"
+          git push

@@ -5,6 +5,11 @@ credentials/
 client_secrets*.json
 token*.json
 
+# Runtime state (see .github/workflows/generate.yml — persisted via
+# actions/cache between runs, not committed, so it can never conflict with
+# your own pushes to main)
+.quota_state.json
+
 # Runtime artefacts
 work/
 out/

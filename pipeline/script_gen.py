@@ -1,7 +1,7 @@
 """Natural Indian-English educational script generation.
 
 Gemini 3.8 Flash is the PRIMARY model.
-Gemini 2.0 Flash Lite is the fallback.
+Gemini 3.5 Flash Lite is the fallback.
 All models are Google — no OpenRouter dependency.
 
 Also provides:
@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from dataclasses import dataclass, asdict
 
 import google.generativeai as genai
@@ -26,13 +27,18 @@ from .quality import validate_script
 
 
 # Ordered fallback list used by every Gemini call site in this module.
-# gemini-2.0-flash was deprecated; gemini-3.8-flash is now the primary.
+# gemini-2.0-flash and gemini-2.0-flash-lite are both deprecated (404).
+# gemini-3.8-flash is now the primary; gemini-3.5-flash-lite is the fallback.
 # Add newer models here when they become available — all call sites pick
 # them up automatically without any further changes.
 _GEMINI_MODELS: list[str] = [
     "gemini-3.8-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-3.5-flash-lite",
 ]
+
+# Maximum seconds to wait on a 429 retry-delay hint before giving up and
+# trying the next model. Keeps CI runs from stalling indefinitely.
+_MAX_RETRY_WAIT_SECONDS: int = 70
 
 
 def _stable_hash(text: str) -> int:
@@ -271,6 +277,20 @@ def _parse_json(raw: str) -> dict:
     )
 
 
+def _parse_retry_delay(exc: Exception) -> float | None:
+    """Return the retry_delay in seconds from a Gemini 429 error, or None."""
+    msg = str(exc)
+    # The gRPC error body contains `retry_delay { seconds: N }`.
+    m = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", msg)
+    if m:
+        return float(m.group(1))
+    # Fall back to a plain "Please retry in N.NNs" hint.
+    m = re.search(r"retry in\s+([\d.]+)s", msg, re.I)
+    if m:
+        return float(m.group(1))
+    return None
+
+
 def _generate_gemini(prompt: str, api_key: str, model_name: str | None = None) -> str:
     """Call Gemini with a single explicit model, or walk _GEMINI_MODELS on failure.
 
@@ -278,24 +298,44 @@ def _generate_gemini(prompt: str, api_key: str, model_name: str | None = None) -
     loop externally).  Omitting it lets this function try each entry in
     _GEMINI_MODELS in order so callers don't need to duplicate the fallback
     logic.
+
+    429 quota errors: if the API supplies a retry_delay ≤ _MAX_RETRY_WAIT_SECONDS
+    we sleep and retry the *same* model once before moving on.  This handles
+    short-window rate limits (RPM) without burning the daily quota of the next
+    model unnecessarily.  Delays longer than _MAX_RETRY_WAIT_SECONDS (e.g. a
+    daily-quota exhaustion) are treated as a hard failure and the next model
+    is tried immediately.
     """
     genai.configure(api_key=api_key)
     candidates = [model_name] if model_name else _GEMINI_MODELS
     last_exc: Exception | None = None
+
     for model_to_use in candidates:
-        try:
-            model = genai.GenerativeModel(model_to_use, generation_config={
-                "temperature": 0.75,
-                "response_mime_type": "application/json",
-            })
-            resp = model.generate_content(prompt)
-            text = getattr(resp, "text", None)
-            if not text:
-                raise RuntimeError(f"Gemini ({model_to_use}) returned an empty response")
-            return text
-        except Exception as exc:
-            print(f"[!] Gemini {model_to_use} failed: {exc}")
-            last_exc = exc
+        retry_attempted = False
+        while True:
+            try:
+                model = genai.GenerativeModel(model_to_use, generation_config={
+                    "temperature": 0.75,
+                    "response_mime_type": "application/json",
+                })
+                resp = model.generate_content(prompt)
+                text = getattr(resp, "text", None)
+                if not text:
+                    raise RuntimeError(f"Gemini ({model_to_use}) returned an empty response")
+                return text
+            except Exception as exc:
+                is_429 = "429" in str(exc) or "quota" in str(exc).lower()
+                if is_429 and not retry_attempted:
+                    delay = _parse_retry_delay(exc)
+                    if delay is not None and delay <= _MAX_RETRY_WAIT_SECONDS:
+                        print(f"[!] Gemini {model_to_use} rate-limited — retrying in {delay:.0f}s")
+                        time.sleep(delay + 1)  # +1s safety buffer
+                        retry_attempted = True
+                        continue  # retry same model
+                print(f"[!] Gemini {model_to_use} failed: {exc}")
+                last_exc = exc
+                break  # move to next model
+
     raise RuntimeError(f"All Gemini models failed: {last_exc}") from last_exc
 
 

@@ -390,6 +390,9 @@ def _ensure_hashtags(description: str, niche_key: str | None) -> str:
     if not to_add:
         return description
     return description.rstrip() + "\n\n" + " ".join(to_add)
+
+
+def seo_optimize_title(title: str, topic: str, api_key: str) -> str:
     """Optimization #3: second Gemini call to maximize YouTube CTR and search rank."""
     prompt = f"""You are a YouTube SEO expert specializing in Indian educational content.
 

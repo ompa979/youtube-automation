@@ -346,7 +346,26 @@ def _to_script(data: dict) -> Script:
     )
 
 
-def seo_optimize_title(title: str, topic: str, api_key: str) -> str:
+# #7 Hashtag safety net — Gemini is asked for hashtags in the description,
+# but LLM compliance isn't guaranteed. This guarantees at least 3 relevant
+# hashtags always ship, without duplicating whatever Gemini already added.
+HASHTAG_POOL: dict[str, list[str]] = {
+    "exam_concepts": ["#UPSC", "#NEET", "#SSC", "#IndiaGK", "#ExamPrep"],
+    "science_explainers": ["#ScienceFacts", "#Physics", "#Chemistry", "#Biology", "#LearnOnYoutube"],
+    "default": ["#Shorts", "#LearnSomethingNew", "#DidYouKnow"],
+}
+
+
+def _ensure_hashtags(description: str, niche_key: str | None) -> str:
+    existing = re.findall(r"#\w+", description)
+    if len(existing) >= 3:
+        return description
+    pool = HASHTAG_POOL.get(niche_key or "", HASHTAG_POOL["default"])
+    existing_lower = {e.lower() for e in existing}
+    to_add = [h for h in pool if h.lower() not in existing_lower][: 3 - len(existing)]
+    if not to_add:
+        return description
+    return description.rstrip() + "\n\n" + " ".join(to_add)
     """Optimization #3: second Gemini call to maximize YouTube CTR and search rank."""
     prompt = f"""You are a YouTube SEO expert specializing in Indian educational content.
 
@@ -375,7 +394,7 @@ Return ONLY the new title string, nothing else."""
     return title  # fall back to original if Gemini fails
 
 
-def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Script:
+def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_key: str | None = None) -> Script:
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is not set. This pipeline is Google-only.")
 
@@ -418,6 +437,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Scr
         print(f"[qa] script passed: scenes={len(script.scenes)} words={sum(len(s.narration.split()) for s in script.scenes)}")
         # Optimization #3: SEO-optimize the title before returning
         script.title = seo_optimize_title(script.title, topic, settings.gemini_api_key)
+        script.description = _ensure_hashtags(script.description, niche_key)
         return script
 
     print("[qa] first script needs repair: " + "; ".join(qa.issues))
@@ -431,6 +451,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings) -> Scr
             raise RuntimeError("; ".join(qa2.issues))
         print(f"[qa] repaired script passed: scenes={len(repaired.scenes)}")
         repaired.title = seo_optimize_title(repaired.title, topic, settings.gemini_api_key)
+        repaired.description = _ensure_hashtags(repaired.description, niche_key)
         return repaired
     except Exception as exc:
         raise RuntimeError(f"Generated script failed QA after one repair attempt: {exc}") from exc

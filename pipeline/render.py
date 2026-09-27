@@ -280,6 +280,36 @@ def _make_outro_clip(accent: str, cta_text: str, out: Path, duration: float = 1.
 
 
 # ---------------------------------------------------------------------------
+# #4 Loopability — a short closing beat that visually echoes scene 0, so the
+# video's last frame rhymes with its first. On Shorts this is a genuine
+# rewatch cue: "replay value" is one of the four core ranking signals, and a
+# video that loops cleanly back into itself gets rewatched more than one
+# that just stops.
+# ---------------------------------------------------------------------------
+def _make_loopback_clip(
+    image: Path, keyword_text: str, accent: str, out: Path, duration: float = 0.6
+) -> None:
+    total_frames = max(int(duration * FPS), 1)
+    # Deliberately near-static (tiny zoom only) so it reads as "back to the
+    # start" rather than a new scene with its own motion.
+    vf = (
+        f"scale={W*2}:{H*2}:force_original_aspect_ratio=increase,"
+        f"crop={W*2}:{H*2},"
+        f"zoompan=z='1.00':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s={W}x{H}:fps={FPS},"
+        "eq=contrast=1.045:saturation=1.035:brightness=0.004,format=yuv420p"
+    )
+    keyword_f = _keyword_filter(keyword_text, accent) if keyword_text else ""
+    if keyword_f:
+        vf = f"{vf},{keyword_f}"
+    _run([
+        "ffmpeg", "-y", "-loop", "1", "-i", str(image),
+        "-vf", vf, "-t", f"{duration:.3f}", "-r", str(FPS),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
+        "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", str(out),
+    ])
+
+
+# ---------------------------------------------------------------------------
 # #10 Best-of-N thumbnail scoring
 # ---------------------------------------------------------------------------
 def extract_thumbnail(video_path: Path, out: Path, at_sec: float = 0.5) -> Path:
@@ -315,13 +345,22 @@ def _score_frame(path: Path) -> float:
 def extract_best_thumbnail(video_path: Path, out: Path, scene0_duration: float) -> Path:
     """Sample several candidate frames from within scene 0 and keep whichever
     scores best for contrast/brightness, instead of always grabbing whatever
-    happened to be on screen at a fixed 0.5s."""
-    hi = max(0.2, min(scene0_duration - 0.15, 1.8))
-    if hi <= 0.25:
-        candidate_times = [0.15]
+    happened to be on screen at a fixed 0.5s.
+
+    #6: candidates start at 0.42s (just after the 0.35s keyword/subtitle
+    fade-in completes), not 0.15s — a thumbnail grabbed mid-fade shows faint,
+    half-opacity text, which defeats the point of having on-screen keywords
+    for search/Lens-readable thumbnails in the first place.
+    """
+    fade_clear = 0.42
+    hi = max(fade_clear + 0.05, min(scene0_duration - 0.15, 1.9))
+    if scene0_duration - 0.15 < fade_clear:
+        # Scene 0 is too short for the fade to fully clear — fall back to
+        # whatever's latest and accept a slightly softer keyword.
+        candidate_times = [max(0.15, scene0_duration - 0.2)]
     else:
         n = 4
-        candidate_times = [0.15 + i * (hi - 0.15) / (n - 1) for i in range(n)]
+        candidate_times = [fade_clear + i * (hi - fade_clear) / (n - 1) for i in range(n)]
 
     best_path: Path | None = None
     best_score = -1.0
@@ -416,19 +455,48 @@ def _concat_audio(paths: list[Path], out: Path) -> None:
     ])
 
 
+def _probe_duration(path: Path) -> float:
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+        capture_output=True, text=True,
+    )
+    return float(proc.stdout.strip())
+
+
 # ---------------------------------------------------------------------------
-# #5 Music track rotation (by video, not always the alphabetically-first one)
+# #5 Music: mood-aware rotation (best feasible substitute for true trending-
+# audio integration — there is no public API for "what sound is trending on
+# Shorts right now", so this instead matches track energy to the niche/topic,
+# then still rotates by slug hash within that mood so it's not always the
+# same file. If you want real trending-audio integration, that requires
+# manually downloading a licensed trending clip and dropping it in
+# assets/music/ — see assets/music/README.md.
 # ---------------------------------------------------------------------------
-def _pick_music(seed: str | None = None) -> Path | None:
+_MOOD_TRACKS: dict[str, list[str]] = {
+    "upbeat": ["upbeat_1.mp3"],
+    "calm": ["ambient_soft_1.mp3", "lofi_study_1.mp3"],
+}
+_NICHE_MOOD: dict[str, str] = {
+    "exam_concepts": "calm",
+    "science_explainers": "upbeat",
+    "default": "calm",
+}
+
+
+def _pick_music(seed: str | None = None, category: str | None = None) -> Path | None:
     music_dir = ASSETS_DIR / "music"
     if not music_dir.exists():
         return None
-    tracks = sorted(music_dir.glob("*.mp3")) + sorted(music_dir.glob("*.m4a"))
-    if not tracks:
+    all_tracks = sorted(music_dir.glob("*.mp3")) + sorted(music_dir.glob("*.m4a"))
+    if not all_tracks:
         return None
     if seed is None:
-        return tracks[0]
-    return tracks[_stable_hash(seed) % len(tracks)]
+        return all_tracks[0]
+    mood = _NICHE_MOOD.get(category or "", "calm")
+    mood_files = set(_MOOD_TRACKS.get(mood, []))
+    candidates = [t for t in all_tracks if t.name in mood_files] or all_tracks
+    return candidates[_stable_hash(seed) % len(candidates)]
 
 
 # ---------------------------------------------------------------------------
@@ -489,13 +557,39 @@ def assemble_video(
     except Exception as exc:
         print(f"[!] Outro card failed (non-fatal, skipping): {exc}")
 
+    # #4 Loopability: close on scene 0's frame + keyword again, so the video
+    # ends where it began instead of just stopping on the CTA.
+    if scene_images:
+        loopback_clip = WORK_DIR / "clip_loopback.mp4"
+        loop_keyword = scene_texts[0] if scene_texts else ""
+        try:
+            _make_loopback_clip(scene_images[0], loop_keyword, accent, loopback_clip, duration=0.6)
+            clips.append(loopback_clip)
+            actual_durations.append(0.6)
+        except Exception as exc:
+            print(f"[!] Loopback clip failed (non-fatal, skipping): {exc}")
+
     silent_video = WORK_DIR / "silent_video.mp4"
     cut_offsets = _join_with_transitions(clips, actual_durations, silent_video)
+    total_video_duration = _probe_duration(silent_video)
 
+    voice_raw = WORK_DIR / "voice_raw.mp3"
+    _concat_audio(scene_audios, voice_raw)
+    # BUG FIX: the outro card + loopback clip play AFTER the narration ends,
+    # so the voice track is shorter than the full video. Downstream we mix
+    # with duration=first(=voice) and mux with -shortest, so without this
+    # pad, the outro/loopback would get silently truncated off the final
+    # render — pad the voice track with silence out to the full video
+    # length so nothing after the last spoken line gets cut.
     voice = WORK_DIR / "voice.mp3"
-    _concat_audio(scene_audios, voice)
+    _run([
+        "ffmpeg", "-y", "-i", str(voice_raw),
+        "-af", f"apad=whole_dur={total_video_duration:.3f}",
+        "-c:a", "libmp3lame", "-b:a", "192k", str(voice),
+    ])
+
     final = OUT_DIR / f"{slug}.mp4"
-    music = _pick_music(seed=slug)
+    music = _pick_music(seed=slug, category=category)
     sfx = _pick_sfx() if cut_offsets else None
 
     common_video = [

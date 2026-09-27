@@ -200,7 +200,7 @@ def main() -> int:
     state["last_failed_topic"] = topic
     _save_state(state)
 
-    script = generate_script(topic, niche_cfg, language, settings)
+    script = generate_script(topic, niche_cfg, language, settings, niche_key=niche)
     print(f"[pipeline] title={script.title!r}; scenes={len(script.scenes)}")
 
     voice = niche_cfg.get("voice", {}).get(language, "en-IN")

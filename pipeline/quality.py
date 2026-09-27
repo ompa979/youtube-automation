@@ -23,6 +23,13 @@ GENERIC_FILLERS = [
 MIN_SCENES = 3
 MAX_SCENES = 8
 
+# Rough spoken-word budget for a tight Short. At natural pace (~150 wpm /
+# 2.5 words-per-second), this keeps total narration under ~55s — completion
+# rate drops sharply past that on Shorts, so this is enforced, not advisory.
+WORDS_PER_SECOND = 2.5
+MAX_SPOKEN_SECONDS = 55
+MAX_WORDS = int(MAX_SPOKEN_SECONDS * WORDS_PER_SECOND)  # 137
+
 
 @dataclass
 class QAResult:
@@ -59,8 +66,13 @@ def validate_script(script: Any, language: str) -> QAResult:
 
     if words < 25:
         issues.append("explanation is too thin to teach the concept; add the missing reasoning")
-    if words > 500:
-        issues.append("script is too long for a Short-format video; simplify only redundant material, never the core explanation")
+    if words > MAX_WORDS:
+        est_seconds = round(words / WORDS_PER_SECOND)
+        issues.append(
+            f"script is ~{est_seconds}s of narration at natural pace — too long for a tight "
+            f"Short (completion rate drops sharply past {MAX_SPOKEN_SECONDS}s); cut to the "
+            f"single clearest explanation, keep the words needed to teach it, drop the rest"
+        )
 
     if any("\u0900" <= ch <= "\u097F" for ch in all_text):
         issues.append("English-only pipeline: Devanagari/Hindi text detected")

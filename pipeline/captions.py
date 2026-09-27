@@ -63,7 +63,7 @@ def build_word_ass(
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Word,{fontname},92,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
-        "-1,0,0,0,100,100,0,0,1,7,2,2,60,60,170,1\n\n"
+        "-1,0,0,0,100,100,0,0,1,7,2,5,60,60,0,1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
@@ -89,7 +89,7 @@ def build_word_ass(
         # Pop scale-in (55% -> 100% over 90ms) + fire-to-white color flash
         # (over 180ms), both relative to this Dialogue line's own start time.
         override = (
-            r"{\an2\fscx55\fscy55\1c&H" + _FIRE_ASS + r"&"
+            r"{\an5\fscx55\fscy55\1c&H" + _FIRE_ASS + r"&"
             r"\t(0,90,\fscx100\fscy100)"
             r"\t(0,180,\1c&H" + _WHITE_ASS + r"&)}"
         )

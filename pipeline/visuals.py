@@ -7,7 +7,9 @@ cinematic editorial art direction while preserving the scene's educational idea.
 from __future__ import annotations
 
 import hashlib
+import os
 import random
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -19,6 +21,15 @@ from .config import WORK_DIR
 from .subject_area import classify_subject_area, SUBJECT_AREA_IMAGE_SUFFIX
 
 POLLINATIONS = "https://image.pollinations.ai/prompt/{prompt}"
+
+# Same fix as Edge-TTS: scenes now run concurrently (generate.py), and firing
+# every scene's image request at Pollinations' free tier simultaneously is
+# what was producing the near-total 429 "Too Many Requests" wall seen in
+# production (every scene falling through to the Pexels fallback instead of
+# actually using Pollinations). Capping concurrent Pollinations requests here
+# lets the rest of the per-scene pipeline still run in parallel. Tune via
+# POLLINATIONS_CONCURRENCY.
+_POLLINATIONS_SEMAPHORE = threading.Semaphore(max(1, int(os.getenv("POLLINATIONS_CONCURRENCY", "2"))))
 
 STYLE_SUFFIX = {
     "handwritten_notes": (
@@ -129,15 +140,9 @@ def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: 
             "seed": random.randint(1, 2_000_000_000),
         }
         try:
-            # Was timeout=150, attempts=3 (worst case ~470s of blocking per
-            # scene, run sequentially across every scene — this was the
-            # single biggest hidden contributor to the >20 min build time).
-            # 45s comfortably covers a normal Pollinations response; if it
-            # hasn't answered by then it's very unlikely to before 150s
-            # either, so we fail fast into the second attempt / Pexels
-            # fallback instead of blocking the whole pipeline.
-            r = requests.get(url, params=params, timeout=45)
-            r.raise_for_status()
+            with _POLLINATIONS_SEMAPHORE:
+                r = requests.get(url, params=params, timeout=45)
+                r.raise_for_status()
             if len(r.content) < 20_000:
                 raise RuntimeError(f"response too small ({len(r.content)} bytes) — likely an error page, not an image")
             out_path.write_bytes(r.content)
@@ -151,7 +156,8 @@ def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: 
             out_path.unlink(missing_ok=True)
             print(f"[visuals] pollinations attempt {attempt}/{attempts} failed: {exc}")
             if attempt < attempts:
-                time.sleep(2)  # short flat backoff instead of 3s/6s escalating
+                is_429 = "429" in str(exc) or "Too Many Requests" in str(exc)
+                time.sleep(8 if is_429 else 2)  # 429s need real cooldown, not a token retry
 
     print(f"[visuals] pollinations exhausted all attempts: {last_error}")
     return False

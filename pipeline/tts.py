@@ -21,6 +21,7 @@ import asyncio
 import os
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -50,6 +51,17 @@ GOOGLE_CLOUD_TTS_VOICE = os.getenv("GOOGLE_CLOUD_TTS_VOICE", "en-IN-Chirp3-HD-Ac
 
 # Edge TTS voice (no key needed, very good quality)
 EDGE_VOICE = os.getenv("TTS_VOICE", "en-IN-NeerjaNeural").strip() or "en-IN-NeerjaNeural"
+
+# Caps how many scenes may hit the Edge-TTS websocket endpoint at the same
+# instant. generate.py now processes scenes concurrently (ThreadPoolExecutor),
+# which turned out to be the actual cause of the near-universal 403s seen in
+# production logs: Microsoft's endpoint treats a burst of simultaneous
+# connections from one source as bot-like and starts rejecting the handshake,
+# even though each individual request is completely normal. One scene at a
+# time on this specific call keeps the parallelism everywhere else in the
+# pipeline (image fetch, other scenes' non-TTS work) while not looking like a
+# flood to Microsoft. Tune via EDGE_TTS_CONCURRENCY if needed.
+_EDGE_TTS_SEMAPHORE = threading.Semaphore(max(1, int(os.getenv("EDGE_TTS_CONCURRENCY", "1"))))
 
 
 def _clean_text(text: str) -> str:
@@ -160,7 +172,8 @@ def _edge_synth(text: str, audio_path: Path, attempts: int = 3) -> tuple[float, 
                                 "end": offset + dur,
                             })
 
-            asyncio.run(_run())
+            with _EDGE_TTS_SEMAPHORE:
+                asyncio.run(_run())
             if audio_path.exists() and audio_path.stat().st_size > 1000:
                 duration = _probe_duration(audio_path) or _estimate_duration(text)
                 return duration, word_timings

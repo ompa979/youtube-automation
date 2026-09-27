@@ -10,6 +10,15 @@ What it does:
     3. Prints a BASE64 blob you paste into GitHub Secrets as YT_CREDS_1 (or _2, _3…).
 
 You only need to run this ONCE per Google Cloud project / channel.
+
+IMPORTANT — re-run this if you already have a YT_CREDS_N secret: scopes are
+frozen into the refresh token at the moment you grant consent. If your
+existing token was issued back when SCOPES only listed youtube.upload, the
+pinned-comment step (which needs youtube.force-ssl) will keep failing with a
+403 "insufficientPermissions" no matter how this file is edited — changing
+the code does NOT retroactively add scope to an already-issued token. Run
+this script again with --force-reconsent (see below) and replace the
+YT_CREDS_N secret with the newly printed blob.
 """
 from __future__ import annotations
 
@@ -21,7 +30,16 @@ from pathlib import Path
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    # Required for the pinned-comment step (commentThreads.insert /
+    # comments.setModerationStatus) — youtube.upload alone does NOT cover
+    # comments, which is why that step was failing with a 403
+    # "insufficientPermissions" even though everything else (upload,
+    # thumbnail) worked fine. force-ssl is a superset that also still
+    # covers upload/thumbnails.
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+]
 OUT_DIR = Path(__file__).resolve().parent.parent / "credentials"
 
 def main() -> None:

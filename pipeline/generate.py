@@ -9,7 +9,7 @@ Round 1 optimizations:
   #6  Background music from assets/music/ (render.py)
   #7  Dynamic subtitle font size (render.py)
   #8  Scene count guardrail 3-8 (quality.py)
-  #9  Upload cron scheduled for 7 PM IST (workflow)
+  #9  Upload cron scheduled for 7 AM IST, loops 20 videos every 45 min
   #10 Quota state tracks last successful topic for retry
 
 Round 2 optimizations — anti-monotone variety pass:
@@ -33,6 +33,8 @@ import base64
 import json
 import os
 import re
+import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +52,9 @@ from .visuals import fetch_scene_image
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = ROOT / ".quota_state.json"
+
+# Gap between consecutive uploads (seconds). 45 min = 2700 s.
+UPLOAD_INTERVAL_SECONDS: int = 45 * 60
 
 
 def _truthy(value: str | None, default: bool = False) -> bool:
@@ -179,22 +184,17 @@ def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, Any]):
     return niche, cfg, language, topic
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action="store_true",
-                        help="render the video but never upload")
-    args = parser.parse_args()
-
-    ensure_dirs()
-    settings = _load_settings()
-    plan = _load_plan()
-    state = _load_state()
-
-    if not settings.gemini_api_key:
-        raise RuntimeError("GEMINI_API_KEY is required")
+def _run_one(
+    plan: dict[str, Any],
+    settings: Settings,
+    state: dict[str, Any],
+    dry_run: bool,
+    video_index: int,
+) -> bool:
+    """Generate, render, and upload one video. Returns True on success."""
 
     niche, niche_cfg, language, topic = _choose(plan, settings, state)
-    print(f"[pipeline] niche={niche} language={language} topic={topic}")
+    print(f"\n[pipeline] ── video {video_index} ── niche={niche} language={language} topic={topic}")
 
     # Mark topic as in-progress so a crash is retryable
     state["last_failed_topic"] = topic
@@ -206,15 +206,16 @@ def main() -> int:
     voice = niche_cfg.get("voice", {}).get(language, "en-IN")
     visual_style = niche_cfg.get("visual_style", "handwritten_notes")
 
+    # Use a per-video scene dir so parallel-ish reruns don't clobber each other
+    scene_dir = WORK_DIR / f"scenes_{video_index:02d}"
+    scene_dir.mkdir(parents=True, exist_ok=True)
+
     scene_images: list[Path] = []
     scene_audios: list[Path] = []
     scene_ass: list[Path] = []
     durations: list[float] = []
     scene_texts: list[str] = []
     scene_narrations: list[str] = []
-
-    scene_dir = WORK_DIR / "scenes"
-    scene_dir.mkdir(parents=True, exist_ok=True)
 
     for scene in script.scenes:
         scene_no = scene.index + 1
@@ -228,7 +229,7 @@ def main() -> int:
             tts_text = narration
 
         audio_path = scene_dir / f"scene_{scene.index:02d}.mp3"
-        ass_path = scene_dir / f"scene_{scene.index:02d}.ass"
+        ass_path   = scene_dir / f"scene_{scene.index:02d}.ass"
 
         audio, ass, duration = synthesize_scene(
             subtitle_text=narration,
@@ -247,6 +248,7 @@ def main() -> int:
         scene_texts.append(scene.on_screen_text or "")
         scene_narrations.append(narration)
 
+    # Write script metadata (overwritten each video — latest always wins)
     metadata_path = OUT_DIR / "script.json"
     metadata_path.write_text(json.dumps(script.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -262,19 +264,22 @@ def main() -> int:
     )
     print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
 
+    # Clean up per-video scene dir to keep disk usage flat across 20 videos
+    shutil.rmtree(scene_dir, ignore_errors=True)
+
     # Mark topic as successfully rendered
     state["last_successful_topic"] = topic
     state["last_failed_topic"] = None
 
-    if args.dry_run:
+    if dry_run:
         print("[i] Dry run — skipping upload.")
         _save_state(state)
-        return 0
+        return True
 
     if not settings.upload_enabled:
         print("[i] UPLOAD_ENABLED is disabled — skipping upload.")
         _save_state(state)
-        return 0
+        return True
 
     if not settings.youtube_projects:
         raise RuntimeError("Upload requested but no YT_CREDS_N secrets are configured.")
@@ -290,17 +295,66 @@ def main() -> int:
                 video_path,
                 script,
                 [cred],
-                scene_durations=durations,   # for pinned timestamp comment
+                scene_durations=durations,
             )
             state["project"] = idx + 1
             _save_state(state)
             print(f"[✓] Uploaded with YT_CREDS_{cred.index}: {result['url']}")
-            return 0
+            return True
         except Exception as exc:
             last_error = exc
             print(f"[!] YT_CREDS_{cred.index} failed: {exc}")
 
     raise RuntimeError(f"All YouTube credentials failed: {last_error}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true",
+                        help="render videos but never upload")
+    parser.add_argument("--count", type=int, default=int(os.getenv("UPLOAD_COUNT", "15")),
+                        help="number of videos to generate and upload (default: 15)")
+    parser.add_argument("--interval", type=int, default=UPLOAD_INTERVAL_SECONDS,
+                        help="seconds between uploads (default: 2700 = 45 min)")
+    args = parser.parse_args()
+
+    ensure_dirs()
+    settings = _load_settings()
+    plan = _load_plan()
+    state = _load_state()
+
+    if not settings.gemini_api_key:
+        raise RuntimeError("GEMINI_API_KEY is required")
+
+    total = args.count
+    interval = args.interval
+    succeeded = 0
+    failed = 0
+
+    print(f"[scheduler] Starting: {total} videos, {interval // 60} min apart")
+
+    for i in range(1, total + 1):
+        t_start = time.monotonic()
+        print(f"\n[scheduler] ── [{i}/{total}] starting at {time.strftime('%H:%M:%S')} IST ──")
+
+        try:
+            _run_one(plan, settings, state, dry_run=args.dry_run, video_index=i)
+            succeeded += 1
+        except Exception as exc:
+            failed += 1
+            print(f"[!] Video {i} failed: {exc}")
+            # Save state so the next video picks up where rotation left off
+            _save_state(state)
+
+        if i < total:
+            elapsed = time.monotonic() - t_start
+            sleep_for = max(0.0, interval - elapsed)
+            print(f"[scheduler] video {i} done in {elapsed:.0f}s — "
+                  f"sleeping {sleep_for / 60:.1f} min until next upload")
+            time.sleep(sleep_for)
+
+    print(f"\n[scheduler] Done — {succeeded} succeeded, {failed} failed out of {total}")
+    return 0 if failed == 0 else 1
 
 
 if __name__ == "__main__":

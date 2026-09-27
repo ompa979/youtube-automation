@@ -1,16 +1,26 @@
-name: Generate YouTube Short
+name: Generate YouTube Shorts
 
+# ─────────────────────────────────────────────────────────────────────────────
+# One workflow run per day at 07:00 IST (01:30 UTC).
+# The pipeline itself loops internally: 15 videos × 45-min gap = ~11.5 h total.
+# The next day's cron at 07:00 IST naturally restarts the cycle.
+# workflow_dispatch lets you kick off a run manually at any time.
+# ─────────────────────────────────────────────────────────────────────────────
 on:
   schedule:
-    # 7:00 PM IST = 13:30 UTC — peak Indian audience time
-    - cron: '30 13 * * *'
+    - cron: '30 1 * * *'   # 07:00 IST daily
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Dry run (render but do not upload)?
+        description: 'Dry run (render but do not upload)?'
         type: boolean
-        default: true
+        default: false
+      count:
+        description: 'Number of videos to produce (default: 15)'
+        type: number
+        default: 15
 
+# Never cancel an in-flight run — it may be mid-upload.
 concurrency:
   group: youtube-shorts
   cancel-in-progress: false
@@ -18,7 +28,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 15 videos × 45 min gap + 20 min final render buffer = 695 min max (~11.6 h)
+    timeout-minutes: 695
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,12 +40,6 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .quota_state.json
-          # Exact key is unique per run so the post-job save always creates a
-          # fresh cache entry (cache entries are immutable once written).
-          # restore-keys falls back to the most recent previous entry, so
-          # this one step both restores AND persists quota state across
-          # runs — with no git commit/push, so it can never conflict with
-          # your own pushes to main the way the old approach did.
           key: quota-state-${{ github.run_id }}
           restore-keys: |
             quota-state-
@@ -60,31 +65,32 @@ jobs:
             pipeline/trending.py pipeline/upload.py
           python - <<'PY'
           import json
-          d=json.load(open('content_plan.json',encoding='utf-8'))
+          d = json.load(open('content_plan.json', encoding='utf-8'))
           assert all(v.get('visual_style') == 'educational_ai' for v in d['niches'].values())
           print('PASS: educational_ai visual style configured')
           PY
 
-      - name: Generate
+      - name: Generate & Upload (15 videos × 45 min)
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GOOGLE_CLOUD_TTS_KEY: ${{ secrets.GOOGLE_CLOUD_TTS_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          YT_CREDS_1: ${{ secrets.YT_CREDS_1 }}
-          UPLOAD_ENABLED: 'false'
-          NICHES_ENABLED: 'exam_concepts,science_explainers'
-          LANGUAGES_ENABLED: 'en'
-          TTS_PROVIDER: edge
-          TTS_LANGUAGE: en-IN
-          TTS_VOICE: en-IN-NeerjaNeural
+          GEMINI_API_KEY:         ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_CLOUD_TTS_KEY:   ${{ secrets.GOOGLE_CLOUD_TTS_KEY }}
+          PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}
+          YT_CREDS_1:             ${{ secrets.YT_CREDS_1 }}
+          UPLOAD_ENABLED:         'true'
+          UPLOAD_COUNT:           ${{ inputs.count || '15' }}
+          NICHES_ENABLED:         'exam_concepts,science_explainers'
+          LANGUAGES_ENABLED:      'en'
+          TTS_PROVIDER:           edge
+          TTS_LANGUAGE:           en-IN
+          TTS_VOICE:              en-IN-NeerjaNeural
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
-            python -m pipeline.generate --dry-run
+            python -m pipeline.generate --dry-run --count ${{ inputs.count || 15 }}
           else
-            python -m pipeline.generate
+            python -m pipeline.generate --count ${{ inputs.count || 15 }}
           fi
 
-      - name: Collect artifact
+      - name: Collect last artifact
         if: always()
         run: |
           mkdir -p out
@@ -93,11 +99,12 @@ jobs:
           cp -v /tmp/out/script.json out/ 2>/dev/null || true
           ls -lah out || true
 
+      # Keep only the final artifact from each day's run.
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: youtube-short-${{ github.run_number }}
           path: out/
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: warn

@@ -460,24 +460,38 @@ def _ensure_hashtags(description: str, niche_key: str | None) -> str:
 
 
 def seo_optimize_title(title: str, topic: str, api_key: str) -> str:
-    """Optimization #3: second Gemini call to maximize YouTube CTR and search rank."""
-    prompt = f"""You are a YouTube SEO expert specializing in Indian educational content.
+    """Optimization #3: second Gemini call to maximize YouTube Shorts CTR and search rank.
 
-Rewrite this title for maximum YouTube Shorts CTR and search rank:
-- Use a question format OR a surprising fact format
-- Include the most searched keyword for this topic in India
+    Uses the proven viral-title formula:
+      [CURIOSITY GAP] + [BENEFIT/PAYOFF] or [SURPRISING CLAIM] + [CONTEXT]
+    Examples of high-CTR patterns:
+      'Why Your Phone Dies Faster in Cold' (relatable + why)
+      'The One Trick Toppers Use for Memory' (FOMO + benefit)
+      'India Did THIS Before the World Knew' (pride + mystery)
+    """
+    prompt = f"""You are a YouTube SEO expert. You have studied which Shorts titles get clicked the most in India.
+
+VIRAL TITLE FORMULA for Indian educational Shorts:
+- Pattern A (Curiosity gap): "Why [Relatable Thing] Actually [Surprising Explanation]"
+- Pattern B (Benefit + Secret): "The [One/Real] Reason [Thing] — Most People Don't Know This"
+- Pattern C (Pride/Identity): "India [Did/Has/Built] [Surprising Fact] — Here's Why"
+- Pattern D (You-frame): "Why YOUR [Body/Brain/Phone] Does [Thing] Explained"
+
+RULES:
 - Under 60 characters
-- No fake clickbait, no ALL CAPS, no emojis
-- Must be accurate to the content
+- Must be 100% accurate — no false promises
+- Use the most searched keywords for this topic in India (Hindi-English mix awareness: e.g. "exam prep", "brain facts", "why sky is blue")
+- No ALL CAPS, no excessive punctuation, no emojis in title
+- The title should make someone stop scrolling and feel 'I need to know this'
 
 TOPIC: {topic}
 CURRENT TITLE: {title}
 
-Return ONLY the new title string, nothing else."""
+Return ONLY the improved title string, nothing else. If the current title already follows these patterns well, return it unchanged."""
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(_GEMINI_MODELS[0], generation_config={"temperature": 0.5})
+        model = genai.GenerativeModel(_GEMINI_MODELS[0], generation_config={"temperature": 0.6})
         resp = model.generate_content(prompt)
         new_title = (getattr(resp, "text", "") or "").strip().strip('"').strip("'")
         if new_title and 5 < len(new_title) <= 100:
@@ -486,6 +500,64 @@ Return ONLY the new title string, nothing else."""
     except Exception as exc:
         print(f"[!] SEO title optimization failed (non-fatal): {exc}")
     return title  # fall back to original if Gemini fails
+
+
+def seo_optimize_description_and_tags(
+    description: str, tags: list[str], topic: str, niche_key: str, api_key: str
+) -> tuple[str, list[str]]:
+    """NEW: Third Gemini call to optimize description and tags for YouTube search.
+    Description is critical for SEO — YouTube indexes it for search ranking.
+    Returns (optimized_description, optimized_tags).
+    """
+    _SEO_HASHTAGS_BY_NICHE = {
+        "why_things_work": ["#shorts", "#didyouknow", "#sciencefacts", "#amazingfacts", "#learnonshortsm"],
+        "exam_concepts":   ["#shorts", "#upsc", "#examprep", "#studymotivation", "#currentaffairs"],
+        "science_explainers": ["#shorts", "#science", "#sciencefacts", "#physics", "#biology"],
+        "india_facts":     ["#shorts", "#india", "#indiafacts", "#incredibleindia", "#indianhistory"],
+        "mind_and_body":   ["#shorts", "#brainfacts", "#health", "#psychology", "#studytips"],
+    }
+    base_tags = _SEO_HASHTAGS_BY_NICHE.get(niche_key, ["#shorts", "#learneveryday"])
+    prompt = f"""You are a YouTube SEO specialist for Indian educational content.
+
+TOPIC: {topic}
+NICHE: {niche_key}
+CURRENT DESCRIPTION: {description}
+CURRENT TAGS: {tags}
+
+Task: Rewrite the description and tags to maximize YouTube search ranking.
+
+DESCRIPTION RULES:
+- First sentence must contain the most-searched keywords for this topic in India
+- 2-3 sentences max
+- End with exactly these hashtags: {' '.join(base_tags)}
+- Natural language, not keyword stuffing
+- Include a light call-to-action: 'Follow for more [topic area] explained simply'
+
+TAGS RULES:
+- 10-15 tags
+- Mix: broad (india, education, shorts) + specific (the exact concept) + long-tail ('why does X happen')
+- All lowercase
+- No hashtag symbol in tags array
+
+Return EXACTLY this JSON (no markdown):
+{{"description": "...", "tags": ["tag1", "tag2", ...]}}"""
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(_GEMINI_MODELS[0], generation_config={"temperature": 0.5})
+        resp = model.generate_content(prompt)
+        raw = (getattr(resp, "text", "") or "").strip()
+        # Strip markdown fences if present
+        raw = re.sub(r"```(?:json)?|```", "", raw).strip()
+        data = json.loads(raw)
+        new_desc = str(data.get("description", description)).strip()
+        new_tags = [str(t).strip().lower() for t in data.get("tags", tags) if str(t).strip()]
+        if new_desc and new_tags:
+            print(f"[seo] description+tags optimized for topic: {topic!r}")
+            return new_desc, new_tags
+    except Exception as exc:
+        print(f"[!] SEO description/tags optimization failed (non-fatal): {exc}")
+    return description, tags
 
 
 def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_key: str | None = None) -> Script:
@@ -531,6 +603,9 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
         print(f"[qa] script passed: scenes={len(script.scenes)} words={sum(len(s.narration.split()) for s in script.scenes)}")
         # Optimization #3: SEO-optimize the title before returning
         script.title = seo_optimize_title(script.title, topic, settings.gemini_api_key)
+        script.description, script.tags = seo_optimize_description_and_tags(
+            script.description, script.tags, topic, niche_key or "", settings.gemini_api_key
+        )
         script.description = _ensure_hashtags(script.description, niche_key)
         return script
 
@@ -546,6 +621,9 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
             raise RuntimeError("; ".join(qa2.issues))
         print(f"[qa] repaired script passed: scenes={len(repaired.scenes)}")
         repaired.title = seo_optimize_title(repaired.title, topic, settings.gemini_api_key)
+        repaired.description, repaired.tags = seo_optimize_description_and_tags(
+            repaired.description, repaired.tags, topic, niche_key or "", settings.gemini_api_key
+        )
         repaired.description = _ensure_hashtags(repaired.description, niche_key)
         return repaired
     except Exception as exc:

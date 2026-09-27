@@ -35,6 +35,7 @@ from pathlib import Path
 
 from .config import WORK_DIR, OUT_DIR, ASSETS_DIR
 from .captions import build_word_ass
+from .motion_graphics import build_motion_graphics_filter
 from .subject_area import (
     classify_subject_area,
     ACCENT_HEX,
@@ -277,9 +278,23 @@ def _ken_burns_clip(
     subject_area: str = "default",
     badge_text: str = "",
     word_timings: list[dict] | None = None,
+    scene_index: int = 0,
+    total_scenes: int = 1,
 ) -> None:
     total_frames = max(int(duration * FPS), 1)
     vf = _motion_filter(role, total_frames, subject_area)
+
+    # Motion graphics overlay — progress bar, vignette pulse, rule line,
+    # hook sweep, scene dots. Applied BEFORE text so text renders on top.
+    mg_f = build_motion_graphics_filter(
+        duration=duration,
+        accent=accent,
+        scene_index=scene_index,
+        total_scenes=total_scenes,
+        is_hook=(role == "hook"),
+    )
+    if mg_f:
+        vf = f"{vf},{mg_f}"
 
     # Layer 2: 3-layer on-screen text system — exam badge (top), fire-tinted
     # keyword (mid), and a word-by-word bold caption (bottom) instead of a
@@ -674,6 +689,7 @@ def assemble_video(
             img, actual, clip, role=role, on_screen_text=keyword, narration=narration,
             caption_style=style, accent=accent, subject_area=subject_area, badge_text=badge_text,
             word_timings=word_timings,
+            scene_index=i, total_scenes=num_narration_scenes,
         )
         clips.append(clip)
         actual_durations.append(actual)

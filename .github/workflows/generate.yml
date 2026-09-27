@@ -66,8 +66,10 @@ jobs:
           python - <<'PY'
           import json
           d = json.load(open('content_plan.json', encoding='utf-8'))
-          assert all(v.get('visual_style') == 'educational_ai' for v in d['niches'].values())
-          print('PASS: educational_ai visual style configured')
+          niches = d['niches']
+          assert all(v.get('visual_style') == 'educational_ai' for v in niches.values()), "All niches must use educational_ai"
+          total_topics = sum(len(v.get('topics', [])) for v in niches.values())
+          print(f'PASS: {len(niches)} niches, {total_topics} topics, educational_ai visual style configured')
           PY
 
       - name: Generate & Upload (15 videos × 45 min)
@@ -78,7 +80,7 @@ jobs:
           YT_CREDS_1:             ${{ secrets.YT_CREDS_1 }}
           UPLOAD_ENABLED:         'true'
           UPLOAD_COUNT:           ${{ inputs.count || '15' }}
-          NICHES_ENABLED:         'exam_concepts,science_explainers'
+          NICHES_ENABLED:         'why_things_work,exam_concepts,science_explainers,india_facts,mind_and_body'
           LANGUAGES_ENABLED:      'en'
           TTS_PROVIDER:           edge
           TTS_LANGUAGE:           en-IN

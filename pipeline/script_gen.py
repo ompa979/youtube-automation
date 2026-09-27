@@ -1,7 +1,7 @@
 """Natural Indian-English educational script generation.
 
-Gemini 2.0 Flash is the PRIMARY model.
-Gemini 3.8 Flash / 2.0 Flash Lite are fallbacks.
+Gemini 3.8 Flash is the PRIMARY model.
+Gemini 2.0 Flash Lite is the fallback.
 All models are Google — no OpenRouter dependency.
 
 Also provides:
@@ -23,6 +23,16 @@ from dataclasses import dataclass, asdict
 import google.generativeai as genai
 
 from .quality import validate_script
+
+
+# Ordered fallback list used by every Gemini call site in this module.
+# gemini-2.0-flash was deprecated; gemini-3.8-flash is now the primary.
+# Add newer models here when they become available — all call sites pick
+# them up automatically without any further changes.
+_GEMINI_MODELS: list[str] = [
+    "gemini-3.8-flash",
+    "gemini-2.0-flash-lite",
+]
 
 
 def _stable_hash(text: str) -> int:
@@ -262,17 +272,31 @@ def _parse_json(raw: str) -> dict:
 
 
 def _generate_gemini(prompt: str, api_key: str, model_name: str | None = None) -> str:
+    """Call Gemini with a single explicit model, or walk _GEMINI_MODELS on failure.
+
+    Passing `model_name` pins to that model (used by call sites that already
+    loop externally).  Omitting it lets this function try each entry in
+    _GEMINI_MODELS in order so callers don't need to duplicate the fallback
+    logic.
+    """
     genai.configure(api_key=api_key)
-    model_to_use = model_name or os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    model = genai.GenerativeModel(model_to_use, generation_config={
-        "temperature": 0.75,
-        "response_mime_type": "application/json",
-    })
-    resp = model.generate_content(prompt)
-    text = getattr(resp, "text", None)
-    if not text:
-        raise RuntimeError(f"Gemini ({model_to_use}) returned an empty response")
-    return text
+    candidates = [model_name] if model_name else _GEMINI_MODELS
+    last_exc: Exception | None = None
+    for model_to_use in candidates:
+        try:
+            model = genai.GenerativeModel(model_to_use, generation_config={
+                "temperature": 0.75,
+                "response_mime_type": "application/json",
+            })
+            resp = model.generate_content(prompt)
+            text = getattr(resp, "text", None)
+            if not text:
+                raise RuntimeError(f"Gemini ({model_to_use}) returned an empty response")
+            return text
+        except Exception as exc:
+            print(f"[!] Gemini {model_to_use} failed: {exc}")
+            last_exc = exc
+    raise RuntimeError(f"All Gemini models failed: {last_exc}") from last_exc
 
 
 def _first_text(raw: dict, *keys: str) -> str:
@@ -383,7 +407,7 @@ Return ONLY the new title string, nothing else."""
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash", generation_config={"temperature": 0.5})
+        model = genai.GenerativeModel(_GEMINI_MODELS[0], generation_config={"temperature": 0.5})
         resp = model.generate_content(prompt)
         new_title = (getattr(resp, "text", "") or "").strip().strip('"').strip("'")
         if new_title and 5 < len(new_title) <= 100:
@@ -403,7 +427,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
     prompt = _build_prompt(topic, niche_cfg, language, hook_style=hook_style)
     raw: str | None = None
 
-    for model_name in ["gemini-2.0-flash", "gemini-3.8-flash", "gemini-2.0-flash-lite"]:
+    for model_name in _GEMINI_MODELS:
         try:
             print(f"[pipeline] Script generator: Gemini ({model_name})")
             raw = _generate_gemini(prompt, settings.gemini_api_key, model_name)
@@ -419,12 +443,12 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
     except Exception as parse_exc:
         print(f"[!] Script JSON invalid: {parse_exc}")
         try:
-            print("[pipeline] JSON repair: Gemini 2.0 Flash Lite")
+            print(f"[pipeline] JSON repair: trying {_GEMINI_MODELS}")
             repaired_raw = _generate_gemini(
                 "Convert the following malformed output into ONLY the exact JSON schema requested. "
                 "Do not add markdown or explanations.\n\n" + raw[:12000],
                 settings.gemini_api_key,
-                "gemini-2.0-flash-lite",
+                # No model_name → _generate_gemini walks _GEMINI_MODELS with fallback
             )
             parsed = _parse_json(repaired_raw)
             print("[qa] JSON repair succeeded")
@@ -443,8 +467,9 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
     print("[qa] first script needs repair: " + "; ".join(qa.issues))
     repair_prompt = _build_prompt(topic, niche_cfg, language, "; ".join(qa.issues), hook_style=hook_style)
     try:
-        print("[pipeline] Script repair: Gemini 2.0 Flash")
-        raw2 = _generate_gemini(repair_prompt, settings.gemini_api_key, "gemini-2.0-flash")
+        print(f"[pipeline] Script repair: trying {_GEMINI_MODELS}")
+        raw2 = _generate_gemini(repair_prompt, settings.gemini_api_key)
+        # No model_name → _generate_gemini walks _GEMINI_MODELS with fallback
         repaired = _to_script(_parse_json(raw2))
         qa2 = validate_script(repaired, language)
         if not qa2.ok:

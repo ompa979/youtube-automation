@@ -40,21 +40,6 @@ _GEMINI_MODELS: list[str] = [
 # trying the next model. Keeps CI runs from stalling indefinitely.
 _MAX_RETRY_WAIT_SECONDS: int = 70
 
-# Models blacklisted for the remainder of this process after returning a
-# *daily* quota exhaustion (GenerateRequestsPerDayPerProjectPerModel-FreeTier).
-# These are never retried — their daily budget is gone for 24 h and every
-# further attempt just burns time.  Short-window RPM 429s (retry_delay ≤
-# _MAX_RETRY_WAIT_SECONDS) still get the normal one-retry treatment.
-_DAILY_QUOTA_BLACKLIST: set[str] = set()
-
-
-def _is_daily_quota_error(exc: Exception) -> bool:
-    """Return True when the error is a *per-day* quota exhaustion, not an RPM spike."""
-    msg = str(exc)
-    return "GenerateRequestsPerDayPerProjectPerModel" in msg or (
-        "quota" in msg.lower() and "day" in msg.lower()
-    )
-
 
 def _stable_hash(text: str) -> int:
     """Deterministic hash so the same topic always rotates to the same hook
@@ -326,11 +311,6 @@ def _generate_gemini(prompt: str, api_key: str, model_name: str | None = None) -
     last_exc: Exception | None = None
 
     for model_to_use in candidates:
-        # Skip models whose daily free-tier quota is already exhausted.
-        if model_to_use in _DAILY_QUOTA_BLACKLIST:
-            print(f"[!] Gemini {model_to_use} skipped — daily quota exhausted this run")
-            continue
-
         retry_attempted = False
         while True:
             try:
@@ -345,20 +325,13 @@ def _generate_gemini(prompt: str, api_key: str, model_name: str | None = None) -
                 return text
             except Exception as exc:
                 is_429 = "429" in str(exc) or "quota" in str(exc).lower()
-                if is_429:
-                    if _is_daily_quota_error(exc):
-                        # Daily budget is gone — blacklist for the rest of the process.
-                        _DAILY_QUOTA_BLACKLIST.add(model_to_use)
-                        print(f"[!] Gemini {model_to_use} daily quota exhausted — blacklisted for this run")
-                        last_exc = exc
-                        break  # move to next model immediately
-                    if not retry_attempted:
-                        delay = _parse_retry_delay(exc)
-                        if delay is not None and delay <= _MAX_RETRY_WAIT_SECONDS:
-                            print(f"[!] Gemini {model_to_use} rate-limited — retrying in {delay:.0f}s")
-                            time.sleep(delay + 1)  # +1s safety buffer
-                            retry_attempted = True
-                            continue  # retry same model
+                if is_429 and not retry_attempted:
+                    delay = _parse_retry_delay(exc)
+                    if delay is not None and delay <= _MAX_RETRY_WAIT_SECONDS:
+                        print(f"[!] Gemini {model_to_use} rate-limited — retrying in {delay:.0f}s")
+                        time.sleep(delay + 1)  # +1s safety buffer
+                        retry_attempted = True
+                        continue  # retry same model
                 print(f"[!] Gemini {model_to_use} failed: {exc}")
                 last_exc = exc
                 break  # move to next model

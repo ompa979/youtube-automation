@@ -24,14 +24,11 @@ MIN_SCENES = 3
 MAX_SCENES = 8
 
 # Rough spoken-word budget for a tight Short. At natural pace (~150 wpm /
-# 2.5 words-per-second), this keeps total narration under ~65s.
-# 65s is the practical ceiling: YouTube Shorts must be ≤60s of *video* but
-# TTS renders slightly faster than the 2.5 wps estimate, so a 65s word-count
-# target lands the rendered clip safely under 60s.  The previous 55s limit
-# was triggering unnecessary repair loops on scripts that rendered fine.
+# 2.5 words-per-second), this keeps total narration under ~55s — completion
+# rate drops sharply past that on Shorts, so this is enforced, not advisory.
 WORDS_PER_SECOND = 2.5
-MAX_SPOKEN_SECONDS = 65
-MAX_WORDS = int(MAX_SPOKEN_SECONDS * WORDS_PER_SECOND)  # 162
+MAX_SPOKEN_SECONDS = 55
+MAX_WORDS = int(MAX_SPOKEN_SECONDS * WORDS_PER_SECOND)  # 137
 
 
 @dataclass

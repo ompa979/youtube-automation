@@ -38,7 +38,11 @@ _GEMINI_MODELS: list[str] = [
 
 # Maximum seconds to wait on a 429 retry-delay hint before giving up and
 # trying the next model. Keeps CI runs from stalling indefinitely.
-_MAX_RETRY_WAIT_SECONDS: int = 70
+# Lowered from 70s -> 25s: with only 2 models in the fallback chain, a single
+# stall this long is a meaningful chunk of total build time; 25s still covers
+# almost every short RPM-window 429 while failing over to the next model
+# much faster when it doesn't.
+_MAX_RETRY_WAIT_SECONDS: int = 25
 
 # Models blacklisted for the remainder of this process after returning a
 # *daily* quota exhaustion (GenerateRequestsPerDayPerProjectPerModel-FreeTier).
@@ -124,10 +128,16 @@ def _build_prompt(
     hook_instruction = _HOOK_STYLES[hook_style]
 
     lang_instruction = """
-Write the viewer-facing narration in clear, natural conversational Indian English.
-Use an Indian English speaking style: simple phrasing, natural rhythm, familiar
-Indian examples where useful, but do NOT use Hinglish, Roman Hindi, Devanagari,
-or forced Indian slang. Keep technical terms in standard English.
+Write the viewer-facing narration in SIMPLE, clear, natural conversational Indian English,
+aimed at Indian viewers (school/exam-going audience, general public — not native-English
+academics). Concretely:
+- Prefer short sentences (roughly 8-14 words) over long compound ones.
+- Prefer everyday words over uncommon/formal vocabulary (e.g. "use" not "utilize",
+  "show" not "demonstrate", "because" not "owing to") — never at the cost of accuracy.
+- Use an Indian English speaking style: natural rhythm, familiar Indian examples where
+  useful, but do NOT use Hinglish, Roman Hindi, Devanagari, or forced Indian slang.
+- Keep necessary technical/exam terms in standard English and briefly explain them in
+  plain words the first time they appear, instead of assuming the viewer already knows them.
 The `tts_text` must be the same English spoken content, optimized only for natural
 speech pauses and pronunciation. Do not translate it into Hindi.
 """.strip()
@@ -459,105 +469,94 @@ def _ensure_hashtags(description: str, niche_key: str | None) -> str:
     return description.rstrip() + "\n\n" + " ".join(to_add)
 
 
-def seo_optimize_title(title: str, topic: str, api_key: str) -> str:
-    """Optimization #3: second Gemini call to maximize YouTube Shorts CTR and search rank.
+_SEO_HASHTAGS_BY_NICHE = {
+    "why_things_work": ["#shorts", "#didyouknow", "#sciencefacts", "#amazingfacts", "#learnonshortsm"],
+    "exam_concepts":   ["#shorts", "#upsc", "#examprep", "#studymotivation", "#currentaffairs"],
+    "science_explainers": ["#shorts", "#science", "#sciencefacts", "#physics", "#biology"],
+    "india_facts":     ["#shorts", "#india", "#indiafacts", "#incredibleindia", "#indianhistory"],
+    "mind_and_body":   ["#shorts", "#brainfacts", "#health", "#psychology", "#studytips"],
+}
 
-    Uses the proven viral-title formula:
-      [CURIOSITY GAP] + [BENEFIT/PAYOFF] or [SURPRISING CLAIM] + [CONTEXT]
-    Examples of high-CTR patterns:
-      'Why Your Phone Dies Faster in Cold' (relatable + why)
-      'The One Trick Toppers Use for Memory' (FOMO + benefit)
-      'India Did THIS Before the World Knew' (pride + mystery)
+
+def seo_optimize_all(
+    title: str, description: str, tags: list[str], topic: str, niche_key: str, api_key: str
+) -> tuple[str, str, list[str]]:
+    """Single Gemini call that optimizes title + description + tags together.
+
+    This REPLACES the old seo_optimize_title() + seo_optimize_description_and_tags()
+    pair. Two problems with the old version, both fixed here:
+
+    1. QUOTA: the old functions each called genai directly on only
+       _GEMINI_MODELS[0], bypassing the shared fallback/retry/daily-quota-blacklist
+       logic in _generate_gemini(). Once the free-tier daily quota on that one
+       model was gone (easy — 20 req/day, and every video was already burning
+       2-4 calls before this even ran), every SEO call for the rest of the day
+       silently failed and the video shipped with its raw, non-optimized title
+       and description. This is "where the SEO went."
+    2. COST: it was two separate Gemini calls per video. Merging them into one
+       halves the SEO budget, so the daily quota stretches over roughly twice
+       as many videos before SEO starts falling back to unoptimized text.
+
+    Now routed through _generate_gemini(prompt, api_key) with no model_name,
+    so it gets the same model-fallback, 429 retry-with-backoff, and
+    daily-quota-blacklist behavior as script generation.
     """
-    prompt = f"""You are a YouTube SEO expert. You have studied which Shorts titles get clicked the most in India.
-
-VIRAL TITLE FORMULA for Indian educational Shorts:
-- Pattern A (Curiosity gap): "Why [Relatable Thing] Actually [Surprising Explanation]"
-- Pattern B (Benefit + Secret): "The [One/Real] Reason [Thing] — Most People Don't Know This"
-- Pattern C (Pride/Identity): "India [Did/Has/Built] [Surprising Fact] — Here's Why"
-- Pattern D (You-frame): "Why YOUR [Body/Brain/Phone] Does [Thing] Explained"
-
-RULES:
-- Under 60 characters
-- Must be 100% accurate — no false promises
-- Use the most searched keywords for this topic in India (Hindi-English mix awareness: e.g. "exam prep", "brain facts", "why sky is blue")
-- No ALL CAPS, no excessive punctuation, no emojis in title
-- The title should make someone stop scrolling and feel 'I need to know this'
-
-TOPIC: {topic}
-CURRENT TITLE: {title}
-
-Return ONLY the improved title string, nothing else. If the current title already follows these patterns well, return it unchanged."""
-
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(_GEMINI_MODELS[0], generation_config={"temperature": 0.6})
-        resp = model.generate_content(prompt)
-        new_title = (getattr(resp, "text", "") or "").strip().strip('"').strip("'")
-        if new_title and 5 < len(new_title) <= 100:
-            print(f"[seo] title optimized: {title!r} → {new_title!r}")
-            return new_title
-    except Exception as exc:
-        print(f"[!] SEO title optimization failed (non-fatal): {exc}")
-    return title  # fall back to original if Gemini fails
-
-
-def seo_optimize_description_and_tags(
-    description: str, tags: list[str], topic: str, niche_key: str, api_key: str
-) -> tuple[str, list[str]]:
-    """NEW: Third Gemini call to optimize description and tags for YouTube search.
-    Description is critical for SEO — YouTube indexes it for search ranking.
-    Returns (optimized_description, optimized_tags).
-    """
-    _SEO_HASHTAGS_BY_NICHE = {
-        "why_things_work": ["#shorts", "#didyouknow", "#sciencefacts", "#amazingfacts", "#learnonshortsm"],
-        "exam_concepts":   ["#shorts", "#upsc", "#examprep", "#studymotivation", "#currentaffairs"],
-        "science_explainers": ["#shorts", "#science", "#sciencefacts", "#physics", "#biology"],
-        "india_facts":     ["#shorts", "#india", "#indiafacts", "#incredibleindia", "#indianhistory"],
-        "mind_and_body":   ["#shorts", "#brainfacts", "#health", "#psychology", "#studytips"],
-    }
     base_tags = _SEO_HASHTAGS_BY_NICHE.get(niche_key, ["#shorts", "#learneveryday"])
-    prompt = f"""You are a YouTube SEO specialist for Indian educational content.
+    prompt = f"""You are a YouTube SEO specialist for Indian educational Shorts. You have studied which
+titles, descriptions and tags rank highest and get clicked the most for Indian audiences.
 
 TOPIC: {topic}
 NICHE: {niche_key}
+CURRENT TITLE: {title}
 CURRENT DESCRIPTION: {description}
 CURRENT TAGS: {tags}
 
-Task: Rewrite the description and tags to maximize YouTube search ranking.
+VIRAL TITLE FORMULA for Indian educational Shorts (use whichever fits the topic best):
+- Curiosity gap: "Why [Relatable Thing] Actually [Surprising Explanation]"
+- Benefit + secret: "The [One/Real] Reason [Thing] — Most People Don't Know This"
+- Pride/identity: "India [Did/Has/Built] [Surprising Fact] — Here's Why"
+- You-frame: "Why YOUR [Body/Brain/Phone] Does [Thing] Explained"
+
+TITLE RULES:
+- Under 60 characters, 100% accurate, no false promises, no ALL CAPS, no emojis
+- Use the most-searched keywords for this topic among Indian viewers
+- If the current title already fits these patterns well, keep it unchanged
 
 DESCRIPTION RULES:
 - First sentence must contain the most-searched keywords for this topic in India
-- 2-3 sentences max
-- End with exactly these hashtags: {' '.join(base_tags)}
-- Natural language, not keyword stuffing
+- 2-3 sentences max, natural language, not keyword stuffing
 - Include a light call-to-action: 'Follow for more [topic area] explained simply'
+- End with exactly these hashtags: {' '.join(base_tags)}
 
 TAGS RULES:
-- 10-15 tags
-- Mix: broad (india, education, shorts) + specific (the exact concept) + long-tail ('why does X happen')
-- All lowercase
-- No hashtag symbol in tags array
+- 10-15 tags, all lowercase, no '#' symbol
+- Mix broad (india, education, shorts) + specific (the exact concept) + long-tail ('why does x happen')
 
-Return EXACTLY this JSON (no markdown):
-{{"description": "...", "tags": ["tag1", "tag2", ...]}}"""
+LANGUAGE STYLE (applies to title + description):
+- Simple, everyday Indian English — words a 10th-standard student would immediately understand
+- No jargon, no complex/uncommon vocabulary, short clear sentences
+
+Return EXACTLY this JSON (no markdown, no commentary):
+{{"title": "...", "description": "...", "tags": ["tag1", "tag2", ...]}}"""
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(_GEMINI_MODELS[0], generation_config={"temperature": 0.5})
-        resp = model.generate_content(prompt)
-        raw = (getattr(resp, "text", "") or "").strip()
-        # Strip markdown fences if present
+        raw = _generate_gemini(prompt, api_key)
         raw = re.sub(r"```(?:json)?|```", "", raw).strip()
         data = json.loads(raw)
+        new_title = str(data.get("title", title)).strip().strip('"').strip("'")
         new_desc = str(data.get("description", description)).strip()
-        new_tags = [str(t).strip().lower() for t in data.get("tags", tags) if str(t).strip()]
-        if new_desc and new_tags:
-            print(f"[seo] description+tags optimized for topic: {topic!r}")
-            return new_desc, new_tags
+        new_tags = [str(t).strip().lower().lstrip("#") for t in data.get("tags", tags) if str(t).strip()]
+        if not (5 < len(new_title) <= 100):
+            new_title = title
+        if not new_desc:
+            new_desc = description
+        if not new_tags:
+            new_tags = tags
+        print(f"[seo] optimized in one call — title={new_title!r}")
+        return new_title, new_desc, new_tags
     except Exception as exc:
-        print(f"[!] SEO description/tags optimization failed (non-fatal): {exc}")
-    return description, tags
+        print(f"[!] SEO optimization failed (non-fatal, shipping raw title/description/tags): {exc}")
+        return title, description, tags
 
 
 def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_key: str | None = None) -> Script:
@@ -567,18 +566,15 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
     hook_style = _pick_hook_style(topic)
     print(f"[pipeline] hook style for this topic: {hook_style}")
     prompt = _build_prompt(topic, niche_cfg, language, hook_style=hook_style)
-    raw: str | None = None
 
-    for model_name in _GEMINI_MODELS:
-        try:
-            print(f"[pipeline] Script generator: Gemini ({model_name})")
-            raw = _generate_gemini(prompt, settings.gemini_api_key, model_name)
-            break
-        except Exception as e:
-            print(f"[!] Gemini {model_name} failed: {e}")
-
-    if raw is None:
-        raise RuntimeError("All Gemini models failed for script generation")
+    # No model_name → walks _GEMINI_MODELS with the shared fallback/retry/
+    # daily-quota-blacklist logic (previously this call site had its own bare
+    # loop that didn't retry 429s or respect the blacklist, so it could waste
+    # time re-hitting a model already known to be exhausted for the day).
+    try:
+        raw = _generate_gemini(prompt, settings.gemini_api_key)
+    except Exception as e:
+        raise RuntimeError(f"All Gemini models failed for script generation: {e}") from e
 
     try:
         parsed = _parse_json(raw)
@@ -601,10 +597,9 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
     qa = validate_script(script, language)
     if qa.ok:
         print(f"[qa] script passed: scenes={len(script.scenes)} words={sum(len(s.narration.split()) for s in script.scenes)}")
-        # Optimization #3: SEO-optimize the title before returning
-        script.title = seo_optimize_title(script.title, topic, settings.gemini_api_key)
-        script.description, script.tags = seo_optimize_description_and_tags(
-            script.description, script.tags, topic, niche_key or "", settings.gemini_api_key
+        # Optimization #3: SEO-optimize title + description + tags in one call
+        script.title, script.description, script.tags = seo_optimize_all(
+            script.title, script.description, script.tags, topic, niche_key or "", settings.gemini_api_key
         )
         script.description = _ensure_hashtags(script.description, niche_key)
         return script
@@ -620,9 +615,8 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
         if not qa2.ok:
             raise RuntimeError("; ".join(qa2.issues))
         print(f"[qa] repaired script passed: scenes={len(repaired.scenes)}")
-        repaired.title = seo_optimize_title(repaired.title, topic, settings.gemini_api_key)
-        repaired.description, repaired.tags = seo_optimize_description_and_tags(
-            repaired.description, repaired.tags, topic, niche_key or "", settings.gemini_api_key
+        repaired.title, repaired.description, repaired.tags = seo_optimize_all(
+            repaired.title, repaired.description, repaired.tags, topic, niche_key or "", settings.gemini_api_key
         )
         repaired.description = _ensure_hashtags(repaired.description, niche_key)
         return repaired

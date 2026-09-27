@@ -115,7 +115,7 @@ def _normalize_image(path: Path, target_w: int, target_h: int) -> bool:
         return False
 
 
-def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: int = 1920, attempts: int = 3) -> bool:
+def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: int = 1920, attempts: int = 2) -> bool:
     encoded = urllib.parse.quote(prompt, safe="")
     url = POLLINATIONS.format(prompt=encoded)
     last_error: Exception | None = None
@@ -129,7 +129,14 @@ def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: 
             "seed": random.randint(1, 2_000_000_000),
         }
         try:
-            r = requests.get(url, params=params, timeout=150)
+            # Was timeout=150, attempts=3 (worst case ~470s of blocking per
+            # scene, run sequentially across every scene — this was the
+            # single biggest hidden contributor to the >20 min build time).
+            # 45s comfortably covers a normal Pollinations response; if it
+            # hasn't answered by then it's very unlikely to before 150s
+            # either, so we fail fast into the second attempt / Pexels
+            # fallback instead of blocking the whole pipeline.
+            r = requests.get(url, params=params, timeout=45)
             r.raise_for_status()
             if len(r.content) < 20_000:
                 raise RuntimeError(f"response too small ({len(r.content)} bytes) — likely an error page, not an image")
@@ -144,7 +151,7 @@ def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: 
             out_path.unlink(missing_ok=True)
             print(f"[visuals] pollinations attempt {attempt}/{attempts} failed: {exc}")
             if attempt < attempts:
-                time.sleep(3 * attempt)  # 3s, 6s backoff — pollinations is often just momentarily overloaded
+                time.sleep(2)  # short flat backoff instead of 3s/6s escalating
 
     print(f"[visuals] pollinations exhausted all attempts: {last_error}")
     return False

@@ -35,6 +35,7 @@ import os
 import re
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -213,18 +214,19 @@ def _run_one(
     scene_dir = WORK_DIR / f"scenes_{video_index:02d}"
     scene_dir.mkdir(parents=True, exist_ok=True)
 
-    scene_images: list[Path] = []
-    scene_audios: list[Path] = []
-    scene_ass: list[Path] = []
-    durations: list[float] = []
-    scene_texts: list[str] = []
-    scene_narrations: list[str] = []
-    scene_word_timings: list[list[dict]] = []
+    # Per-scene TTS + image fetch used to run fully sequential (one scene's
+    # audio, then its image, then the next scene's audio, ...). Both calls
+    # are pure network I/O (edge-tts/gTTS and Pollinations/Pexels), so they
+    # were mostly just blocking on the wire rather than on CPU. Running scenes
+    # concurrently is the single biggest lever on total build time — for a
+    # typical 6-scene video this turns roughly 6x(TTS + image) of sequential
+    # wall time into ~ceil(6/SCENE_WORKERS)x, a multi-minute cut per video.
+    # Workers are capped (default 4) to stay polite to the free Pollinations/
+    # edge-tts endpoints rather than firing every scene at once.
+    scene_workers = max(1, int(os.getenv("SCENE_WORKERS", "4")))
 
-    for scene in script.scenes:
+    def _process_scene(scene) -> dict:
         scene_no = scene.index + 1
-        print(f"[pipeline] scene {scene_no}/{len(script.scenes)}")
-
         narration = (scene.narration or "").strip()
         tts_text = (scene.tts_text or narration).strip()
         if not narration:
@@ -243,17 +245,37 @@ def _run_one(
             ass_path=ass_path,
             overlay_text=None,
         )
-
         image = fetch_scene_image(
             scene.index, scene.image_prompt, visual_style, settings, subject_area=subject_area
         )
-        scene_images.append(image)
-        scene_audios.append(audio)
-        scene_ass.append(ass_path)
-        durations.append(duration)
-        scene_texts.append(scene.on_screen_text or "")
-        scene_narrations.append(narration)
-        scene_word_timings.append(word_timings or [])
+        return {
+            "index": scene.index,
+            "image": image,
+            "audio": audio,
+            "ass": ass_path,
+            "duration": duration,
+            "text": scene.on_screen_text or "",
+            "narration": narration,
+            "word_timings": word_timings or [],
+        }
+
+    print(f"[pipeline] processing {len(script.scenes)} scenes with {scene_workers} parallel workers")
+    results: dict[int, dict] = {}
+    with ThreadPoolExecutor(max_workers=min(scene_workers, len(script.scenes))) as pool:
+        futures = {pool.submit(_process_scene, scene): scene.index for scene in script.scenes}
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()  # raises immediately if a scene failed
+            print(f"[pipeline] scene {idx + 1}/{len(script.scenes)} ready")
+
+    ordered = [results[scene.index] for scene in script.scenes]
+    scene_images: list[Path] = [r["image"] for r in ordered]
+    scene_audios: list[Path] = [r["audio"] for r in ordered]
+    scene_ass: list[Path] = [r["ass"] for r in ordered]
+    durations: list[float] = [r["duration"] for r in ordered]
+    scene_texts: list[str] = [r["text"] for r in ordered]
+    scene_narrations: list[str] = [r["narration"] for r in ordered]
+    scene_word_timings: list[list[dict]] = [r["word_timings"] for r in ordered]
 
     # Write script metadata (overwritten each video — latest always wins)
     metadata_path = OUT_DIR / "script.json"

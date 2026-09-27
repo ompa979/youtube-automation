@@ -39,17 +39,53 @@ def _creds_from_payload(payload: dict) -> Credentials:
     )
 
 
-def _set_thumbnail(yt, video_id: str, thumb_path: Path) -> None:
-    """Upload thumbnail JPEG. Requires channel verification for custom thumbnails."""
+def _set_thumbnail(yt, video_id: str, thumb_path: Path, attempts: int = 4) -> None:
+    """Upload thumbnail JPEG. Requires channel verification for custom thumbnails.
+
+    Retries on transient failures: thumbnails.set is sometimes rejected with a
+    generic 403 in the first few seconds after videos.insert() returns, before
+    YouTube has fully registered the new video server-side — not because of a
+    real permission problem. The previous version gave up after one try, so
+    every video that hit this narrow window silently shipped with no
+    thumbnail. Permission errors that will never resolve by waiting (missing
+    scope, channel not allowed to set custom thumbnails, bad image) are
+    detected and NOT retried, so this doesn't waste time on a hopeless case.
+    """
     if not thumb_path.exists() or thumb_path.stat().st_size < 5000:
         print("[upload] no thumbnail file — skipping")
         return
-    try:
-        media = MediaFileUpload(str(thumb_path), mimetype="image/jpeg")
-        yt.thumbnails().set(videoId=video_id, media_body=media).execute()
-        print(f"[upload] thumbnail uploaded: {thumb_path.name}")
-    except Exception as exc:
-        print(f"[!] Thumbnail upload failed (non-fatal): {exc}")
+
+    _PERMANENT_MARKERS = (
+        "doesn't have permissions to upload and set custom video thumbnails",
+        "insufficientpermissions",
+        "invalidimage",
+        "mediabodyrequired",
+    )
+
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            media = MediaFileUpload(str(thumb_path), mimetype="image/jpeg")
+            yt.thumbnails().set(videoId=video_id, media_body=media).execute()
+            print(f"[upload] thumbnail uploaded: {thumb_path.name} (attempt {attempt})")
+            return
+        except Exception as exc:
+            last_exc = exc
+            msg = str(exc)
+            if any(marker in msg.lower() for marker in _PERMANENT_MARKERS):
+                print(
+                    "[!] Thumbnail upload REJECTED — this channel is very likely not "
+                    "phone-verified, or doesn't otherwise have permission to set custom "
+                    "thumbnails. Verify at https://www.youtube.com/verify . "
+                    f"Original error: {msg}"
+                )
+                return
+            if attempt < attempts:
+                delay = 5 * attempt  # 5s, 10s, 15s
+                print(f"[!] Thumbnail upload attempt {attempt}/{attempts} failed, retrying in {delay}s: {msg}")
+                time.sleep(delay)
+
+    print(f"[!] Thumbnail upload failed after {attempts} attempts (non-fatal): {last_exc}")
 
 
 def _build_timestamp_comment(script: Script, durations: list[float]) -> str:
@@ -151,8 +187,10 @@ def upload_video(
     url = f"https://youtu.be/{video_id}"
     print(f"[upload] video live: {url}")
 
-    # Small pause so YouTube indexes the video before we post metadata
-    time.sleep(3)
+    # Pause so YouTube registers the video server-side before we attach
+    # thumbnail/metadata. 3s -> 6s: thumbnails.set was occasionally hitting a
+    # transient 403 in this window (now also retried in _set_thumbnail itself).
+    time.sleep(6)
 
     # Optimization #1: Set thumbnail
     thumb_path = OUT_DIR / "thumbnail.jpg"

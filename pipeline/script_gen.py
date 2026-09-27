@@ -24,6 +24,7 @@ from dataclasses import dataclass, asdict
 import google.generativeai as genai
 
 from .quality import validate_script
+from .subject_area import classify_subject_area
 
 
 # Ordered fallback list used by every Gemini call site in this module.
@@ -457,11 +458,14 @@ HASHTAG_POOL: dict[str, list[str]] = {
 }
 
 
-def _ensure_hashtags(description: str, niche_key: str | None) -> str:
+def _ensure_hashtags(description: str, topic: str, niche_key: str | None) -> str:
     existing = re.findall(r"#\w+", description)
     if len(existing) >= 3:
         return description
-    pool = HASHTAG_POOL.get(niche_key or "", HASHTAG_POOL["default"])
+    pool = _SEO_HASHTAGS_BY_SUBJECT_AREA.get(
+        classify_subject_area(topic),
+        HASHTAG_POOL.get(niche_key or "", HASHTAG_POOL["default"]),
+    )
     existing_lower = {e.lower() for e in existing}
     to_add = [h for h in pool if h.lower() not in existing_lower][: 3 - len(existing)]
     if not to_add:
@@ -475,6 +479,26 @@ _SEO_HASHTAGS_BY_NICHE = {
     "science_explainers": ["#shorts", "#science", "#sciencefacts", "#physics", "#biology"],
     "india_facts":     ["#shorts", "#india", "#indiafacts", "#incredibleindia", "#indianhistory"],
     "mind_and_body":   ["#shorts", "#brainfacts", "#health", "#psychology", "#studytips"],
+}
+
+# Keyed by the topic's actual *subject area* (from classify_subject_area),
+# not by which content_plan.json niche bucket the video happened to be
+# rotated into. This is the correct signal to hang hashtags off of: when
+# Google Trends substitutes an off-niche trending topic (e.g. a banking
+# story landing in the "why_things_work" rotation slot), the niche-keyed
+# pool above would hand back #sciencefacts on a banking video — which is
+# exactly the bug reported (bank-passbook video tagged #sciencefacts
+# #amazingfacts #learnonshortsm). subject_area is derived from the topic
+# text itself, so it tracks what the video is actually about regardless
+# of rotation. Falls back to the niche-keyed pool only for "default"
+# (no keyword match at all).
+_SEO_HASHTAGS_BY_SUBJECT_AREA = {
+    "geography": ["#shorts", "#geography", "#indiafacts", "#didyouknow", "#mapfacts"],
+    "history": ["#shorts", "#history", "#indianhistory", "#didyouknow", "#incredibleindia"],
+    "science": ["#shorts", "#sciencefacts", "#didyouknow", "#physics", "#biology"],
+    "economy": ["#shorts", "#economy", "#bankingawareness", "#examprep", "#financefacts"],
+    "psychology": ["#shorts", "#brainfacts", "#psychology", "#didyouknow", "#studytips"],
+    "india": ["#shorts", "#india", "#indiafacts", "#incredibleindia", "#didyouknow"],
 }
 
 
@@ -501,7 +525,10 @@ def seo_optimize_all(
     so it gets the same model-fallback, 429 retry-with-backoff, and
     daily-quota-blacklist behavior as script generation.
     """
-    base_tags = _SEO_HASHTAGS_BY_NICHE.get(niche_key, ["#shorts", "#learneveryday"])
+    base_tags = _SEO_HASHTAGS_BY_SUBJECT_AREA.get(
+        classify_subject_area(topic),
+        _SEO_HASHTAGS_BY_NICHE.get(niche_key, ["#shorts", "#learneveryday"]),
+    )
     prompt = f"""You are a YouTube SEO specialist for Indian educational Shorts. You have studied which
 titles, descriptions and tags rank highest and get clicked the most for Indian audiences.
 
@@ -601,7 +628,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
         script.title, script.description, script.tags = seo_optimize_all(
             script.title, script.description, script.tags, topic, niche_key or "", settings.gemini_api_key
         )
-        script.description = _ensure_hashtags(script.description, niche_key)
+        script.description = _ensure_hashtags(script.description, topic, niche_key)
         return script
 
     print("[qa] first script needs repair: " + "; ".join(qa.issues))
@@ -618,7 +645,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
         repaired.title, repaired.description, repaired.tags = seo_optimize_all(
             repaired.title, repaired.description, repaired.tags, topic, niche_key or "", settings.gemini_api_key
         )
-        repaired.description = _ensure_hashtags(repaired.description, niche_key)
+        repaired.description = _ensure_hashtags(repaired.description, topic, niche_key)
         return repaired
     except Exception as exc:
         raise RuntimeError(f"Generated script failed QA after one repair attempt: {exc}") from exc

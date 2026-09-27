@@ -219,6 +219,7 @@ def _run_one(
     durations: list[float] = []
     scene_texts: list[str] = []
     scene_narrations: list[str] = []
+    scene_word_timings: list[list[dict]] = []
 
     for scene in script.scenes:
         scene_no = scene.index + 1
@@ -234,7 +235,7 @@ def _run_one(
         audio_path = scene_dir / f"scene_{scene.index:02d}.mp3"
         ass_path   = scene_dir / f"scene_{scene.index:02d}.ass"
 
-        audio, ass, duration = synthesize_scene(
+        audio, word_timings, duration = synthesize_scene(
             subtitle_text=narration,
             tts_text=tts_text,
             voice=voice,
@@ -248,10 +249,11 @@ def _run_one(
         )
         scene_images.append(image)
         scene_audios.append(audio)
-        scene_ass.append(ass)
+        scene_ass.append(ass_path)
         durations.append(duration)
         scene_texts.append(scene.on_screen_text or "")
         scene_narrations.append(narration)
+        scene_word_timings.append(word_timings or [])
 
     # Write script metadata (overwritten each video — latest always wins)
     metadata_path = OUT_DIR / "script.json"
@@ -267,6 +269,7 @@ def _run_one(
         scene_narrations=scene_narrations,
         category=niche,
         topic=topic,
+        scene_word_timings=scene_word_timings,
     )
     print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
 

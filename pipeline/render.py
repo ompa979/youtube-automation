@@ -1,21 +1,25 @@
-"""Premium 9:16 educational rendering with burned-in subtitles + thumbnail.
+"""Premium 9:16 educational rendering with burned-in word-by-word captions + thumbnail.
 
 Layers per scene clip (bottom to top):
-  1. Ken Burns motion on the AI image
-  2. Narration subtitle strip  (bottom-anchored 170px safe margin, max 3
-                                 lines, font shrinks to fit, style rotates
-                                 bar/pill/card across scenes, fades in)
-  3. Keyword caption            (y≈70%, ALL-CAPS, tinted with the niche's
-                                 accent color, fixed clearance above the
-                                 subtitle block, fades in)
+  1. Ken Burns motion on the AI image, role-driven (hook/push_in/pan_right/static)
+  2. Word-by-word bold caption (bottom-anchored 170px safe margin, ONE word
+                                 on screen at a time, fire-color flash -> white,
+                                 pop-scale animation, timed to real or estimated
+                                 per-word speech timing — see captions.py).
+                                 Falls back to the old static full-sentence
+                                 block subtitle if there's no timing data.
+  3. Keyword caption            (y≈68%, ALL-CAPS, fire-tinted, fades in)
+  4. Exam badge                 (y≈6%, small accent-tinted pill, e.g. "UPSC 2025")
 
 Variety features (anti-monotone pass):
-  #1  Accent color per topic category (niche)         -> _accent_for_category
-  #2  Caption box style rotates bar / pill / card      -> _CAPTION_STYLES
+  #1  Accent color per SUBJECT AREA (geography/history/science/economy, detected
+      from the topic text)                                -> subject_area.py
+  #2  Caption box style rotates bar / pill / card (fallback path only)
   #3  Subtitle + keyword fade in instead of popping in -> alpha= expression
-  #4  Crossfade transition type rotates per cut         -> _TRANSITIONS
+  #4  Semantic crossfade transitions (wipe out of hook, fadeblack into the
+      closing scene, zoomin for geography, radial for history) -> _semantic_transition
   #5  Background music track picked per-video by hash   -> _pick_music
-  #6  Short whoosh SFX layered under every scene cut     -> assets/sfx/
+  #6  Whoosh SFX on every cut + a dedicated chime on the closing-scene cut
   #7  (script_gen.py) hook style rotates per topic
   #8  (script_gen.py) prompt now asks for varied pacing
   #9  Rotating outro CTA card appended as a final "scene" -> _make_outro_clip
@@ -30,6 +34,7 @@ import textwrap
 from pathlib import Path
 
 from .config import WORK_DIR, OUT_DIR, ASSETS_DIR
+from .captions import build_word_ass
 from .subject_area import (
     classify_subject_area,
     ACCENT_HEX,
@@ -254,6 +259,12 @@ def _subtitle_filter(narration: str, style: str, accent: str) -> str:
     )
 
 
+def _ass_filter_arg(ass_path: Path) -> str:
+    """Escape a path for use as the ffmpeg `ass=` filter argument."""
+    p = str(ass_path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    return f"ass='{p}'"
+
+
 def _ken_burns_clip(
     image: Path,
     duration: float,
@@ -265,29 +276,49 @@ def _ken_burns_clip(
     accent: str = ACCENT_PALETTE["default"],
     subject_area: str = "default",
     badge_text: str = "",
+    word_timings: list[dict] | None = None,
 ) -> None:
     total_frames = max(int(duration * FPS), 1)
     vf = _motion_filter(role, total_frames, subject_area)
 
     # Layer 2: 3-layer on-screen text system — exam badge (top), fire-tinted
-    # keyword (mid), white narration subtitle (bottom).
+    # keyword (mid), and a word-by-word bold caption (bottom) instead of a
+    # static full-sentence subtitle block.
     badge_f = _badge_filter(badge_text, accent) if badge_text and on_screen_text else ""
     keyword_f = _keyword_filter(on_screen_text) if on_screen_text else ""
-    subtitle_f = _subtitle_filter(narration, caption_style, accent) if narration else ""
 
     if badge_f:
         vf = f"{vf},{badge_f}"
     if keyword_f:
         vf = f"{vf},{keyword_f}"
-    if subtitle_f:
-        vf = f"{vf},{subtitle_f}"
 
-    _run([
+    # Try word-by-word ASS karaoke captions first; fall back to the old
+    # single-block subtitle if there's no usable word timing, or if this
+    # ffmpeg build turns out not to have libass, in which case the run
+    # below throws and we retry once with the block-subtitle filter instead
+    # of failing the whole render.
+    ass_path = out.with_suffix(".ass")
+    has_words = bool(narration) and build_word_ass(word_timings, duration, ass_path)
+    vf_words = f"{vf},{_ass_filter_arg(ass_path)}" if has_words else vf
+
+    fallback_subtitle_f = _subtitle_filter(narration, caption_style, accent) if narration else ""
+    vf_fallback = f"{vf},{fallback_subtitle_f}" if fallback_subtitle_f else vf
+
+    cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", str(image),
-        "-vf", vf, "-t", f"{duration:.3f}", "-r", str(FPS),
+        "-vf", vf_words, "-t", f"{duration:.3f}", "-r", str(FPS),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
         "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", str(out),
-    ])
+    ]
+    if has_words:
+        try:
+            _run(cmd)
+            return
+        except Exception as exc:
+            print(f"[!] word-by-word ASS captions failed (falling back to block subtitle): {exc}")
+
+    cmd[cmd.index("-vf") + 1] = vf_fallback
+    _run(cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -602,6 +633,7 @@ def assemble_video(
     scene_narrations: list[str] | None = None,
     category: str = "default",
     topic: str = "",
+    scene_word_timings: list[list[dict]] | None = None,
 ) -> Path:
     del scene_ass
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -623,6 +655,9 @@ def assemble_video(
         clip = WORK_DIR / f"clip_{i:02d}.mp4"
         keyword = scene_texts[i] if scene_texts and i < len(scene_texts) else ""
         narration = scene_narrations[i] if scene_narrations and i < len(scene_narrations) else ""
+        word_timings = (
+            scene_word_timings[i] if scene_word_timings and i < len(scene_word_timings) else None
+        )
         style = _CAPTION_STYLES[i % len(_CAPTION_STYLES)]
 
         # Layer 5 role: hook / static("exam tip") / pan_right(geography) / push_in(default)
@@ -638,6 +673,7 @@ def assemble_video(
         _ken_burns_clip(
             img, actual, clip, role=role, on_screen_text=keyword, narration=narration,
             caption_style=style, accent=accent, subject_area=subject_area, badge_text=badge_text,
+            word_timings=word_timings,
         )
         clips.append(clip)
         actual_durations.append(actual)

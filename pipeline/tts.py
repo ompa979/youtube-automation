@@ -126,21 +126,41 @@ def _edge_voice_name() -> str:
     return voice
 
 
-def _edge_synth(text: str, audio_path: Path, attempts: int = 3) -> float:
+_EDGE_TICKS_PER_SECOND = 10_000_000  # edge-tts reports offset/duration in 100ns ticks
+
+
+def _edge_synth(text: str, audio_path: Path, attempts: int = 3) -> tuple[float, list[dict]]:
+    """Returns (duration_seconds, word_timings). word_timings comes straight
+    from edge-tts's own WordBoundary events (boundary="WordBoundary" must be
+    requested explicitly — it defaults to SentenceBoundary), so this is real
+    per-word timing, not an estimate."""
     if edge_tts is None:
         raise RuntimeError("edge-tts is not installed")
 
     voice = _edge_voice_name()
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
+        word_timings: list[dict] = []
         try:
             async def _run() -> None:
-                communicate = edge_tts.Communicate(text, voice)
-                await communicate.save(str(audio_path))
+                communicate = edge_tts.Communicate(text, voice, boundary="WordBoundary")
+                with open(audio_path, "wb") as f:
+                    async for chunk in communicate.stream():
+                        if chunk["type"] == "audio":
+                            f.write(chunk["data"])
+                        elif chunk["type"] == "WordBoundary":
+                            offset = chunk.get("offset", 0) / _EDGE_TICKS_PER_SECOND
+                            dur = chunk.get("duration", 0) / _EDGE_TICKS_PER_SECOND
+                            word_timings.append({
+                                "word": chunk.get("text", ""),
+                                "start": offset,
+                                "end": offset + dur,
+                            })
 
             asyncio.run(_run())
             if audio_path.exists() and audio_path.stat().st_size > 1000:
-                return _probe_duration(audio_path) or _estimate_duration(text)
+                duration = _probe_duration(audio_path) or _estimate_duration(text)
+                return duration, word_timings
             last_error = RuntimeError("edge-tts produced no usable audio")
         except Exception as exc:
             last_error = exc
@@ -191,6 +211,35 @@ def _espeak_synth(text: str, audio_path: Path) -> float:
 # Main entrypoint
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Word-timing fallback estimator — used for any provider that doesn't return
+# real per-word timestamps (Google Cloud, gTTS, eSpeak). Allocates the
+# measured audio duration across words weighted by character count, with a
+# small extra "pause" weight after clause/sentence punctuation, so it reads
+# close to natural pacing instead of perfectly even per-word slices.
+# ---------------------------------------------------------------------------
+def _estimate_word_timings(text: str, duration: float) -> list[dict]:
+    words = _clean_text(text).split()
+    if not words or duration <= 0:
+        return []
+    weights: list[float] = []
+    for w in words:
+        weight = float(len(w))
+        if w.endswith((",", ";", ":")):
+            weight += 2.0
+        if w.endswith((".", "!", "?")):
+            weight += 4.0
+        weights.append(max(1.0, weight))
+    total = sum(weights)
+    t = 0.0
+    timings: list[dict] = []
+    for w, wt in zip(words, weights):
+        seg = duration * (wt / total)
+        timings.append({"word": w, "start": t, "end": t + seg})
+        t += seg
+    return timings
+
+
 def synthesize_scene(
     subtitle_text: str | None = None,
     tts_text: str | None = None,
@@ -230,17 +279,23 @@ def synthesize_scene(
         try:
             print(f"[tts] provider=google_cloud voice={GOOGLE_CLOUD_TTS_VOICE}")
             duration = _google_cloud_synth(spoken, audio_path)
-            return audio_path, None, duration
+            return audio_path, _estimate_word_timings(spoken, duration), duration
         except Exception as exc:
             errors.append(f"google_cloud: {exc}")
             print(f"[tts] Google Cloud TTS failed: {exc}")
 
-    # 2. Microsoft Edge TTS — NeerjaNeural Indian English (no key needed)
+    # 2. Microsoft Edge TTS — NeerjaNeural Indian English (no key needed).
+    # Returns REAL per-word timing straight from the service, not an estimate.
     if TTS_PROVIDER != "gtts":  # skip edge if user forced gtts
         try:
             print(f"[tts] provider=edge voice={_edge_voice_name()}")
-            duration = _edge_synth(spoken, audio_path)
-            return audio_path, None, duration
+            duration, word_timings = _edge_synth(spoken, audio_path)
+            if not word_timings:
+                # Service responded but sent no WordBoundary events (has
+                # happened on some voices/regions) — estimate instead of
+                # silently shipping a video with no word-by-word captions.
+                word_timings = _estimate_word_timings(spoken, duration)
+            return audio_path, word_timings, duration
         except Exception as exc:
             errors.append(f"edge: {exc}")
             print(f"[tts] Edge-TTS failed: {exc}")
@@ -249,7 +304,7 @@ def synthesize_scene(
     try:
         print("[tts] provider=gtts voice=Google India English")
         duration = _gtts_synth(spoken, audio_path)
-        return audio_path, None, duration
+        return audio_path, _estimate_word_timings(spoken, duration), duration
     except Exception as exc:
         errors.append(f"gtts: {exc}")
         print(f"[tts] gTTS failed: {exc}")
@@ -258,7 +313,7 @@ def synthesize_scene(
     try:
         print("[tts] provider=espeak voice=en-in")
         duration = _espeak_synth(spoken, audio_path)
-        return audio_path, None, duration
+        return audio_path, _estimate_word_timings(spoken, duration), duration
     except Exception as exc:
         errors.append(f"espeak: {exc}")
         print(f"[tts] eSpeak failed: {exc}")

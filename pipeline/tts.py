@@ -143,7 +143,10 @@ def _edge_synth(text: str, audio_path: Path, attempts: int = 3) -> tuple[float, 
         word_timings: list[dict] = []
         try:
             async def _run() -> None:
-                communicate = edge_tts.Communicate(text, voice, boundary="WordBoundary")
+                # Recent edge-tts releases dropped the `boundary` kwarg from
+                # Communicate() — WordBoundary events are now emitted
+                # automatically in the stream() output, no request needed.
+                communicate = edge_tts.Communicate(text, voice)
                 with open(audio_path, "wb") as f:
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":

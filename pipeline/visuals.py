@@ -58,11 +58,59 @@ GLOBAL_QUALITY = (
 )
 
 
+_MIN_USABLE_SIDE = 200  # below this, treat as a broken/error-page image, not a small photo
+
+
 def _valid_image(path: Path) -> bool:
+    """Cheap sanity check: is this a real, minimally-sized image file at all
+    (not an HTML error page or truncated download)? Exact target dimensions
+    are enforced separately by `_normalize_image`, since Pollinations often
+    ignores the requested width/height and returns an odd size (e.g. a
+    731x1300 image for a 1080x1920 request) — that's still a perfectly good
+    photo, just the wrong canvas, so it shouldn't be discarded here.
+    """
     try:
         with Image.open(path) as img:
             width, height = img.size
-            return width >= 720 and height >= 1280 and path.stat().st_size >= 20_000
+            return (
+                width >= _MIN_USABLE_SIDE
+                and height >= _MIN_USABLE_SIDE
+                and path.stat().st_size >= 20_000
+            )
+    except Exception:
+        return False
+
+
+def _normalize_image(path: Path, target_w: int, target_h: int) -> bool:
+    """Resize/crop any downloaded image to exactly target_w x target_h.
+
+    Pollinations frequently ignores our requested width/height and returns
+    something else (e.g. 731x1300 instead of 1080x1920). Previously that got
+    rejected outright as "bad dimensions", wasting retries and Gemini quota
+    on images that were actually fine — and on the rare one that scraped
+    past the old, looser size floor, ffmpeg's zoompan chain then had to
+    upscale it ~2x, which looked soft/blurry in the final Short.
+
+    Instead, always normalize to the exact target canvas here with a
+    cover-crop (scale up to fill both dimensions, then center-crop), so the
+    output is consistently full-resolution regardless of what the API
+    returned, and ffmpeg never has to upscale a too-small source image.
+    """
+    try:
+        with Image.open(path) as img:
+            img = img.convert("RGB")
+            src_w, src_h = img.size
+            if src_w < _MIN_USABLE_SIDE or src_h < _MIN_USABLE_SIDE:
+                return False  # too small/garbage to be worth upscaling further
+            scale = max(target_w / src_w, target_h / src_h)
+            new_w = max(target_w, round(src_w * scale))
+            new_h = max(target_h, round(src_h * scale))
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+            left = (new_w - target_w) // 2
+            top = (new_h - target_h) // 2
+            img = img.crop((left, top, left + target_w, top + target_h))
+            img.save(path, "JPEG", quality=92)
+        return True
     except Exception:
         return False
 
@@ -88,6 +136,8 @@ def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: 
             out_path.write_bytes(r.content)
             if not _valid_image(out_path):
                 raise RuntimeError("downloaded file failed image validation (bad dimensions/corrupt)")
+            if not _normalize_image(out_path, width, height):
+                raise RuntimeError("downloaded image could not be normalized to target canvas")
             return True
         except Exception as exc:
             last_error = exc
@@ -100,7 +150,7 @@ def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: 
     return False
 
 
-def _fetch_pexels(query: str, out_path: Path, api_key: str) -> bool:
+def _fetch_pexels(query: str, out_path: Path, api_key: str, width: int = 1080, height: int = 1920) -> bool:
     try:
         r = requests.get(
             "https://api.pexels.com/v1/search",
@@ -131,7 +181,7 @@ def _fetch_pexels(query: str, out_path: Path, api_key: str) -> bool:
             img = requests.get(src, timeout=90)
             img.raise_for_status()
             out_path.write_bytes(img.content)
-            if _valid_image(out_path):
+            if _valid_image(out_path) and _normalize_image(out_path, width, height):
                 return True
             out_path.unlink(missing_ok=True)
         print(f"[visuals] pexels: none of {len(candidates)} candidates passed image validation for query {query!r}")

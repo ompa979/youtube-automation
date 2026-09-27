@@ -42,32 +42,48 @@ def mg_progress_bar(duration: float, accent: str) -> str:
     Uses drawbox with a width expression keyed to `t`.
     """
     color = _hex_to_ffmpeg(accent)
-    # width grows: 0 at t=0, W at t=duration
-    # ffmpeg drawbox width= cannot use `t` directly but we can use the
-    # 'between' trick with a sequence of boxes — instead we use the
-    # overlay=shortest approach via lavfi but that's complex.
-    # Simplest portable approach: use drawtext with a box and a very wide
-    # space string scaled by t/duration. Actually the cleanest ffmpeg-only
-    # approach is a geq filter for the bar region:
-    w_expr = f"w*min(t/{max(duration,0.01):.3f}\\,1)"
+    # width grows: 0 at t=0, W (full frame width) at t=duration.
+    # NOTE: must use `iw` (input frame width), not `w` — a drawbox w=
+    # expression cannot reference the option `w` it is itself defining
+    # (self-referential eval error); `iw` is the correct constant here.
+    w_expr = f"iw*min(t/{max(duration,0.01):.3f}\\,1)"
     return (
         f"drawbox=x=0:y={_BAR_Y}:w={w_expr}:h={_BAR_H}:"
-        f"color={color}@0.90:t=fill"
+        f"color={color}@0.90:thickness=fill"
     )
 
 
-def mg_rule_line(accent: str, fade_duration: float = 0.35) -> str:
+def mg_rule_line(accent: str, fade_duration: float = 0.35, steps: int = 5) -> str:
     """MG-4: 1px horizontal rule that fades in under the keyword area (y≈70%).
-    Uses drawbox with alpha driven by `between(t,0,fade_duration)` approximation.
+
+    ffmpeg's drawbox `color` option (and its `@alpha` suffix) is parsed once
+    at filter-init time — it does NOT accept a per-frame expression like
+    `min(t/0.35,1)*0.55` (that only works for the numeric x/y/w/h options).
+    Passing an expression there raises "Invalid alpha value specifier".
+
+    To still get a fade-in, we approximate it with a handful of stacked
+    drawbox calls, each holding a fixed alpha over its own time slice via
+    the timeline-enabled `enable='between(t,t0,t1)'` option (which DOES
+    support expressions), then hold the final alpha for the rest of the clip.
     """
     color = _hex_to_ffmpeg(accent)
     y_pos = int(H * 0.73)
-    # fade-in alpha: ramps from 0→0.6 over fade_duration seconds
-    alpha_expr = f"min(t/{fade_duration:.2f}\\,1)*0.55"
-    return (
-        f"drawbox=x=60:y={y_pos}:w={W-120}:h=2:"
-        f"color={color}@{alpha_expr}:t=fill"
+    target_alpha = 0.55
+    boxes = []
+    for i in range(1, steps + 1):
+        t0 = fade_duration * (i - 1) / steps
+        t1 = fade_duration * i / steps
+        alpha = round(target_alpha * i / steps, 3)
+        boxes.append(
+            f"drawbox=x=60:y={y_pos}:w={W-120}:h=2:color={color}@{alpha}:"
+            f"thickness=fill:enable='between(t,{t0:.3f},{t1:.3f})'"
+        )
+    # steady state once the fade-in window has passed
+    boxes.append(
+        f"drawbox=x=60:y={y_pos}:w={W-120}:h=2:color={color}@{target_alpha}:"
+        f"thickness=fill:enable='gte(t,{fade_duration:.3f})'"
     )
+    return ",".join(boxes)
 
 
 def mg_hook_sweep(accent: str) -> str:
@@ -79,24 +95,31 @@ def mg_hook_sweep(accent: str) -> str:
     w_expr = f"min(t/0.25\\,1)*8"
     return (
         f"drawbox=x=0:y=0:w={w_expr}:h={H}:"
-        f"color={color}@0.75:t=fill"
+        f"color={color}@0.75:thickness=fill"
     )
 
 
-def mg_animated_vignette_pulse(scene_duration: float) -> str:
+def mg_animated_vignette_pulse(scene_duration: float, fade_duration: float = 0.40, steps: int = 5) -> str:
     """MG-5: A subtle radial darkening pulse — darkens edges slightly at start
     of each scene (t<0.4s) then relaxes. Implemented as a dark drawbox ring
     fade. Gives the 'cinema snap-to-attention' feel on every cut.
-    Uses 4 edge drawboxes that fade out.
+
+    Same constraint as mg_rule_line: drawbox's color/alpha is not a per-frame
+    expression, so the fade-out is approximated with stacked drawboxes, each
+    holding a fixed alpha over a `between(t,t0,t1)` window via `enable=`.
     """
-    # top edge dark bar fading out
-    alpha_expr = f"max(0\\,0.45*(1-t/0.40))"
-    edges = []
     thickness = 120
-    edges.append(f"drawbox=x=0:y=0:w={W}:h={thickness}:color=black@{alpha_expr}:t=fill")
-    edges.append(f"drawbox=x=0:y={H-thickness}:w={W}:h={thickness}:color=black@{alpha_expr}:t=fill")
-    edges.append(f"drawbox=x=0:y=0:w={thickness}:h={H}:color=black@{alpha_expr}:t=fill")
-    edges.append(f"drawbox=x={W-thickness}:y=0:w={thickness}:h={H}:color=black@{alpha_expr}:t=fill")
+    edges = []
+    for i in range(steps):
+        t0 = fade_duration * i / steps
+        t1 = fade_duration * (i + 1) / steps
+        # midpoint of the step's alpha ramp, clamped to >= 0
+        alpha = max(0.0, round(0.45 * (1 - ((i + 0.5) / steps)), 3))
+        cond = f"between(t,{t0:.3f},{t1:.3f})"
+        edges.append(f"drawbox=x=0:y=0:w={W}:h={thickness}:color=black@{alpha}:thickness=fill:enable='{cond}'")
+        edges.append(f"drawbox=x=0:y={H-thickness}:w={W}:h={thickness}:color=black@{alpha}:thickness=fill:enable='{cond}'")
+        edges.append(f"drawbox=x=0:y=0:w={thickness}:h={H}:color=black@{alpha}:thickness=fill:enable='{cond}'")
+        edges.append(f"drawbox=x={W-thickness}:y=0:w={thickness}:h={H}:color=black@{alpha}:thickness=fill:enable='{cond}'")
     return ",".join(edges)
 
 
@@ -117,7 +140,7 @@ def mg_scene_counter(current: int, total: int, accent: str) -> str:
         alpha = "0.95" if i <= current else "0.30"
         dots.append(
             f"drawbox=x={x-dot_r}:y={y_pos-dot_r}:w={dot_r*2}:h={dot_r*2}:"
-            f"color={color}@{alpha}:t=fill"
+            f"color={color}@{alpha}:thickness=fill"
         )
     return ",".join(dots)
 

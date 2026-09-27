@@ -30,6 +30,12 @@ import textwrap
 from pathlib import Path
 
 from .config import WORK_DIR, OUT_DIR, ASSETS_DIR
+from .subject_area import (
+    classify_subject_area,
+    ACCENT_HEX,
+    COLOR_GRADE,
+    NICHE_BADGE,
+)
 
 W, H = 1080, 1920
 FPS = 30
@@ -52,22 +58,18 @@ def _stable_hash(text: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# #1 Accent color per niche/category
+# #1 Accent color — now keyed by SUBJECT AREA (geography/history/science/
+# economy, detected from the topic text — see subject_area.py) rather than
+# just the niche. Two videos in the same niche ("exam_concepts") but about a
+# monsoon-wind question vs. a fiscal-deficit question now get genuinely
+# different accent colors, grades and prompt styles instead of looking
+# identical because they share a niche key.
 # ---------------------------------------------------------------------------
-ACCENT_PALETTE: dict[str, str] = {
-    "exam_concepts": "0x1B3A6B",       # deep blue
-    "science_explainers": "0x1F6B3A",  # deep green
-    "default": "0x2B2B2E",             # neutral dark gray (original look)
-}
-_FALLBACK_ACCENTS = ["0x1B3A6B", "0x1F6B3A", "0x6B3A1F", "0x5A1F6B", "0x6B1F3A", "0x1F5A6B"]
+ACCENT_PALETTE = ACCENT_HEX  # kept as an alias — legacy call sites still work
 
 
-def _accent_for_category(category: str) -> str:
-    if category in ACCENT_PALETTE:
-        return ACCENT_PALETTE[category]
-    if not category:
-        return ACCENT_PALETTE["default"]
-    return _FALLBACK_ACCENTS[_stable_hash(category) % len(_FALLBACK_ACCENTS)]
+def _accent_for_subject_area(subject_area: str) -> str:
+    return ACCENT_HEX.get(subject_area, ACCENT_HEX["default"])
 
 
 # ---------------------------------------------------------------------------
@@ -91,29 +93,44 @@ def _escape_drawtext(text: str) -> str:
     )
 
 
-def _motion_filter(direction: int, total_frames: int) -> str:
-    mode = direction % 4
-    if mode == 0:
-        z = "1.00+0.14*on/{n}".format(n=max(total_frames, 1))
-        x = "iw/2-(iw/zoom/2)-45*on/{n}".format(n=max(total_frames, 1))
+# ---------------------------------------------------------------------------
+# #5 Motion — now driven by the scene's narrative ROLE, not an arbitrary
+# rotating index, so the camera move actually means something:
+#   "hook"      — pull BACK (start zoomed in, ease out to reveal)  — scene 0
+#   "push_in"   — push IN (default "explanation" beat)             — middle scenes
+#   "pan_right" — lateral pan, no zoom change                      — geography videos
+#   "static"    — barely moves, forces the eye to read the caption — the
+#                 closing "exam tip" scene (last narration scene)
+# ---------------------------------------------------------------------------
+def _motion_filter(role: str, total_frames: int, subject_area: str = "default") -> str:
+    n = max(total_frames, 1)
+    if role == "hook":
+        z = f"1.16-0.16*on/{n}"
+        x = f"iw/2-(iw/zoom/2)-30*on/{n}"
         y = "ih/2-(ih/zoom/2)"
-    elif mode == 1:
-        z = "1.14-0.10*on/{n}".format(n=max(total_frames, 1))
-        x = "iw/2-(iw/zoom/2)+55*on/{n}".format(n=max(total_frames, 1))
-        y = "ih/2-(ih/zoom/2)-35*on/{n}".format(n=max(total_frames, 1))
-    elif mode == 2:
-        z = "1.03+0.09*on/{n}".format(n=max(total_frames, 1))
+    elif role == "pan_right":
+        z = "1.10"
+        x = f"iw/2-(iw/zoom/2)-70*on/{n}"
+        y = "ih/2-(ih/zoom/2)"
+    elif role == "static":
+        z = f"1.00+0.03*on/{n}"
         x = "iw/2-(iw/zoom/2)"
-        y = "ih/2-(ih/zoom/2)+55*on/{n}".format(n=max(total_frames, 1))
-    else:
-        z = "1.12-0.08*on/{n}".format(n=max(total_frames, 1))
-        x = "iw/2-(iw/zoom/2)-55*on/{n}".format(n=max(total_frames, 1))
-        y = "ih/2-(ih/zoom/2)+30*on/{n}".format(n=max(total_frames, 1))
+        y = "ih/2-(ih/zoom/2)"
+    else:  # "push_in" — default explanation beat
+        z = f"1.00+0.13*on/{n}"
+        x = "iw/2-(iw/zoom/2)"
+        y = f"ih/2-(ih/zoom/2)+40*on/{n}"
+
+    grade = COLOR_GRADE.get(subject_area, COLOR_GRADE["default"])
     return (
         f"scale={W*2}:{H*2}:force_original_aspect_ratio=increase,"
         f"crop={W*2}:{H*2},"
         f"zoompan=z='{z}':x='{x}':y='{y}':d={total_frames}:s={W}x{H}:fps={FPS},"
-        "eq=contrast=1.045:saturation=1.035:brightness=0.004,"
+        f"{grade},"
+        # Layer 5 finishing pass: cinematic vignette + light film grain to
+        # cut the flat "AI-plastic" look of a raw Flux/Pollinations frame.
+        "vignette=PI/4.3,"
+        "noise=alls=6:allf=t+u,"
         "unsharp=5:5:0.35:5:5:0,format=yuv420p"
     )
 
@@ -162,17 +179,36 @@ def _fit_subtitle(narration: str) -> tuple[int, str]:
 _FADE_IN_ALPHA = "alpha='min(1\\,t/0.35)'"
 
 
-def _keyword_filter(text: str, accent: str) -> str:
-    """Keyword/memory-cue caption at y≈70% — short ALL-CAPS label, tinted
-    with the video's accent color so it reads as branded rather than a
-    generic gray box on every single video."""
+# Layer 2, tier 2: the "fire" keyword color — a hot orange-red that reads
+# instantly against every subject-area color grade (teal, sepia, violet or
+# grey) and is what makes the keyword feel like the thing worth screenshotting.
+_FIRE_COLOR = "0xFF4A1F"
+
+
+def _keyword_filter(text: str) -> str:
+    """Keyword/memory-cue caption at y≈68% — short ALL-CAPS label in the
+    fire color, with a dark box so it stays legible over any background."""
     safe = _escape_drawtext(text.strip().upper())
     if not safe:
         return ""
     return (
-        f"drawtext=font='Inter':text='{safe}':fontcolor=white:fontsize=58:"
-        f"borderw=6:bordercolor=black@0.85:box=1:boxcolor={accent}@0.45:boxborderw=24:"
-        f"x=(w-text_w)/2:y=h*0.70:line_spacing=8:{_FADE_IN_ALPHA}"
+        f"drawtext=font='Inter':text='{safe}':fontcolor={_FIRE_COLOR}:fontsize=60:"
+        f"borderw=6:bordercolor=black@0.9:box=1:boxcolor=black@0.40:boxborderw=24:"
+        f"x=(w-text_w)/2:y=h*0.68:line_spacing=8:{_FADE_IN_ALPHA}"
+    )
+
+
+# Layer 2, tier 1: the small "exam badge" pill near the top of frame —
+# e.g. "UPSC 2025" — that brands every scene without competing with the
+# keyword or subtitle for attention.
+def _badge_filter(badge_text: str, accent: str) -> str:
+    safe = _escape_drawtext(badge_text.strip().upper())
+    if not safe:
+        return ""
+    return (
+        f"drawtext=font='Inter':text='{safe}':fontcolor=white:fontsize=30:"
+        f"borderw=2:bordercolor=black@0.8:box=1:boxcolor={accent}@0.85:boxborderw=14:"
+        f"x=(w-text_w)/2:y=h*0.06:{_FADE_IN_ALPHA}"
     )
 
 
@@ -222,18 +258,25 @@ def _ken_burns_clip(
     image: Path,
     duration: float,
     out: Path,
-    direction: int = 1,
+    role: str = "push_in",
     on_screen_text: str = "",
     narration: str = "",
     caption_style: str = "bar",
     accent: str = ACCENT_PALETTE["default"],
+    subject_area: str = "default",
+    badge_text: str = "",
 ) -> None:
     total_frames = max(int(duration * FPS), 1)
-    vf = _motion_filter(direction, total_frames)
+    vf = _motion_filter(role, total_frames, subject_area)
 
-    keyword_f = _keyword_filter(on_screen_text, accent) if on_screen_text else ""
+    # Layer 2: 3-layer on-screen text system — exam badge (top), fire-tinted
+    # keyword (mid), white narration subtitle (bottom).
+    badge_f = _badge_filter(badge_text, accent) if badge_text and on_screen_text else ""
+    keyword_f = _keyword_filter(on_screen_text) if on_screen_text else ""
     subtitle_f = _subtitle_filter(narration, caption_style, accent) if narration else ""
 
+    if badge_f:
+        vf = f"{vf},{badge_f}"
     if keyword_f:
         vf = f"{vf},{keyword_f}"
     if subtitle_f:
@@ -298,7 +341,7 @@ def _make_loopback_clip(
         f"zoompan=z='1.00':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s={W}x{H}:fps={FPS},"
         "eq=contrast=1.045:saturation=1.035:brightness=0.004,format=yuv420p"
     )
-    keyword_f = _keyword_filter(keyword_text, accent) if keyword_text else ""
+    keyword_f = _keyword_filter(keyword_text) if keyword_text else ""
     if keyword_f:
         vf = f"{vf},{keyword_f}"
     _run([
@@ -402,15 +445,44 @@ def extract_best_thumbnail(video_path: Path, out: Path, scene0_duration: float) 
 
 
 # ---------------------------------------------------------------------------
-# #4 Crossfade transition variety
+# #4 Transitions that carry meaning, not just a round-robin rotation:
+#   - the cut OUT of the hook (scene 0 -> scene 1)              -> wiperight
+#   - the cut INTO the closing "exam tip" scene                  -> fadeblack
+#   - every other cut in a GEOGRAPHY video                       -> zoomin
+#   - every other cut in a HISTORY video                         -> radial
+#   - everything else (science/economy/default)                  -> rotates
+#     through a small neutral pool so it's still varied
 # ---------------------------------------------------------------------------
-_TRANSITIONS = ["fade", "wipeleft", "slideup", "circlecrop", "dissolve"]
+_NEUTRAL_TRANSITIONS = ["fade", "dissolve", "smoothleft", "circlecrop"]
 
 
-def _join_with_transitions(clips: list[Path], durations: list[float], out: Path) -> list[float]:
-    """Joins clips with a rotating crossfade transition type per cut.
-    Returns the list of cut center-times (seconds, in the joined timeline) —
-    used to time the whoosh SFX so it lands exactly on each visual cut."""
+def _semantic_transition(cut_index: int, num_narration_scenes: int, subject_area: str) -> str:
+    """cut_index is 0-based over ALL joins (scene cuts + outro + loopback).
+    num_narration_scenes is how many of the joined clips are real narration
+    scenes (i.e. excludes the appended outro/loopback clips)."""
+    # Cut OUT of the hook: clip 0 -> clip 1 is cut_index 0.
+    if cut_index == 0:
+        return "wiperight"
+    # Cut INTO the last narration scene (the "exam tip" beat): that's the
+    # join whose result is clip index (num_narration_scenes - 1), i.e.
+    # cut_index == num_narration_scenes - 2.
+    if num_narration_scenes >= 2 and cut_index == num_narration_scenes - 2:
+        return "fadeblack"
+    if subject_area == "geography":
+        return "zoomin"
+    if subject_area == "history":
+        return "radial"
+    return _NEUTRAL_TRANSITIONS[cut_index % len(_NEUTRAL_TRANSITIONS)]
+
+
+def _join_with_transitions(
+    clips: list[Path], durations: list[float], out: Path,
+    num_narration_scenes: int = 0, subject_area: str = "default",
+) -> list[float]:
+    """Joins clips with a semantically-chosen crossfade transition per cut
+    (see _semantic_transition). Returns the list of cut center-times
+    (seconds, in the joined timeline) — used to time the whoosh/chime SFX
+    so they land exactly on each visual cut."""
     if len(clips) == 1:
         subprocess.run(
             ["ffmpeg", "-y", "-i", str(clips[0]), "-c", "copy", str(out)],
@@ -430,7 +502,7 @@ def _join_with_transitions(clips: list[Path], durations: list[float], out: Path)
     for i in range(1, len(clips)):
         nxt = f"[{i}:v]"
         out_label = f"[v{i}]"
-        t_type = _TRANSITIONS[(i - 1) % len(_TRANSITIONS)]
+        t_type = _semantic_transition(i - 1, num_narration_scenes, subject_area)
         filters.append(f"{current}{nxt}xfade=transition={t_type}:duration={trans}:offset={offset:.3f}{out_label}")
         cut_offsets.append(offset + trans / 2)
         current = out_label
@@ -500,14 +572,24 @@ def _pick_music(seed: str | None = None, category: str | None = None) -> Path | 
 
 
 # ---------------------------------------------------------------------------
-# #6 Whoosh SFX at every scene cut
+# #6 Whoosh SFX at every scene cut, + a dedicated "exam tip" chime
 # ---------------------------------------------------------------------------
 def _pick_sfx() -> Path | None:
     sfx_dir = ASSETS_DIR / "sfx"
     if not sfx_dir.exists():
         return None
     tracks = sorted(sfx_dir.glob("*.mp3")) + sorted(sfx_dir.glob("*.wav"))
+    tracks = [t for t in tracks if t.stem != "chime"]
     return tracks[0] if tracks else None
+
+
+def _pick_chime() -> Path | None:
+    """A short two-note chime layered once, right as the closing 'exam tip'
+    scene begins. Pavlovian by design: after a few videos, viewers who
+    recognize the chime start paying closer attention right when it hits,
+    because it always means "the takeaway is coming"."""
+    chime = ASSETS_DIR / "sfx" / "chime.mp3"
+    return chime if chime.exists() else None
 
 
 def assemble_video(
@@ -519,13 +601,19 @@ def assemble_video(
     scene_texts: list[str] | None = None,
     scene_narrations: list[str] | None = None,
     category: str = "default",
+    topic: str = "",
 ) -> Path:
     del scene_ass
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     if not scene_images or not scene_audios or len(scene_images) != len(scene_audios):
         raise ValueError("Cannot render video: scene image/audio counts do not match")
 
-    accent = _accent_for_category(category)
+    # Subject area drives accent/grade/prompt-style/transitions/motion for
+    # this whole video — see subject_area.py.
+    subject_area = classify_subject_area(topic)
+    accent = _accent_for_subject_area(subject_area)
+    badge_text = NICHE_BADGE.get(category, NICHE_BADGE["default"])
+    num_narration_scenes = len(scene_images)
 
     clips: list[Path] = []
     actual_durations: list[float] = []
@@ -536,9 +624,20 @@ def assemble_video(
         keyword = scene_texts[i] if scene_texts and i < len(scene_texts) else ""
         narration = scene_narrations[i] if scene_narrations and i < len(scene_narrations) else ""
         style = _CAPTION_STYLES[i % len(_CAPTION_STYLES)]
+
+        # Layer 5 role: hook / static("exam tip") / pan_right(geography) / push_in(default)
+        if i == 0:
+            role = "hook"
+        elif i == num_narration_scenes - 1 and num_narration_scenes >= 2:
+            role = "static"
+        elif subject_area == "geography":
+            role = "pan_right"
+        else:
+            role = "push_in"
+
         _ken_burns_clip(
-            img, actual, clip, direction=i, on_screen_text=keyword, narration=narration,
-            caption_style=style, accent=accent,
+            img, actual, clip, role=role, on_screen_text=keyword, narration=narration,
+            caption_style=style, accent=accent, subject_area=subject_area, badge_text=badge_text,
         )
         clips.append(clip)
         actual_durations.append(actual)
@@ -570,8 +669,17 @@ def assemble_video(
             print(f"[!] Loopback clip failed (non-fatal, skipping): {exc}")
 
     silent_video = WORK_DIR / "silent_video.mp4"
-    cut_offsets = _join_with_transitions(clips, actual_durations, silent_video)
+    cut_offsets = _join_with_transitions(
+        clips, actual_durations, silent_video,
+        num_narration_scenes=num_narration_scenes, subject_area=subject_area,
+    )
     total_video_duration = _probe_duration(silent_video)
+    # The cut into the last narration scene ("exam tip") is cut_offsets[
+    # num_narration_scenes - 2] when there are >= 2 narration scenes — same
+    # index _semantic_transition used to pick "fadeblack" for that cut.
+    chime_offset: float | None = None
+    if num_narration_scenes >= 2 and len(cut_offsets) >= num_narration_scenes - 1:
+        chime_offset = cut_offsets[num_narration_scenes - 2]
 
     voice_raw = WORK_DIR / "voice_raw.mp3"
     _concat_audio(scene_audios, voice_raw)
@@ -624,6 +732,20 @@ def assemble_video(
                 f"[{sfx_idx}:a]adelay={ms}|{ms},volume=0.22,aformat=channel_layouts=stereo{label}"
             )
             mix_labels.append(label)
+
+    # #6 Exam-tip chime — one short, distinct hit layered exactly at the cut
+    # into the closing scene, separate from (and slightly louder than) the
+    # generic whoosh so it reads as its own recurring cue.
+    chime = _pick_chime() if chime_offset is not None else None
+    if chime:
+        audio_inputs.append(chime)
+        chime_idx = next_idx
+        next_idx += 1
+        ms = max(int(chime_offset * 1000), 0)
+        parts.append(
+            f"[{chime_idx}:a]adelay={ms}|{ms},volume=0.30,aformat=channel_layouts=stereo[chime]"
+        )
+        mix_labels.append("[chime]")
 
     parts.append(f"{''.join(mix_labels)}amix=inputs={len(mix_labels)}:duration=first:dropout_transition=0[aout]")
     fc = ";".join(parts)

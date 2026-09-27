@@ -45,6 +45,7 @@ from googleapiclient.http import MediaFileUpload
 from .config import Settings, YouTubeCredentials, CONTENT_PLAN_PATH, WORK_DIR, OUT_DIR, ensure_dirs
 from .render import assemble_video
 from .script_gen import generate_script
+from .subject_area import classify_subject_area
 from .trending import get_trending_topic
 from .tts import synthesize_scene
 from .upload import upload_video
@@ -205,6 +206,8 @@ def _run_one(
 
     voice = niche_cfg.get("voice", {}).get(language, "en-IN")
     visual_style = niche_cfg.get("visual_style", "handwritten_notes")
+    subject_area = classify_subject_area(topic)
+    print(f"[pipeline] subject_area={subject_area}")
 
     # Use a per-video scene dir so parallel-ish reruns don't clobber each other
     scene_dir = WORK_DIR / f"scenes_{video_index:02d}"
@@ -240,7 +243,9 @@ def _run_one(
             overlay_text=None,
         )
 
-        image = fetch_scene_image(scene.index, scene.image_prompt, visual_style, settings)
+        image = fetch_scene_image(
+            scene.index, scene.image_prompt, visual_style, settings, subject_area=subject_area
+        )
         scene_images.append(image)
         scene_audios.append(audio)
         scene_ass.append(ass)
@@ -261,6 +266,7 @@ def _run_one(
         scene_texts=scene_texts,
         scene_narrations=scene_narrations,
         category=niche,
+        topic=topic,
     )
     print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
 

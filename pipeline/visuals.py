@@ -16,6 +16,7 @@ import requests
 from PIL import Image
 
 from .config import WORK_DIR
+from .subject_area import classify_subject_area, SUBJECT_AREA_IMAGE_SUFFIX
 
 POLLINATIONS = "https://image.pollinations.ai/prompt/{prompt}"
 
@@ -141,7 +142,7 @@ def _fetch_pexels(query: str, out_path: Path, api_key: str) -> bool:
         return False
 
 
-def _premium_prompt(image_prompt: str, visual_style: str) -> str:
+def _premium_prompt(image_prompt: str, visual_style: str, subject_area: str = "default") -> str:
     base = " ".join((image_prompt or "").split())
     # Very long prompts can make free image APIs time out or silently reject
     # the request. Cap it defensively — the schema already asks the LLM for
@@ -149,6 +150,12 @@ def _premium_prompt(image_prompt: str, visual_style: str) -> str:
     if len(base) > 600:
         base = base[:600].rsplit(" ", 1)[0]
     suffix = STYLE_SUFFIX.get(visual_style, STYLE_SUFFIX["educational_ai"])
+    # Layer 1: per-subject-area visual identity (satellite drama for
+    # geography, aged manuscript for history, neon lab for science, clean
+    # editorial for economy) layered ON TOP of the niche's base style so
+    # every video in a niche doesn't share one visual identity regardless
+    # of what it's actually about.
+    area_suffix = SUBJECT_AREA_IMAGE_SUFFIX.get(subject_area, "") if visual_style != "handwritten_notes" else ""
     composition_hint = (
         " Build a distinct composition for this scene; do not reuse a generic template. "
         "The visual must look hand-created for this exact explanation, with the main mechanism "
@@ -166,12 +173,15 @@ def _premium_prompt(image_prompt: str, visual_style: str) -> str:
         + composition_hint
         + GLOBAL_QUALITY
         + suffix
+        + area_suffix
         + text_note
     )
 
 
-def fetch_scene_image(scene_index: int, image_prompt: str, visual_style: str, settings) -> Path:
-    prompt = _premium_prompt(image_prompt, visual_style)
+def fetch_scene_image(
+    scene_index: int, image_prompt: str, visual_style: str, settings, subject_area: str = "default"
+) -> Path:
+    prompt = _premium_prompt(image_prompt, visual_style, subject_area)
     out_path = WORK_DIR / f"scene_{scene_index:02d}.jpg"
 
     if _valid_image(out_path):

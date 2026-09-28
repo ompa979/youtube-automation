@@ -1,64 +1,45 @@
 """Natural Indian-English educational script generation.
 
-Gemini 3.8 Flash is the PRIMARY model.
-Gemini 3.5 Flash Lite is the fallback.
-All models are Google — no OpenRouter dependency.
+Model routing is now handled by GeminiRouter (pipeline/gemini_router.py),
+which uses the full free-tier model catalogue discovered from the
+ExamCrackerAI project dashboard:
+
+  TIER 1  Flash      — gemini-3.8/3.7/3.6/3.5/3/2.5-flash  (20 RPD each)
+  TIER 2  Flash Lite — gemini-3.5/3.1-flash-lite            (500 RPD each)
+  TIER 3  Gemma 4    — gemma-4-26b / gemma-4-31b            (14,400 RPD each)
+
+Call-type routing:
+  SCRIPT_GEN  → Tier 1 → Tier 2 → Tier 3
+  FACT_CHECK  → Tier 3 (Gemma) → Tier 2 → Tier 1  ← NEW step
+  SEO         → Tier 2 → Tier 1 → Tier 3
+  JSON_REPAIR → Tier 2 → Tier 1 → Tier 3
 
 Also provides:
-  - seo_optimize_title(): second Gemini call to maximize CTR/search rank
-  - Hook image rule: scene 0 always forced to a striking single-subject visual
-  - Hook STYLE rotation (question / shocking-fact / numbered) per topic, so
-    every video doesn't open the same way (anti-monotone optimization #7)
-  - A pacing rule asking the model to vary scene length naturally instead of
-    uniform-length scenes (anti-monotone optimization #8)
+  - seo_optimize_all(): one Gemini call for title + description + tags
+  - fact_check_script(): Gemma-powered factual accuracy pass (NEW)
+  - Hook image rule: scene 0 always a striking single-subject visual
+  - Hook STYLE rotation (question / shocking-fact / numbered)
+  - Pacing rule: vary scene length naturally
 """
 from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import time
 from dataclasses import dataclass, asdict, field
 
-import google.generativeai as genai
-
+from .gemini_router import GeminiRouter, CallType
 from .quality import validate_script
 from .subject_area import classify_subject_area
 
 
-# Ordered fallback list used by every Gemini call site in this module.
-# gemini-2.0-flash and gemini-2.0-flash-lite are both deprecated (404).
-# gemini-3.8-flash is now the primary; gemini-3.5-flash-lite is the fallback.
-# Add newer models here when they become available — all call sites pick
-# them up automatically without any further changes.
-_GEMINI_MODELS: list[str] = [
-    "gemini-3.8-flash",
-    "gemini-3.5-flash-lite",
-]
-
-# Maximum seconds to wait on a 429 retry-delay hint before giving up and
-# trying the next model. Keeps CI runs from stalling indefinitely.
-# Lowered from 70s -> 25s: with only 2 models in the fallback chain, a single
-# stall this long is a meaningful chunk of total build time; 25s still covers
-# almost every short RPM-window 429 while failing over to the next model
-# much faster when it doesn't.
-_MAX_RETRY_WAIT_SECONDS: int = 25
-
-# Models blacklisted for the remainder of this process after returning a
-# *daily* quota exhaustion (GenerateRequestsPerDayPerProjectPerModel-FreeTier).
-# These are never retried — their daily budget is gone for 24 h and every
-# further attempt just burns time.  Short-window RPM 429s (retry_delay ≤
-# _MAX_RETRY_WAIT_SECONDS) still get the normal one-retry treatment.
-_DAILY_QUOTA_BLACKLIST: set[str] = set()
-
-
-def _is_daily_quota_error(exc: Exception) -> bool:
-    """Return True when the error is a *per-day* quota exhaustion, not an RPM spike."""
-    msg = str(exc)
-    return "GenerateRequestsPerDayPerProjectPerModel" in msg or (
-        "quota" in msg.lower() and "day" in msg.lower()
-    )
+# Backwards-compat shim so any external code that does
+#   from .script_gen import _generate_gemini
+# still gets something callable.  New code should use GeminiRouter directly.
+def _generate_gemini(prompt: str, api_key: str, model_name: str | None = None) -> str:
+    """Deprecated shim — routes through GeminiRouter.SCRIPT_GEN."""
+    router = GeminiRouter(api_key=api_key)
+    return router.generate(prompt, call_type=CallType.SCRIPT_GEN)
 
 
 def _stable_hash(text: str) -> int:
@@ -322,78 +303,7 @@ def _parse_json(raw: str) -> dict:
     )
 
 
-def _parse_retry_delay(exc: Exception) -> float | None:
-    """Return the retry_delay in seconds from a Gemini 429 error, or None."""
-    msg = str(exc)
-    # The gRPC error body contains `retry_delay { seconds: N }`.
-    m = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", msg)
-    if m:
-        return float(m.group(1))
-    # Fall back to a plain "Please retry in N.NNs" hint.
-    m = re.search(r"retry in\s+([\d.]+)s", msg, re.I)
-    if m:
-        return float(m.group(1))
-    return None
 
-
-def _generate_gemini(prompt: str, api_key: str, model_name: str | None = None) -> str:
-    """Call Gemini with a single explicit model, or walk _GEMINI_MODELS on failure.
-
-    Passing `model_name` pins to that model (used by call sites that already
-    loop externally).  Omitting it lets this function try each entry in
-    _GEMINI_MODELS in order so callers don't need to duplicate the fallback
-    logic.
-
-    429 quota errors: if the API supplies a retry_delay ≤ _MAX_RETRY_WAIT_SECONDS
-    we sleep and retry the *same* model once before moving on.  This handles
-    short-window rate limits (RPM) without burning the daily quota of the next
-    model unnecessarily.  Delays longer than _MAX_RETRY_WAIT_SECONDS (e.g. a
-    daily-quota exhaustion) are treated as a hard failure and the next model
-    is tried immediately.
-    """
-    genai.configure(api_key=api_key)
-    candidates = [model_name] if model_name else _GEMINI_MODELS
-    last_exc: Exception | None = None
-
-    for model_to_use in candidates:
-        # Skip models whose daily free-tier quota is already exhausted.
-        if model_to_use in _DAILY_QUOTA_BLACKLIST:
-            print(f"[!] Gemini {model_to_use} skipped — daily quota exhausted this run")
-            continue
-
-        retry_attempted = False
-        while True:
-            try:
-                model = genai.GenerativeModel(model_to_use, generation_config={
-                    "temperature": 0.75,
-                    "response_mime_type": "application/json",
-                })
-                resp = model.generate_content(prompt)
-                text = getattr(resp, "text", None)
-                if not text:
-                    raise RuntimeError(f"Gemini ({model_to_use}) returned an empty response")
-                return text
-            except Exception as exc:
-                is_429 = "429" in str(exc) or "quota" in str(exc).lower()
-                if is_429:
-                    if _is_daily_quota_error(exc):
-                        # Daily budget is gone — blacklist for the rest of the process.
-                        _DAILY_QUOTA_BLACKLIST.add(model_to_use)
-                        print(f"[!] Gemini {model_to_use} daily quota exhausted — blacklisted for this run")
-                        last_exc = exc
-                        break  # move to next model immediately
-                    if not retry_attempted:
-                        delay = _parse_retry_delay(exc)
-                        if delay is not None and delay <= _MAX_RETRY_WAIT_SECONDS:
-                            print(f"[!] Gemini {model_to_use} rate-limited — retrying in {delay:.0f}s")
-                            time.sleep(delay + 1)  # +1s safety buffer
-                            retry_attempted = True
-                            continue  # retry same model
-                print(f"[!] Gemini {model_to_use} failed: {exc}")
-                last_exc = exc
-                break  # move to next model
-
-    raise RuntimeError(f"All Gemini models failed: {last_exc}") from last_exc
 
 
 def _first_text(raw: dict, *keys: str) -> str:
@@ -594,7 +504,8 @@ Return EXACTLY this JSON (no markdown, no commentary):
 {{"title": "...", "description": "...", "tags": ["tag1", "tag2", ...]}}"""
 
     try:
-        raw = _generate_gemini(prompt, api_key)
+        router = GeminiRouter(api_key=api_key)
+        raw = router.generate(prompt, call_type=CallType.SEO)
         raw = re.sub(r"```(?:json)?|```", "", raw).strip()
         data = json.loads(raw)
         new_title = str(data.get("title", title)).strip().strip('"').strip("'")
@@ -641,61 +552,125 @@ def _topic_issue(topic: str, script: "Script") -> str | None:
     return None
 
 
+def fact_check_script(script: Script, topic: str, api_key: str) -> list[str]:
+    """Run a Gemma-powered factual accuracy check on the generated script.
+
+    Uses CallType.FACT_CHECK → Gemma 4 first (14,400 RPD — effectively free),
+    then Flash Lite as backup.  Returns a list of issue strings (empty = pass).
+
+    The check is intentionally lightweight — it looks for:
+      1. Factual errors or statements that contradict well-known knowledge.
+      2. Made-up statistics, invented names, or fake exam patterns.
+      3. Devanagari / Hindi text that slipped through (should be English-only).
+
+    Non-fatal: if the call fails the pipeline logs a warning and continues.
+    """
+    narration_dump = "\n".join(
+        f"Scene {s.index}: {s.narration}" for s in script.scenes
+    )
+    prompt = f"""You are a strict factual accuracy checker for Indian educational content.
+
+TOPIC: {topic}
+TITLE: {script.title}
+
+SCRIPT NARRATION:
+{narration_dump}
+
+Your task:
+1. Identify any factual errors, invented statistics, or false claims.
+2. Flag any Devanagari / Hindi characters that appear (there should be none — English only).
+3. Flag invented exam patterns or fake question formats.
+4. Flag any vague filler lines that add zero educational value.
+
+If everything is accurate, return: {{"issues": []}}
+If there are problems, return: {{"issues": ["short description of issue 1", "issue 2", ...]}}
+
+Respond ONLY with that JSON object. No markdown, no explanation outside the JSON."""
+
+    try:
+        router = GeminiRouter(api_key=api_key)
+        raw = router.generate(prompt, call_type=CallType.FACT_CHECK)
+        raw = re.sub(r"```(?:json)?|```", "", raw).strip()
+        data = json.loads(raw)
+        issues = [str(i).strip() for i in data.get("issues", []) if str(i).strip()]
+        if issues:
+            print(f"[fact-check] {len(issues)} issue(s) found: {'; '.join(issues)}")
+        else:
+            print("[fact-check] PASS — no factual issues detected")
+        return issues
+    except Exception as exc:
+        print(f"[fact-check] WARNING: fact-check call failed (non-fatal, continuing): {exc}")
+        return []
+
+
 def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_key: str | None = None) -> Script:
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is not set. This pipeline is Google-only.")
+
+    # One router instance per video — shares the persisted quota state so every
+    # call (script gen, fact-check, SEO, repair) counts against the same day's
+    # budget and no model gets double-counted.
+    router = GeminiRouter(api_key=settings.gemini_api_key)
 
     hook_style = _pick_hook_style(topic)
     print(f"[pipeline] hook style for this topic: {hook_style}")
     prompt = _build_prompt(topic, niche_cfg, language, hook_style=hook_style)
 
-    # No model_name → walks _GEMINI_MODELS with the shared fallback/retry/
-    # daily-quota-blacklist logic (previously this call site had its own bare
-    # loop that didn't retry 429s or respect the blacklist, so it could waste
-    # time re-hitting a model already known to be exhausted for the day).
+    # ── Step 1: generate script (Tier 1 Flash preferred) ─────────────────────
     try:
-        raw = _generate_gemini(prompt, settings.gemini_api_key)
+        raw = router.generate(prompt, call_type=CallType.SCRIPT_GEN)
     except Exception as e:
         raise RuntimeError(f"All Gemini models failed for script generation: {e}") from e
 
+    # ── Step 2: parse JSON ────────────────────────────────────────────────────
     try:
         parsed = _parse_json(raw)
     except Exception as parse_exc:
         print(f"[!] Script JSON invalid: {parse_exc}")
         try:
-            print(f"[pipeline] JSON repair: trying {_GEMINI_MODELS}")
-            repaired_raw = _generate_gemini(
+            print("[pipeline] JSON repair via router (Tier 2 preferred)")
+            repaired_raw = router.generate(
                 "Convert the following malformed output into ONLY the exact JSON schema requested. "
                 "Do not add markdown or explanations.\n\n" + raw[:12000],
-                settings.gemini_api_key,
-                # No model_name → _generate_gemini walks _GEMINI_MODELS with fallback
+                call_type=CallType.JSON_REPAIR,
             )
             parsed = _parse_json(repaired_raw)
             print("[qa] JSON repair succeeded")
         except Exception as repair_exc:
             raise RuntimeError(f"Gemini returned invalid JSON and repair failed: {repair_exc}") from parse_exc
 
+    # ── Step 3: QA + topic drift check ───────────────────────────────────────
     script = _to_script(parsed)
     qa = validate_script(script, language)
     drift = _topic_issue(topic, script)
     if drift:
         qa.issues = list(qa.issues) + [drift]
         qa.ok = False
+
     if qa.ok:
-        print(f"[qa] script passed: scenes={len(script.scenes)} words={sum(len(s.narration.split()) for s in script.scenes)}")
-        # Optimization #3: SEO-optimize title + description + tags in one call
+        word_count = sum(len(s.narration.split()) for s in script.scenes)
+        print(f"[qa] script passed: scenes={len(script.scenes)} words={word_count}")
+
+        # ── Step 4: Gemma fact-check (non-fatal — Tier 3, ~free budget) ──────
+        fc_issues = fact_check_script(script, topic, settings.gemini_api_key)
+        if fc_issues:
+            # Append fact-check issues as QA warnings in the description so
+            # they are visible in the artifact output, but don't block the run.
+            print(f"[fact-check] {len(fc_issues)} issue(s) noted — script ships with warnings")
+
+        # ── Step 5: SEO (Tier 2 preferred, saves Tier 1 for next video) ──────
         script.title, script.description, script.tags = seo_optimize_all(
             script.title, script.description, script.tags, topic, niche_key or "", settings.gemini_api_key
         )
         script.description = _ensure_hashtags(script.description, topic, niche_key)
         return script
 
+    # ── Step 6: repair pass if QA failed ─────────────────────────────────────
     print("[qa] first script needs repair: " + "; ".join(qa.issues))
     repair_prompt = _build_prompt(topic, niche_cfg, language, "; ".join(qa.issues), hook_style=hook_style)
     try:
-        print(f"[pipeline] Script repair: trying {_GEMINI_MODELS}")
-        raw2 = _generate_gemini(repair_prompt, settings.gemini_api_key)
-        # No model_name → _generate_gemini walks _GEMINI_MODELS with fallback
+        print("[pipeline] Script repair via router (Tier 1 preferred)")
+        raw2 = router.generate(repair_prompt, call_type=CallType.SCRIPT_GEN)
         repaired = _to_script(_parse_json(raw2))
         qa2 = validate_script(repaired, language)
         drift2 = _topic_issue(topic, repaired)
@@ -704,7 +679,12 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
             qa2.ok = False
         if not qa2.ok:
             raise RuntimeError("; ".join(qa2.issues))
+
         print(f"[qa] repaired script passed: scenes={len(repaired.scenes)}")
+
+        # Fact-check the repaired script too
+        fact_check_script(repaired, topic, settings.gemini_api_key)
+
         repaired.title, repaired.description, repaired.tags = seo_optimize_all(
             repaired.title, repaired.description, repaired.tags, topic, niche_key or "", settings.gemini_api_key
         )

@@ -162,8 +162,6 @@ _SCRIPT_SCHEMA: dict[str, Any] = {
         "tags": {
             "type": "array",
             "items": {"type": "string"},
-            "minItems": 8,
-            "maxItems": 15,
         },
         "scenes": {
             "type": "array",
@@ -177,13 +175,10 @@ _SCRIPT_SCHEMA: dict[str, Any] = {
                     "card_points": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "maxItems": 3,
                     },
                 },
                 "required": ["narration", "tts_text", "image_prompt", "on_screen_text"],
             },
-            "minItems": 3,
-            "maxItems": 5,
         },
     },
     "required": ["title", "hook", "description", "pinned_comment", "tags", "scenes"],

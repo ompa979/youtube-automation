@@ -2,7 +2,7 @@ name: Generate YouTube Shorts
 
 # ─────────────────────────────────────────────────────────────────────────────
 # One workflow run per day at 07:00 IST (01:30 UTC).
-# The pipeline itself loops internally: 15 videos × 45-min gap = ~11.5 h total.
+# The pipeline itself loops internally: 3 videos × 45-min gap = ~2.5 h total.
 # The next day's cron at 07:00 IST naturally restarts the cycle.
 # workflow_dispatch lets you kick off a run manually at any time.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -16,9 +16,9 @@ on:
         type: boolean
         default: false
       count:
-        description: 'Number of videos to produce (default: 15)'
+        description: 'Number of videos to produce (default: 3)'
         type: number
-        default: 15
+        default: 3
 
 # Never cancel an in-flight run — it may be mid-upload.
 concurrency:
@@ -28,8 +28,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 15 videos × 45 min gap + 20 min final render buffer = 695 min max (~11.6 h)
-    timeout-minutes: 695
+    # 3 videos × 45 min gap + render buffer = ~240 min max
+    timeout-minutes: 240
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,29 +67,29 @@ jobs:
           import json
           d = json.load(open('content_plan.json', encoding='utf-8'))
           niches = d['niches']
-          assert all(v.get('visual_style') == 'educational_ai' for v in niches.values()), "All niches must use educational_ai"
+          assert all(v.get('visual_style') in ('educational_ai', 'text_card') for v in niches.values()), "niche visual_style must be educational_ai or text_card"
           total_topics = sum(len(v.get('topics', [])) for v in niches.values())
-          print(f'PASS: {len(niches)} niches, {total_topics} topics, educational_ai visual style configured')
+          print(f'PASS: {len(niches)} niches, {total_topics} topics, visual styles valid')
           PY
 
-      - name: Generate & Upload (15 videos × 45 min)
+      - name: Generate & Upload (3 videos × 45 min)
         env:
           GEMINI_API_KEY:         ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_CLOUD_TTS_KEY:   ${{ secrets.GOOGLE_CLOUD_TTS_KEY }}
           PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}
           YT_CREDS_1:             ${{ secrets.YT_CREDS_1 }}
           UPLOAD_ENABLED:         'true'
-          UPLOAD_COUNT:           ${{ inputs.count || '15' }}
-          NICHES_ENABLED:         'why_things_work,exam_concepts,science_explainers,india_facts,mind_and_body'
+          UPLOAD_COUNT:           ${{ inputs.count || '3' }}
+          NICHES_ENABLED:         'bank_it_officer,bank_reasoning_quant,banking_awareness,rbi_economy,bank_english'
           LANGUAGES_ENABLED:      'en'
           TTS_PROVIDER:           edge
           TTS_LANGUAGE:           en-IN
           TTS_VOICE:              en-IN-NeerjaNeural
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
-            python -m pipeline.generate --dry-run --count ${{ inputs.count || 15 }}
+            python -m pipeline.generate --dry-run --count ${{ inputs.count || 3 }}
           else
-            python -m pipeline.generate --count ${{ inputs.count || 15 }}
+            python -m pipeline.generate --count ${{ inputs.count || 3 }}
           fi
 
       - name: Collect last artifact

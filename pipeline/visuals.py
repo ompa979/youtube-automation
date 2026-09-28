@@ -241,11 +241,134 @@ def _premium_prompt(image_prompt: str, visual_style: str, subject_area: str = "d
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Text-card visuals (visual_style == "text_card")
+#
+# Channel analytics showed the videos that actually get views are exam-topic
+# text cards (the facts are readable on screen), while AI-image scenes can't
+# show the facts at all (images carry no text) and kept collapsing into the
+# same generic statue/brain picture. Cards are drawn locally with Pillow, so
+# they need no Pollinations/Pexels call: no rate limits, no off-topic stock,
+# and the scene is ready instantly.
+#
+# Layout keeps the middle band (~45-75%) free for the karaoke captions and the
+# keyword label that render.py draws on top.
+# ─────────────────────────────────────────────────────────────────────────────
+_CARD_PALETTES = [
+    ((8, 20, 44), (14, 52, 96), (0, 209, 255)),     # navy  / cyan
+    ((30, 12, 52), (72, 28, 110), (255, 190, 60)),  # plum  / amber
+    ((6, 36, 34), (10, 84, 72), (140, 255, 120)),   # teal  / lime
+    ((44, 14, 22), (100, 26, 44), (255, 120, 160)), # wine  / pink
+    ((14, 22, 36), (36, 56, 92), (255, 150, 60)),   # slate / orange
+]
+
+
+def _card_font(size: int, bold: bool = True):
+    from PIL import ImageFont
+    import glob
+    names = (["Inter*Bold*", "Inter-Bold*", "InterVariable*"] if bold else ["Inter*Regular*", "Inter-Regular*", "InterVariable*"])
+    candidates: list[str] = []
+    for n in names:
+        candidates += glob.glob(f"/usr/share/fonts/**/{n}.*tf", recursive=True)
+    candidates += [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ]
+    for c in candidates:
+        try:
+            return ImageFont.truetype(c, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def _wrap_px(draw, text: str, font, max_w: int) -> list[str]:
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        trial = (cur + " " + w).strip()
+        if draw.textlength(trial, font=font) <= max_w or not cur:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _render_text_card(
+    out_path: Path, scene_index: int, headline: str, points: list[str], tag: str,
+    width: int = 1080, height: int = 1920,
+) -> bool:
+    from PIL import Image, ImageDraw
+    top, bottom, accent = _CARD_PALETTES[scene_index % len(_CARD_PALETTES)]
+    img = Image.new("RGB", (width, height), top)
+    px = ImageDraw.Draw(img)
+    for y in range(height):  # vertical gradient
+        t = y / (height - 1)
+        px.line([(0, y), (width, y)], fill=tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)))
+    for x in range(-height, width, 120):  # faint diagonal grid so cards are not flat single-tone
+        px.line([(x, height), (x + height, 0)], fill=tuple(min(255, c + 10) for c in bottom), width=2)
+    d = ImageDraw.Draw(img)
+    d.ellipse([width - 360, height - 520, width + 220, height + 60], fill=tuple(min(255, c + 14) for c in bottom))
+
+    margin = 70
+    # Tag pill (exam name)
+    tag = (tag or "").upper().strip()
+    if tag:
+        f_tag = _card_font(40)
+        tw = int(d.textlength(tag, font=f_tag))
+        d.rounded_rectangle([margin, 150, margin + tw + 56, 224], radius=37, fill=accent)
+        d.text((margin + 28, 163), tag, font=f_tag, fill=(10, 14, 24))
+
+    # Headline (max 3 lines, shrinks to fit)
+    headline = " ".join((headline or "").split())
+    y = 270
+    if headline:
+        size = 92
+        while size >= 56:
+            f_h = _card_font(size)
+            lines = _wrap_px(d, headline, f_h, width - 2 * margin)
+            if len(lines) <= 3:
+                break
+            size -= 6
+        for ln in lines[:3]:
+            d.text((margin, y), ln, font=f_h, fill=(255, 255, 255))
+            y += int(size * 1.12)
+        d.rectangle([margin, y + 8, margin + 180, y + 16], fill=accent)
+        y += 60
+
+    # Key points (numbered rows)
+    f_p = _card_font(44, bold=False)
+    f_n = _card_font(40)
+    for i, pt in enumerate([p for p in points if p][:3], start=1):
+        lines = _wrap_px(d, pt, f_p, width - 2 * margin - 110)[:2]
+        row_h = 40 + len(lines) * 56
+        d.rounded_rectangle([margin, y, width - margin, y + row_h], radius=26, fill=(255, 255, 255, 0) if False else tuple(min(255, c + 22) for c in top))
+        d.rounded_rectangle([margin, y, margin + 12, y + row_h], radius=6, fill=accent)
+        d.ellipse([margin + 34, y + row_h // 2 - 30, margin + 94, y + row_h // 2 + 30], fill=accent)
+        d.text((margin + 52, y + row_h // 2 - 24), str(i), font=f_n, fill=(10, 14, 24))
+        ty = y + 20
+        for ln in lines:
+            d.text((margin + 116, ty), ln, font=f_p, fill=(235, 242, 255))
+            ty += 56
+        y += row_h + 18
+
+    img.save(out_path, "JPEG", quality=92)
+    return out_path.exists() and out_path.stat().st_size > 5_000
+
+
 def fetch_scene_image(
-    scene_index: int, image_prompt: str, visual_style: str, settings, subject_area: str = "default"
+    scene_index: int, image_prompt: str, visual_style: str, settings, subject_area: str = "default",
+    card_headline: str = "", card_points: list[str] | None = None, card_tag: str = "",
 ) -> Path:
-    prompt = _premium_prompt(image_prompt, visual_style, subject_area)
     out_path = WORK_DIR / f"scene_{scene_index:02d}.jpg"
+    if visual_style == "text_card":
+        out_path.unlink(missing_ok=True)
+        if not _render_text_card(out_path, scene_index, card_headline, card_points or [], card_tag):
+            raise RuntimeError(f"Could not render text card for scene {scene_index}")
+        return out_path
+    prompt = _premium_prompt(image_prompt, visual_style, subject_area)
 
     if _valid_image(out_path):
         return out_path

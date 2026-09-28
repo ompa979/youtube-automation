@@ -19,7 +19,7 @@ import json
 import os
 import re
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 
 import google.generativeai as genai
 
@@ -98,6 +98,7 @@ class Scene:
     tts_text: str
     image_prompt: str
     on_screen_text: str
+    card_points: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -144,6 +145,21 @@ speech pauses and pronunciation. Do not translate it into Hindi.
 """.strip()
 
     repair_text = f"\nREPAIR REQUEST:\n{repair}\n" if repair else ""
+    card_rules = ""
+    if niche_cfg.get("visual_style") == "text_card":
+        card_rules = """
+TEXT-CARD CHANNEL (this overrides the VISUAL RULES below):
+- Every scene is shown as a text card, not a picture. For EVERY scene provide
+  `card_points`: 2-3 revision-note lines (max 7 words each) that state the exact
+  fact, rule, formula or step being spoken in that scene. Facts only, no filler.
+- `on_screen_text`: a 1-3 word headline for the scene (e.g. "LAYER 3", "INNER JOIN").
+- `image_prompt` can be a short placeholder such as "text card".
+""".strip()
+    topic_lock = (
+        "TOPIC LOCK: the title, hook and every scene must be about exactly this topic. "
+        "The title must contain the topic's main keywords (and the exam name if the topic names one). "
+        "Do not switch to a different topic."
+    )
     return f"""
 {niche_cfg.get('system_prompt', '')}
 
@@ -152,6 +168,8 @@ You are an excellent Indian exam teacher and educational creator.
 {lang_instruction}
 
 TOPIC: {topic}
+{topic_lock}
+{card_rules}
 
 PRIMARY GOAL: learner value, clarity, factual accuracy and natural delivery.
 Do NOT optimize for a fixed duration. Let the concept determine narration length.
@@ -191,7 +209,8 @@ Return EXACTLY this JSON shape (no markdown):
       "narration": "natural Indian-English spoken line",
       "tts_text": "same English spoken line optimized for natural TTS",
       "image_prompt": "unique premium cinematic educational visual, 20-45 words, vertical 9:16, clear conceptual diagram or illustration of the mechanism, no embedded text or labels, no typed UI, no logos, no watermark",
-      "on_screen_text": ""
+      "on_screen_text": "",
+      "card_points": ["only for text-card channels: 2-3 short factual revision-note lines, max 7 words each"]
     }}
   ]
 }}
@@ -430,6 +449,10 @@ def _to_script(data: dict) -> Script:
             )
 
         on_screen_text = _first_text(raw, "on_screen_text", "caption", "keyword", "memory_cue")
+        raw_points = raw.get("card_points") or raw.get("points") or []
+        if isinstance(raw_points, str):
+            raw_points = [raw_points]
+        card_points = [" ".join(str(x).split())[:70] for x in raw_points if str(x).strip()][:3]
 
         scenes.append(Scene(
             index=i,
@@ -437,6 +460,7 @@ def _to_script(data: dict) -> Script:
             tts_text=tts_text,
             image_prompt=image_prompt,
             on_screen_text=on_screen_text.upper(),
+            card_points=card_points,
         ))
 
     return Script(
@@ -462,9 +486,8 @@ def _ensure_hashtags(description: str, topic: str, niche_key: str | None) -> str
     existing = re.findall(r"#\w+", description)
     if len(existing) >= 3:
         return description
-    pool = _SEO_HASHTAGS_BY_SUBJECT_AREA.get(
-        classify_subject_area(topic),
-        HASHTAG_POOL.get(niche_key or "", HASHTAG_POOL["default"]),
+    pool = _SEO_HASHTAGS_BY_NICHE.get(niche_key or "") or _SEO_HASHTAGS_BY_SUBJECT_AREA.get(
+        classify_subject_area(topic), HASHTAG_POOL.get(niche_key or "", HASHTAG_POOL["default"])
     )
     existing_lower = {e.lower() for e in existing}
     to_add = [h for h in pool if h.lower() not in existing_lower][: 3 - len(existing)]
@@ -474,6 +497,11 @@ def _ensure_hashtags(description: str, topic: str, niche_key: str | None) -> str
 
 
 _SEO_HASHTAGS_BY_NICHE = {
+    "bank_it_officer": ["#shorts", "#ibpssoit", "#bankexams", "#itofficer", "#examprep"],
+    "bank_reasoning_quant": ["#shorts", "#bankpo", "#reasoning", "#quantaptitude", "#ibpspo"],
+    "banking_awareness": ["#shorts", "#bankingawareness", "#bankexams", "#sbipo", "#rbi"],
+    "rbi_economy": ["#shorts", "#rbigradeb", "#economy", "#bankexams", "#monetarypolicy"],
+    "bank_english": ["#shorts", "#bankexams", "#englishforbankexams", "#ibpspo", "#sbipo"],
     "why_things_work": ["#shorts", "#didyouknow", "#sciencefacts", "#amazingfacts", "#learnonshortsm"],
     "exam_concepts":   ["#shorts", "#upsc", "#examprep", "#studymotivation", "#currentaffairs"],
     "science_explainers": ["#shorts", "#science", "#sciencefacts", "#physics", "#biology"],
@@ -525,9 +553,10 @@ def seo_optimize_all(
     so it gets the same model-fallback, 429 retry-with-backoff, and
     daily-quota-blacklist behavior as script generation.
     """
-    base_tags = _SEO_HASHTAGS_BY_SUBJECT_AREA.get(
-        classify_subject_area(topic),
-        _SEO_HASHTAGS_BY_NICHE.get(niche_key, ["#shorts", "#learneveryday"]),
+    # Lane-locked channel: the niche pool is exact for the bank-exam niches.
+    # Subject-area is only the fallback for unknown niche keys.
+    base_tags = _SEO_HASHTAGS_BY_NICHE.get(niche_key) or _SEO_HASHTAGS_BY_SUBJECT_AREA.get(
+        classify_subject_area(topic), ["#shorts", "#learneveryday"]
     )
     prompt = f"""You are a YouTube SEO specialist for Indian educational Shorts. You have studied which
 titles, descriptions and tags rank highest and get clicked the most for Indian audiences.
@@ -538,26 +567,24 @@ CURRENT TITLE: {title}
 CURRENT DESCRIPTION: {description}
 CURRENT TAGS: {tags}
 
-VIRAL TITLE FORMULA for Indian educational Shorts (use whichever fits the topic best):
-- Curiosity gap: "Why [Relatable Thing] Actually [Surprising Explanation]"
-- Benefit + secret: "The [One/Real] Reason [Thing] — Most People Don't Know This"
-- Pride/identity: "India [Did/Has/Built] [Surprising Fact] — Here's Why"
-- You-frame: "Why YOUR [Body/Brain/Phone] Does [Thing] Explained"
+SEARCH-FIRST RULES (about 78% of this channel's views come from YouTube Search, not the Shorts feed —
+aspirants type the exam name + concept, so the title must match that search):
+TITLE:
+- Put the EXAM NAME and the main CONCEPT keywords in the first 45 characters, the way an aspirant would type
+  them. Pattern: "<Exam>: <Concept> <Benefit>", e.g. "IBPS SO IT: OSI Model 7 Layers Trick",
+  "SBI PO: Simplification Speed Trick", "RBI Grade B: GDP vs GNP Explained".
+- Under 65 characters, 100% accurate, no false promises, no ALL CAPS, no emojis, no vague curiosity-gap wording.
+- The title MUST keep the main keywords of the TOPIC. Never change the subject.
 
-TITLE RULES:
-- Under 60 characters, 100% accurate, no false promises, no ALL CAPS, no emojis
-- Use the most-searched keywords for this topic among Indian viewers
-- If the current title already fits these patterns well, keep it unchanged
-
-DESCRIPTION RULES:
-- First sentence must contain the most-searched keywords for this topic in India
-- 2-3 sentences max, natural language, not keyword stuffing
-- Include a light call-to-action: 'Follow for more [topic area] explained simply'
+DESCRIPTION:
+- Line 1: repeat the exam name + concept keywords naturally (what the viewer will learn, for which exam).
+- Line 2: one sentence on how it is asked in the exam. Line 3: "Follow ExamCrackerAI for daily bank exam revision."
+- No keyword stuffing, no made-up facts, no dates/cutoffs.
 - End with exactly these hashtags: {' '.join(base_tags)}
 
-TAGS RULES:
-- 10-15 tags, all lowercase, no '#' symbol
-- Mix broad (india, education, shorts) + specific (the exact concept) + long-tail ('why does x happen')
+TAGS:
+- 12-15 tags, lowercase, no '#'. Include the exam names (e.g. ibps so it, sbi po, rbi grade b), the exact concept,
+  2-3 long-tail search phrases (e.g. "osi model 7 layers ibps so it"), and "bank exam preparation".
 
 LANGUAGE STYLE (applies to title + description):
 - Simple, everyday Indian English — words a 10th-standard student would immediately understand
@@ -575,6 +602,12 @@ Return EXACTLY this JSON (no markdown, no commentary):
         new_tags = [str(t).strip().lower().lstrip("#") for t in data.get("tags", tags) if str(t).strip()]
         if not (5 < len(new_title) <= 100):
             new_title = title
+        # If the rewrite lost every topic keyword, keep the original title.
+        _tk = {t for t in re.findall(r"[a-z0-9]{3,}", topic.lower()) if t not in _TOPIC_STOP}
+        _nt = set(re.findall(r"[a-z0-9]{3,}", new_title.lower()))
+        if _tk and not (_tk & _nt):
+            print(f"[seo] rewritten title dropped all topic keywords — keeping original: {title!r}")
+            new_title = title
         if not new_desc:
             new_desc = description
         if not new_tags:
@@ -584,6 +617,28 @@ Return EXACTLY this JSON (no markdown, no commentary):
     except Exception as exc:
         print(f"[!] SEO optimization failed (non-fatal, shipping raw title/description/tags): {exc}")
         return title, description, tags
+
+
+_TOPIC_STOP = {
+    "with", "that", "this", "what", "from", "your", "exam", "exams", "bank", "banks", "asked", "every", "trick",
+    "easy", "simple", "simply", "explained", "difference", "between", "memory", "know", "need", "for", "and",
+    "the", "are", "you", "how", "why", "into", "does", "did", "aspirants", "fastest", "method", "common",
+    "solve", "under", "minutes", "minute", "that", "there", "their", "which", "ibps", "sbi",
+}
+
+
+def _topic_issue(topic: str, script: "Script") -> str | None:
+    """Reject scripts that drifted off the requested topic (e.g. a NEET-PG request
+    that came back as a Marcus Gunn jaw-winking video)."""
+    tokens = {t for t in re.findall(r"[a-z0-9]{3,}", topic.lower()) if t not in _TOPIC_STOP}
+    if not tokens:
+        return None
+    body = " ".join([script.title, script.hook] + [s.narration for s in script.scenes]).lower()
+    body_tokens = set(re.findall(r"[a-z0-9]{3,}", body))
+    hits = sum(1 for t in tokens if t in body_tokens or any(b.startswith(t[:5]) for b in body_tokens if len(t) >= 5))
+    if hits / len(tokens) < 0.34:
+        return f"script drifted off-topic (matched {hits}/{len(tokens)} topic keywords for {topic!r}); stay strictly on the topic"
+    return None
 
 
 def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_key: str | None = None) -> Script:
@@ -622,6 +677,10 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
 
     script = _to_script(parsed)
     qa = validate_script(script, language)
+    drift = _topic_issue(topic, script)
+    if drift:
+        qa.issues = list(qa.issues) + [drift]
+        qa.ok = False
     if qa.ok:
         print(f"[qa] script passed: scenes={len(script.scenes)} words={sum(len(s.narration.split()) for s in script.scenes)}")
         # Optimization #3: SEO-optimize title + description + tags in one call
@@ -639,6 +698,10 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
         # No model_name → _generate_gemini walks _GEMINI_MODELS with fallback
         repaired = _to_script(_parse_json(raw2))
         qa2 = validate_script(repaired, language)
+        drift2 = _topic_issue(topic, repaired)
+        if drift2:
+            qa2.issues = list(qa2.issues) + [drift2]
+            qa2.ok = False
         if not qa2.ok:
             raise RuntimeError("; ".join(qa2.issues))
         print(f"[qa] repaired script passed: scenes={len(repaired.scenes)}")

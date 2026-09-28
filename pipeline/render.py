@@ -596,6 +596,11 @@ _MOOD_TRACKS: dict[str, list[str]] = {
     "calm": ["ambient_soft_1.mp3", "lofi_study_1.mp3"],
 }
 _NICHE_MOOD: dict[str, str] = {
+    "bank_it_officer": "calm",
+    "bank_reasoning_quant": "upbeat",
+    "banking_awareness": "calm",
+    "rbi_economy": "calm",
+    "bank_english": "calm",
     "exam_concepts": "calm",
     "science_explainers": "upbeat",
     "default": "calm",

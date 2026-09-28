@@ -1,121 +1,119 @@
 {
-  "version": 11,
-  "last_updated": "2026-09-27T00:00:00Z",
-  "_strategy_note": "Viral-first SEO content plan v11. Every topic follows the formula: RELATABLE PAIN or CURIOSITY GAP + SIMPLE EXPLANATION + SURPRISING FACT. Topics are chosen for (a) high YouTube search volume in India, (b) evergreen re-shareability, (c) conversation-starter potential in comments. Niches expanded from 2 to 5 to capture more algorithm surfaces.",
+  "version": 12,
+  "last_updated": "2026-09-28T00:00:00Z",
+  "_strategy_note": "v12 lane-locked: bank-exam aspirants only. Channel analytics showed 78% of views from YouTube Search on exact exam topics, near-zero on off-lane science/brain/India-facts topics. Topics are written the way aspirants search.",
   "niches": {
-    "why_things_work": {
-      "display_name": "Why Things Work",
-      "visual_style": "educational_ai",
-      "voice": { "en": "en-IN" },
-      "system_prompt": "Explain one everyday phenomenon or life mystery in a way that makes the viewer feel smart for understanding it. Target: 18-28 year old Indians who are curious and share interesting facts with friends. Format: short, punchy, conversational Indian English. The hook MUST make them stop scrolling. End with a surprising twist or fact they can tell someone else today.",
+    "bank_it_officer": {
+      "display_name": "Bank IT Officer",
+      "visual_style": "text_card",
+      "card_tag": "IBPS SO IT",
+      "voice": {
+        "en": "en-IN"
+      },
+      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a hook that names the exam and the exact concept, (2) the core rule, definition or method stated plainly, (3) one memory trick or worked example, (4) one line on how this is asked in the exam. Only state facts you are certain of. If you are unsure about a number, date, rate, or exam-pattern detail, leave it out and stay conceptual. Never invent cutoffs, vacancies, dates or statistics. Simple, clear Indian English. Focus area: IT officer subjects: networks, DBMS, OS, security, data structures.",
       "topics": [
-        "why your phone battery drains faster in cold weather",
-        "why yawning is contagious even through a screen",
-        "why we forget dreams within 10 minutes of waking up",
-        "why ice floats on water instead of sinking",
-        "why your voice sounds different in a recording versus in your head",
-        "why salt melts ice on roads but sugar doesn't work",
-        "why mirrors flip left-right but not up-down",
-        "why airplane windows have tiny holes in them",
-        "why hospitals smell the way they do",
-        "why your stomach growls when you're hungry",
-        "why we get goosebumps from music or cold",
-        "why the sea is salty but rivers are not",
-        "why onions make you cry and what actually happens in your eye",
-        "why we dream and what happens in the brain during REM sleep",
-        "why hot water can freeze faster than cold water (Mpemba effect)"
+        "OSI model 7 layers with a memory trick for IBPS SO IT",
+        "TCP vs UDP difference asked in IBPS SO IT exam",
+        "SQL joins explained: inner, left, right and full join for bank IT exams",
+        "Normalization 1NF 2NF 3NF with a simple trick for IBPS SO IT",
+        "Primary key vs foreign key vs candidate key for bank IT exams",
+        "Process vs thread difference for IBPS SO IT",
+        "Deadlock and its four conditions explained simply for bank IT exams",
+        "IPv4 vs IPv6 differences that bank IT exams ask",
+        "Firewall vs antivirus vs IDS in cyber security for bank exams",
+        "Symmetric vs asymmetric encryption for IBPS SO IT",
+        "Stack vs queue difference with real-life examples for bank IT exams",
+        "RAM vs ROM vs cache memory hierarchy for bank IT exams",
+        "ARP protocol explained simply for IBPS SO IT",
+        "Ransomware and how banks defend against it for IBPS SO IT"
       ]
     },
-    "exam_concepts": {
-      "display_name": "Exam Concepts",
-      "visual_style": "educational_ai",
-      "voice": { "en": "en-IN" },
-      "system_prompt": "Create genuinely useful educational content for Indian competitive-exam aspirants (UPSC, SSC, NEET, JEE, Banking). Focus on one coherent concept. Explain the reasoning clearly. CRITICAL for virality: frame each topic as something the viewer can actually USE in their exam — give them the exact fact or framework they need to answer a question. End with a one-line memory trick. Natural conversational Indian English only.",
+    "bank_reasoning_quant": {
+      "display_name": "Reasoning & Quant",
+      "visual_style": "text_card",
+      "card_tag": "BANK PO",
+      "voice": {
+        "en": "en-IN"
+      },
+      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a hook that names the exam and the exact concept, (2) the core rule, definition or method stated plainly, (3) one memory trick or worked example, (4) one line on how this is asked in the exam. Only state facts you are certain of. If you are unsure about a number, date, rate, or exam-pattern detail, leave it out and stay conceptual. Never invent cutoffs, vacancies, dates or statistics. Simple, clear Indian English. Focus area: reasoning and quantitative aptitude speed methods.",
       "topics": [
-        "the one trick to remember all layers of the atmosphere in order",
-        "why the difference between GDP and GNP matters more than you think",
-        "how to answer any Preamble question in UPSC in under 30 seconds",
-        "why Article 32 is called the 'heart and soul' of the Constitution",
-        "the simple logic behind why pH below 7 is acidic that nobody explains",
-        "how to instantly identify a question about fundamental rights vs DPSP",
-        "why the RBI controls inflation by changing just one number",
-        "the fastest way to remember the types of rocks and how they form",
-        "why understanding tectonic plates makes 10 geography questions easy",
-        "the real difference between Lok Sabha and Rajya Sabha power in 60 seconds",
-        "how one formula explains simple interest and compound interest both",
-        "why blood types matter in biology questions and how to never forget them",
-        "the trick to remembering India's neighbouring countries and their capitals",
-        "why the Tropic of Cancer passes through exactly 8 Indian states",
-        "how to solve percentage questions in competitive exams without a calculator"
+        "Machine input output reasoning step-by-step trick for bank PO",
+        "Syllogism using Venn diagrams: the fastest method for IBPS PO",
+        "Blood relations shortcut for bank exams",
+        "Circular seating arrangement: solve it in under two minutes",
+        "Coding-decoding letter shifting trick for SBI clerk",
+        "Simplification and approximation speed trick for SBI PO",
+        "Percentage to fraction table every bank aspirant should memorize",
+        "Successive percentage shortcut for profit and loss in bank exams",
+        "Time and work with the LCM method for IBPS PO",
+        "Number series: 5 common patterns in bank prelims",
+        "Inequality reasoning symbol trick for bank exams",
+        "Data interpretation calculation shortcuts for bank PO"
       ]
     },
-    "science_explainers": {
-      "display_name": "Science Explained",
-      "visual_style": "educational_ai",
-      "voice": { "en": "en-IN" },
-      "system_prompt": "Explain one science concept in a way that creates a 'wow, I never knew that' moment. Perfect for students and curious people who share science facts. Start with something surprising that challenges what the viewer thinks they know. Use one perfect analogy. Target: NEET/JEE students and general science fans aged 16-25. Conversational Indian English, no jargon without an immediate simple explanation.",
+    "banking_awareness": {
+      "display_name": "Banking Awareness",
+      "visual_style": "text_card",
+      "card_tag": "BANK EXAMS",
+      "voice": {
+        "en": "en-IN"
+      },
+      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a hook that names the exam and the exact concept, (2) the core rule, definition or method stated plainly, (3) one memory trick or worked example, (4) one line on how this is asked in the exam. Only state facts you are certain of. If you are unsure about a number, date, rate, or exam-pattern detail, leave it out and stay conceptual. Never invent cutoffs, vacancies, dates or statistics. Simple, clear Indian English. Focus area: banking awareness: RBI, payments, bank types, rules.",
       "topics": [
-        "why your body doesn't digest itself even though stomach acid is very strong",
-        "how your immune system knows which cells are yours and which are invaders",
-        "why sound travels faster through water than through air",
-        "how a black hole can have gravity so strong that light can't escape",
-        "why the same atom can be a poison or a medicine depending on amount",
-        "how CRISPR actually cuts DNA like molecular scissors",
-        "why quantum superposition means a particle can be in two places at once",
-        "how neurons fire and why your thoughts literally change your brain structure",
-        "why antibiotics work on bacteria but not on viruses",
-        "the reason your body temperature is exactly 37 degrees and not more or less",
-        "how vaccines teach your immune system to fight diseases it has never seen",
-        "why sleeping less than 7 hours does measurable damage to your memory",
-        "how the Large Hadron Collider finds particles smaller than atoms",
-        "why the same substance can be a solid liquid and gas at the triple point",
-        "how your eyes see colour even though each cone only detects one wavelength"
+        "Repo rate vs reverse repo rate explained for bank exams",
+        "CRR vs SLR difference asked in every bank exam",
+        "IFSC code structure explained for SBI PO",
+        "KYC norms in banking: what aspirants must know",
+        "NPA classification: sub-standard, doubtful and loss assets for bank exams",
+        "Scheduled vs non-scheduled banks for IBPS exams",
+        "Cooperative banks structure in India for bank exams",
+        "Payments banks vs small finance banks for bank exams",
+        "NEFT vs RTGS vs IMPS vs UPI differences for bank exams",
+        "Types of bank accounts and their rules for IBPS clerk",
+        "Basel III in simple words for bank exams",
+        "Functions of RBI that every bank exam asks"
       ]
     },
-    "india_facts": {
-      "display_name": "India Facts",
-      "visual_style": "educational_ai",
-      "voice": { "en": "en-IN" },
-      "system_prompt": "Share one surprising, pride-inducing, or counterintuitive fact about India — its history, culture, science, economy or geography. These videos must be instantly shareable. Every Indian viewer should feel like they learned something about their own country they didn't know. Hook with the most surprising version of the fact. End with why it matters today. Conversational Indian English, warm and engaging tone.",
+    "rbi_economy": {
+      "display_name": "RBI & Economy",
+      "visual_style": "text_card",
+      "card_tag": "RBI GRADE B",
+      "voice": {
+        "en": "en-IN"
+      },
+      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a hook that names the exam and the exact concept, (2) the core rule, definition or method stated plainly, (3) one memory trick or worked example, (4) one line on how this is asked in the exam. Only state facts you are certain of. If you are unsure about a number, date, rate, or exam-pattern detail, leave it out and stay conceptual. Never invent cutoffs, vacancies, dates or statistics. Simple, clear Indian English. Focus area: economy and finance for RBI Grade B, SEBI and NABARD.",
       "topics": [
-        "why India invented the number zero and why it changed everything",
-        "how India's space program costs less than a Hollywood movie and still reaches Mars",
-        "why India has the most vegetarians in the world and what the health data says",
-        "the reason India has more than 19500 languages and dialects",
-        "how the Indian monsoon feeds 1.4 billion people and what happens when it fails",
-        "why India's railway network is one of the largest in the world",
-        "how ancient Indian astronomers calculated the Earth's circumference correctly",
-        "why India has the world's largest milk production and what Operation Flood did",
-        "the real story of how India won the Polio battle in 2014",
-        "why India built the world's largest solar farm and what it powers",
-        "how Chandragupta Maurya built an empire bigger than Alexander's at his peak",
-        "why India produces the most engineers per year but faces a skills gap",
-        "the reason Mumbai's dabbawalas have a six sigma accuracy rating",
-        "how India's chip design industry shapes the processors in your phone",
-        "why IIT entrance exam is statistically harder to crack than Harvard admissions"
+        "GDP vs GNP vs NNP for RBI Grade B",
+        "Demand-pull vs cost-push inflation for bank exams",
+        "Monetary policy tools of RBI in one minute",
+        "Fiscal deficit vs revenue deficit vs primary deficit for RBI Grade B",
+        "Current account vs capital account in balance of payments for bank exams",
+        "Money supply M0 M1 M2 M3 explained for RBI Grade B",
+        "What is the MPC and how the repo rate is decided for RBI Grade B",
+        "RBI vs SEBI roles: what each regulates for bank exams",
+        "NABARD functions explained for bank exams",
+        "FRBM Act explained simply for RBI Grade B",
+        "Financial inclusion schemes PMJDY, APY and PMJJBY for bank exams"
       ]
     },
-    "mind_and_body": {
-      "display_name": "Mind and Body",
-      "visual_style": "educational_ai",
-      "voice": { "en": "en-IN" },
-      "system_prompt": "Explain one fascinating fact about how the human mind or body works — in a way that's directly useful for the viewer's daily life. These are the most-shared Shorts because everyone has a body and everyone wants to understand it better. Target: young Indians 18-30 who are health-conscious, exam-stressed, and curious. Make it feel like the viewer just learned a life hack from a doctor friend. Conversational Indian English, warm and relatable.",
+    "bank_english": {
+      "display_name": "Bank English",
+      "visual_style": "text_card",
+      "card_tag": "BANK ENGLISH",
+      "voice": {
+        "en": "en-IN"
+      },
+      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a hook that names the exam and the exact concept, (2) the core rule, definition or method stated plainly, (3) one memory trick or worked example, (4) one line on how this is asked in the exam. Only state facts you are certain of. If you are unsure about a number, date, rate, or exam-pattern detail, leave it out and stay conceptual. Never invent cutoffs, vacancies, dates or statistics. Simple, clear Indian English. Focus area: English section methods for bank exams.",
       "topics": [
-        "why studying right before sleep actually helps you remember better",
-        "what happens to your brain when you scroll social media for hours",
-        "why exercise is proven to make you smarter, not just fitter",
-        "how stress literally shrinks your hippocampus and what to do about it",
-        "why drinking water in the morning before eating anything is backed by science",
-        "what actually happens in your body in the first 30 minutes after waking up",
-        "why reading on screens tires your eyes faster than reading on paper",
-        "how your gut bacteria affect your mood more than your brain does",
-        "why cold showers have real proven benefits that warm showers don't",
-        "what the science of habit formation says about the 21-day myth",
-        "why crying actually relieves stress — the biochemistry behind it",
-        "how music changes your brain chemistry in real time as you listen",
-        "why eating slowly causes you to eat less even without dieting",
-        "what loneliness does to your immune system and why it's as bad as smoking",
-        "how gratitude journaling changes brain structure in just 8 weeks"
+        "Reading comprehension 3-step method to save time in IBPS PO",
+        "Subject-verb agreement rules that repeat in bank exam error spotting",
+        "Cloze test strategy for SBI PO",
+        "Para jumbles: how to find the opening sentence fast",
+        "Idioms asked in bank exams with meanings",
+        "One-word substitutions asked in IBPS clerk",
+        "Phrasal verbs that appear in bank exams",
+        "Preposition rules for fill in the blanks in bank exams",
+        "Synonyms and antonyms trick for bank exam vocabulary"
       ]
     }
   }

@@ -246,7 +246,10 @@ def _run_one(
             overlay_text=None,
         )
         image = fetch_scene_image(
-            scene.index, scene.image_prompt, visual_style, settings, subject_area=subject_area
+            scene.index, scene.image_prompt, visual_style, settings, subject_area=subject_area,
+            card_headline=(script.title if scene.index == 0 else (scene.on_screen_text or "")),
+            card_points=scene.card_points,
+            card_tag=niche_cfg.get("card_tag", ""),
         )
         return {
             "index": scene.index,
@@ -343,7 +346,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true",
                         help="render videos but never upload")
-    parser.add_argument("--count", type=int, default=int(os.getenv("UPLOAD_COUNT", "15")),
+    parser.add_argument("--count", type=int, default=int(os.getenv("UPLOAD_COUNT", "3")),
                         help="number of videos to generate and upload (default: 15)")
     parser.add_argument("--interval", type=int, default=UPLOAD_INTERVAL_SECONDS,
                         help="seconds between uploads (default: 2700 = 45 min)")

@@ -11,6 +11,7 @@ Falls back gracefully to the static topic list if:
 """
 from __future__ import annotations
 
+import os
 import random
 
 _URLLIB3_SHIMMED = False
@@ -64,7 +65,15 @@ _DEFAULT_SEED = ["India education", "exam preparation"]
 
 
 def get_trending_topic(niche: str, fallback_topic: str) -> str:
-    """Return a trending query string for the niche, or the fallback if unavailable."""
+    """Return a trending query string for the niche, or the fallback if unavailable.
+
+    Disabled by default (USE_TRENDS=true to enable). Google Trends "related queries"
+    are news-style searches (results, admit cards, dates) that drift off the channel's
+    exam lane and can't be taught accurately; a run that asked for "neet pg 2026"
+    published an unrelated eye-condition video. The lane-locked topic list is used instead.
+    """
+    if os.getenv("USE_TRENDS", "false").strip().lower() != "true":
+        return fallback_topic
     _patch_urllib3_method_whitelist()
     try:
         from pytrends.request import TrendReq  # type: ignore

@@ -81,6 +81,11 @@ COLOR_GRADE: dict[str, str] = {
 
 # Short "exam badge" label per niche key (layer 2 typography).
 NICHE_BADGE: dict[str, str] = {
+    "bank_it_officer": "IBPS SO IT",
+    "bank_reasoning_quant": "BANK PO",
+    "banking_awareness": "BANK EXAMS",
+    "rbi_economy": "RBI GRADE B",
+    "bank_english": "BANK ENGLISH",
     "exam_concepts": "UPSC 2026",
     "science_explainers": "SCIENCE",
     "why_things_work": "DID YOU KNOW",

@@ -766,6 +766,7 @@ Respond ONLY with that JSON. No markdown, no commentary."""
             use_schema=False,
         )
         raw = re.sub(r"```(?:json)?|```", "", raw).strip()
+        data = json.loads(raw)
         raw_issues = [str(i).strip() for i in data.get("issues", []) if str(i).strip()]
         STYLE_KEYWORDS = ("filler", "engagement", "bait", "hook", "cta", "comment", "vague", "style", "tone", "pedagogy", "pacing")
         issues = []
@@ -793,7 +794,7 @@ def polish_script(script: "Script", topic: str, api_key: str) -> "Script":
     narration_dump = "\n".join(
         f"Scene {s.index}: {s.narration}" for s in script.scenes
     )
-    prompt = f"""You are a YouTube Shorts editor reviewing a 28-34 second Indian educational video script.
+    prompt = f"""You are a YouTube Shorts editor reviewing an engaging Indian educational video script (under 60 seconds).
 
 TOPIC: {topic}
 HOOK (scene 0): {script.scenes[0].narration if script.scenes else ''}
@@ -840,9 +841,14 @@ Return EXACTLY this JSON and nothing else:
         if pacing_cut:
             for s in script.scenes:
                 if pacing_cut in s.narration:
-                    s.narration = s.narration.replace(pacing_cut, "").strip()
-                    s.tts_text = s.tts_text.replace(pacing_cut, "").strip()
-                    print(f"[polish] pacing cut applied in scene {s.index}: removed {pacing_cut!r}")
+                    candidate = s.narration.replace(pacing_cut, "").strip()
+                    # Never cut if it would leave the scene empty or under 5 words
+                    if len(candidate.split()) >= 5:
+                        s.narration = candidate
+                        s.tts_text = (s.tts_text or "").replace(pacing_cut, "").strip()
+                        print(f"[polish] pacing cut applied in scene {s.index}: removed {pacing_cut!r}")
+                    else:
+                        print(f"[polish] pacing cut skipped in scene {s.index}: cut would empty or over-shorten scene")
                     break
 
         print("[polish] DONE")

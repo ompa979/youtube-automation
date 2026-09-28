@@ -364,29 +364,33 @@ class GeminiRouter:
         call_type: CallType,
         use_schema: bool,
     ) -> str:
-        thinking_budget = _THINKING_BUDGET[call_type]
-
-        generation_config: dict[str, Any] = {
+        # Base config — only fields universally supported by all SDK versions.
+        # thinking_config was rejected by the installed SDK → removed.
+        # response_schema is attempted first; if rejected by SDK, we retry
+        # without it (QA layer enforces structure post-generation instead).
+        base_config: dict[str, Any] = {
             "temperature": 0.7 if call_type in (CallType.SCRIPT_GEN, CallType.POLISH) else 0.5,
             "response_mime_type": "application/json",
         }
 
-        # Thinking config: Flash-Lite supports thinking_budget from mid-2025.
-        if thinking_budget > 0:
-            generation_config["thinking_config"] = {
-                "thinking_budget": thinking_budget,
-            }
+        want_schema = call_type == CallType.SCRIPT_GEN and use_schema
 
-        # Schema-constrained output eliminates structural repair calls.
-        if call_type == CallType.SCRIPT_GEN and use_schema:
-            generation_config["response_schema"] = _SCRIPT_SCHEMA
+        def _attempt(with_schema: bool) -> str:
+            cfg = dict(base_config)
+            if with_schema:
+                cfg["response_schema"] = _SCRIPT_SCHEMA
+            model = genai.GenerativeModel(model_name, generation_config=cfg)
+            resp = model.generate_content(prompt)
+            text = getattr(resp, "text", None)
+            if not text:
+                raise RuntimeError(f"Gemini ({model_name}) returned an empty response")
+            return text
 
-        model = genai.GenerativeModel(
-            model_name,
-            generation_config=generation_config,
-        )
-        resp = model.generate_content(prompt)
-        text = getattr(resp, "text", None)
-        if not text:
-            raise RuntimeError(f"Gemini ({model_name}) returned an empty response")
-        return text
+        try:
+            return _attempt(with_schema=want_schema)
+        except Exception as exc:
+            msg = str(exc)
+            if want_schema and "Unknown field" in msg:
+                print(f"[router] {model_name}: response_schema rejected by SDK — retrying without schema")
+                return _attempt(with_schema=False)
+            raise

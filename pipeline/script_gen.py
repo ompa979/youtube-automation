@@ -477,17 +477,17 @@ _SEO_HASHTAGS_BY_SUBJECT_AREA = {
 # v18 — channel-audit enforcement layer (deterministic; does not trust the LLM)
 # ═════════════════════════════════════════════════════════════════════════════
 
-# ── #4 Duration: 28-34 s spoken ≈ 70-85 words at a natural Indian-English pace
-# Analytics shows best retention in the 28-34s window (not the full 30s+).
+# ── #4 Duration: 28-40 s spoken ≈ 70-95 words at a natural Indian-English pace
+# Analytics shows best retention under 40s; Shorts up to 60s are fine.
 MIN_WORDS = 55
-MAX_WORDS = 85          # hard ceiling enforced by QA (~34 s)
+MAX_WORDS = 95          # hard ceiling enforced by QA (~38 s)
 
 
 def _length_issue(script: "Script") -> str | None:
     words = sum(len(s.narration.split()) for s in script.scenes)
     if words > MAX_WORDS:
-        return (f"narration is {words} words (~{words // 2.6:.0f}s); must be "
-                f"{MIN_WORDS}-{MAX_WORDS} words (20-30s). Cut to the single most important idea")
+        return (f"narration is {words} words (~{words // 2.5:.0f}s); must be "
+                f"{MIN_WORDS}-{MAX_WORDS} words (22-38s). Cut to the single most important idea")
     if words < MIN_WORDS:
         return f"narration only {words} words; needs {MIN_WORDS}-{MAX_WORDS} words for a complete idea"
     return None

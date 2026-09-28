@@ -136,8 +136,11 @@ academics). Concretely:
   useful, but do NOT use Hinglish, Roman Hindi, Devanagari, or forced Indian slang.
 - Keep necessary technical/exam terms in standard English and briefly explain them in
   plain words the first time they appear, instead of assuming the viewer already knows them.
-The `tts_text` must be the same English spoken content, optimized only for natural
-speech pauses and pronunciation. Do not translate it into Hindi.
+The `tts_text` must be the same English spoken content, optimized specifically for natural,
+calm Indian-educator pronunciation and cadence:
+- Use commas generously to force natural breathing pauses between thoughts and clauses.
+- Write technical terms and acronyms spaced out with commas for crisp articulation (e.g. "I B P S, S O, I T", "1 N F", "number 1").
+- Do not cram multiple dense ideas into a single sentence. Speak with clarity, calm authority, and patience.
 """.strip()
 
     repair_text = f"\nREPAIR REQUEST:\n{repair}\n" if repair else ""

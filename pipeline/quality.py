@@ -29,9 +29,12 @@ MAX_SCENES = 5
 # TTS renders slightly faster than the 2.5 wps estimate, so a 65s word-count
 # target lands the rendered clip safely under 60s.  The previous 55s limit
 # was triggering unnecessary repair loops on scripts that rendered fine.
-WORDS_PER_SECOND = 2.5
-MAX_SPOKEN_SECONDS = 36   # v18: 20-30s target (+title/hook counted here)
-MAX_WORDS = int(MAX_SPOKEN_SECONDS * WORDS_PER_SECOND)  # 162
+# Calm educator pace (~130 wpm / 2.2 words-per-second).
+# YouTube Shorts must be strictly under 60s total duration.
+# 54s spoken audio gives a safe buffer for title and outro.
+WORDS_PER_SECOND = 2.2
+MAX_SPOKEN_SECONDS = 54
+MAX_WORDS = int(MAX_SPOKEN_SECONDS * WORDS_PER_SECOND)  # ~118 words
 
 
 @dataclass
@@ -72,9 +75,8 @@ def validate_script(script: Any, language: str) -> QAResult:
     if words > MAX_WORDS:
         est_seconds = round(words / WORDS_PER_SECOND)
         issues.append(
-            f"script is ~{est_seconds}s of narration at natural pace — too long for a tight "
-            f"Short (completion rate drops sharply past {MAX_SPOKEN_SECONDS}s); cut to the "
-            f"single clearest explanation, keep the words needed to teach it, drop the rest"
+            f"script is ~{est_seconds}s of narration at natural educator pace — "
+            f"YouTube Shorts hard limit is 60s; cut slightly to fit under {MAX_WORDS} words"
         )
 
     if any("\u0900" <= ch <= "\u097F" for ch in all_text):

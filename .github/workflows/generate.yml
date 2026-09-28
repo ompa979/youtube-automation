@@ -86,7 +86,8 @@ jobs:
           LANGUAGES_ENABLED:      'en'
           TTS_PROVIDER:           edge
           TTS_LANGUAGE:           en-IN
-          TTS_VOICE:              en-IN-NeerjaExpressiveNeural
+          TTS_VOICE:              en-IN-PrabhatNeural
+          TTS_RATE:               '-10%'
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m pipeline.generate --dry-run --count ${{ inputs.count || 3 }}

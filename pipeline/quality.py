@@ -21,7 +21,7 @@ GENERIC_FILLERS = [
 ]
 
 MIN_SCENES = 3
-MAX_SCENES = 8
+MAX_SCENES = 5
 
 # Rough spoken-word budget for a tight Short. At natural pace (~150 wpm /
 # 2.5 words-per-second), this keeps total narration under ~65s.
@@ -30,7 +30,7 @@ MAX_SCENES = 8
 # target lands the rendered clip safely under 60s.  The previous 55s limit
 # was triggering unnecessary repair loops on scripts that rendered fine.
 WORDS_PER_SECOND = 2.5
-MAX_SPOKEN_SECONDS = 65
+MAX_SPOKEN_SECONDS = 36   # v18: 20-30s target (+title/hook counted here)
 MAX_WORDS = int(MAX_SPOKEN_SECONDS * WORDS_PER_SECOND)  # 162
 
 

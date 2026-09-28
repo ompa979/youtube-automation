@@ -26,7 +26,8 @@
         "RAM vs ROM vs cache memory hierarchy for bank IT exams",
         "ARP protocol explained simply for IBPS SO IT",
         "Ransomware and how banks defend against it for IBPS SO IT"
-      ]
+      ],
+      "weight": 2
     },
     "bank_reasoning_quant": {
       "display_name": "Reasoning & Quant",
@@ -49,7 +50,8 @@
         "Number series: 5 common patterns in bank prelims",
         "Inequality reasoning symbol trick for bank exams",
         "Data interpretation calculation shortcuts for bank PO"
-      ]
+      ],
+      "weight": 2
     },
     "banking_awareness": {
       "display_name": "Banking Awareness",
@@ -72,7 +74,8 @@
         "Types of bank accounts and their rules for IBPS clerk",
         "Basel III in simple words for bank exams",
         "Functions of RBI that every bank exam asks"
-      ]
+      ],
+      "weight": 2
     },
     "rbi_economy": {
       "display_name": "RBI & Economy",
@@ -94,7 +97,8 @@
         "NABARD functions explained for bank exams",
         "FRBM Act explained simply for RBI Grade B",
         "Financial inclusion schemes PMJDY, APY and PMJJBY for bank exams"
-      ]
+      ],
+      "weight": 1
     },
     "bank_english": {
       "display_name": "Bank English",
@@ -114,7 +118,8 @@
         "Phrasal verbs that appear in bank exams",
         "Preposition rules for fill in the blanks in bank exams",
         "Synonyms and antonyms trick for bank exam vocabulary"
-      ]
+      ],
+      "weight": 1
     }
   }
 }

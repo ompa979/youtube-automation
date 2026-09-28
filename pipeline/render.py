@@ -340,11 +340,11 @@ def _ken_burns_clip(
 # #9 Rotating outro CTA card — appended as a final "scene" before joining
 # ---------------------------------------------------------------------------
 CTA_PHRASES = [
-    "Follow for more",
-    "Which fact surprised you? Comment below",
-    "Part 2 tomorrow — stay tuned",
-    "Save this for revision",
-    "Share this with a friend preparing for exams",
+    "Comment your answer below",
+    "Got it right? Comment A or B",
+    "Comment your exam date",
+    "Which exam are you preparing for? Comment",
+    "Comment DONE if you learned this",
 ]
 
 

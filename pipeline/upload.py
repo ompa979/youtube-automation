@@ -126,13 +126,10 @@ def _post_pinned_comment(yt, video_id: str, text: str) -> None:
 
         comment_id = resp["snippet"]["topLevelComment"]["id"]
 
-        # Pin the comment
-        yt.comments().setModerationStatus(
-            id=comment_id,
-            moderationStatus="published",
-        ).execute()
-
-        print(f"[upload] pinned comment posted (id={comment_id})")
+        # NOTE: the YouTube Data API cannot pin comments (setModerationStatus
+        # only publishes/holds). The comment is posted as the channel's first
+        # comment; pin manually in Studio if you want it on top.
+        print(f"[upload] CTA comment posted (id={comment_id})")
     except Exception as exc:
         print(f"[!] Pinned comment failed (non-fatal): {exc}")
 
@@ -196,10 +193,13 @@ def upload_video(
     thumb_path = OUT_DIR / "thumbnail.jpg"
     _set_thumbnail(yt, video_id, thumb_path)
 
-    # Optimization #5: Post pinned timestamp comment
-    if scene_durations:
-        comment_text = _build_timestamp_comment(script, scene_durations)
+    # v18: first comment = the engagement CTA (audit: 0 comments on 50 videos).
+    # Timestamps are pointless on 25s Shorts, so the CTA replaces them.
+    comment_text = (script.pinned_comment or "").strip()
+    if comment_text:
         _post_pinned_comment(yt, video_id, comment_text)
+    elif scene_durations:
+        _post_pinned_comment(yt, video_id, _build_timestamp_comment(script, scene_durations))
 
     return {
         "video_id": video_id,

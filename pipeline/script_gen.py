@@ -14,6 +14,14 @@ Call-type routing:
   SEO         → Tier 2 → Tier 1 → Tier 3
   JSON_REPAIR → Tier 2 → Tier 1 → Tier 3
 
+v18 channel-audit changes (Sep 2026 analytics):
+  1. Comment CTA on every video (last scene + description + pinned_comment)
+  2. Fact-check is now BLOCKING: issues trigger a repair pass, then a hard fail
+     (nothing unverified is published) + deterministic known-error guard
+  4. 20-30 second target: word budget enforced by QA (was "no fixed duration")
+  5. Exam name enforced in the title after SEO (deterministic, not LLM-hoped)
+  (3. niche quota shift lives in content_plan.json — see AUDIT_CHANGES.md)
+
 Also provides:
   - seo_optimize_all(): one Gemini call for title + description + tags
   - fact_check_script(): Gemma-powered factual accuracy pass (NEW)
@@ -72,6 +80,11 @@ def _pick_hook_style(topic: str) -> str:
     return keys[_stable_hash(topic) % len(keys)]
 
 
+class ScriptRejected(RuntimeError):
+    """Script failed fact-check / QA after the repair pass. Never publish it;
+    the caller should skip the topic (not retry it forever)."""
+
+
 @dataclass
 class Scene:
     index: int
@@ -89,9 +102,11 @@ class Script:
     description: str
     tags: list[str]
     scenes: list[Scene]
+    pinned_comment: str = ""
 
     def to_dict(self) -> dict:
         return {
+            "pinned_comment": self.pinned_comment,
             "title": self.title,
             "hook": self.hook,
             "description": self.description,
@@ -153,7 +168,11 @@ TOPIC: {topic}
 {card_rules}
 
 PRIMARY GOAL: learner value, clarity, factual accuracy and natural delivery.
-Do NOT optimize for a fixed duration. Let the concept determine narration length.
+
+LENGTH BUDGET (hard rule — retention data shows 30s+ Shorts lose viewers):
+- Total narration across ALL scenes: {MIN_WORDS}-{MAX_WORDS} words (about 20-30 seconds spoken).
+- Use 3-5 scenes. Cut anything that is not essential. One idea, one takeaway.
+- The comment-CTA scene below counts toward this budget, so keep it very short.
 
 CONTENT RULES:
 - Teach ONE coherent idea well.
@@ -165,6 +184,15 @@ CONTENT RULES:
 - Never use generic filler: 'guys today we are going to', 'welcome back',
   'don't forget to subscribe'.
 - Never invent facts.
+- FACT SAFETY: do NOT name the current holder of any post (Governor, Chairman, Minister,
+  CEO, MD etc.) or quote dates/cutoffs/statistics you are not 100% sure of — these change
+  and wrong ones destroy trust. Refer to the POST, not the person. Use exact official
+  designations (e.g. the RBI has a Governor, not a CEO; SBI has a Chairman).
+- COMMENT CTA (mandatory): the LAST scene must end with ONE short spoken line that makes
+  the viewer type a reply in the comments (max 12 words). Vary it; examples:
+  "Comment your answer — A or B?", "Which option did you pick? Tell me below.",
+  "Comment your exam date, I'll reply.", "Can you solve it? Type your answer." Do not say
+  'like/subscribe'. Put the same call to action, as a question, in `pinned_comment`.
 - PACING: vary scene length naturally across the script — let some scenes be
   short, punchy one-liners and others longer explanations. Do not force every
   scene to be roughly the same length; uniform pacing reads as mechanical.
@@ -184,6 +212,7 @@ Return EXACTLY this JSON shape (no markdown):
   "title": "clear title, under 80 chars, accurate, no fake clickbait",
   "hook": "the first spoken line",
   "description": "2-3 useful sentences with 3 relevant hashtags",
+  "pinned_comment": "one short question that invites a comment reply (e.g. 'Comment your answer: A or B?')",
   "tags": ["8-12 lowercase tags"],
   "scenes": [
     {{
@@ -196,7 +225,7 @@ Return EXACTLY this JSON shape (no markdown):
   ]
 }}
 
-Use 3-8 scenes. Do not split a sentence just to create more scenes.
+Use 3-5 scenes. Do not split a sentence just to create more scenes.
 {repair_text}
 """.strip()
 
@@ -379,6 +408,7 @@ def _to_script(data: dict) -> Script:
         description=str(data.get("description", "")).strip(),
         tags=[str(t).lower().lstrip("#") for t in data.get("tags", [])][:15],
         scenes=scenes,
+        pinned_comment=str(data.get("pinned_comment", "")).strip(),
     )
 
 
@@ -440,6 +470,131 @@ _SEO_HASHTAGS_BY_SUBJECT_AREA = {
 }
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# v18 — channel-audit enforcement layer (deterministic; does not trust the LLM)
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ── #4 Duration: 20-30 s spoken ≈ 55-80 words at a natural Indian-English pace
+MIN_WORDS = 45
+MAX_WORDS = 80          # hard ceiling enforced by QA (~30 s)
+
+
+def _length_issue(script: "Script") -> str | None:
+    words = sum(len(s.narration.split()) for s in script.scenes)
+    if words > MAX_WORDS:
+        return (f"narration is {words} words (~{words // 2.6:.0f}s); must be "
+                f"{MIN_WORDS}-{MAX_WORDS} words (20-30s). Cut to the single most important idea")
+    if words < MIN_WORDS:
+        return f"narration only {words} words; needs {MIN_WORDS}-{MAX_WORDS} words for a complete idea"
+    return None
+
+
+# ── #1 Comment CTA
+_CTA_PATTERN = re.compile(
+    r"\b(comment|type (?:your|a|b|c|d)|tell me (?:below|in)|drop (?:your|a)|reply|"
+    r"let me know (?:below|in)|write (?:your|down))\b", re.I)
+
+_DEFAULT_CTAS = [
+    "Comment your answer below.",
+    "Which option did you pick? Comment below.",
+    "Comment your exam date, I will reply.",
+]
+
+
+def _has_cta(text: str) -> bool:
+    return bool(_CTA_PATTERN.search(text or ""))
+
+
+def _ensure_cta(script: "Script", topic: str) -> None:
+    """Guarantee the last scene asks for a comment, the description carries the
+    CTA, and a pinned_comment exists.  Runs after the LLM so it never depends on
+    the model obeying the prompt."""
+    last = script.scenes[-1]
+    if not _has_cta(last.narration):
+        cta = _DEFAULT_CTAS[_stable_hash(topic) % len(_DEFAULT_CTAS)]
+        last.narration = last.narration.rstrip() + " " + cta
+        last.tts_text = last.tts_text.rstrip() + " " + cta
+        print(f"[cta] LLM omitted comment CTA — appended: {cta!r}")
+    if not script.pinned_comment:
+        script.pinned_comment = "Comment your answer below — let's see who gets it right!"
+    if not _has_cta(script.description):
+        script.description = script.description.rstrip() + "\n\n" + script.pinned_comment
+
+
+# ── #2 Known factual-error guard (runs even if the LLM fact-check is down)
+_KNOWN_FACT_ERRORS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bCEO of (?:the )?(?:RBI|Reserve Bank)", re.I),
+     "RBI has a Governor, not a CEO"),
+    (re.compile(r"\bRBI\s+CEO\b", re.I), "RBI has a Governor, not a CEO"),
+    (re.compile(r"\bShaktikanta Das\b", re.I),
+     "do not name RBI office-holders (Das's term ended Dec 2024) — refer to 'the RBI Governor'"),
+    (re.compile(r"\b(?:Governor|Chairman|CEO|MD|Finance Minister)\s+(?:is|was)\s+[A-Z][a-z]+ [A-Z][a-z]+"),
+     "names a current office-holder — refer to the post, not the person"),
+    (re.compile(r"\bSBI\s+(?:CEO|Governor)\b", re.I),
+     "SBI has a Chairman, not a CEO/Governor"),
+]
+
+
+def _known_fact_issues(script: "Script") -> list[str]:
+    body = " ".join([script.title, script.hook, script.description]
+                    + [s.narration for s in script.scenes])
+    return [msg for pat, msg in _KNOWN_FACT_ERRORS if pat.search(body)]
+
+
+# ── #5 Exam name in title
+_EXAM_BY_NICHE = {
+    "bank_it_officer": "IBPS SO IT",
+    "bank_reasoning_quant": "SBI PO",
+    "banking_awareness": "SBI PO",
+    "rbi_economy": "RBI Grade B",
+    "bank_english": "IBPS PO",
+}
+_EXAM_RE = re.compile(
+    r"\b(IBPS\s*(?:SO(?:\s*IT)?|PO|Clerk|RRB)|SBI\s*(?:PO|Clerk|SO)|RBI\s*(?:Grade\s*B|Assistant)|"
+    r"NABARD|SEBI|IFSC|LIC\s*AAO|GATE|UPSC|SSC|NEET)\b", re.I)
+TITLE_MAX = 65
+
+
+def _exam_for(topic: str, niche_key: str | None) -> str | None:
+    m = _EXAM_RE.search(topic or "")
+    if m:
+        return re.sub(r"\s+", " ", m.group(1)).upper().replace("RBI GRADE B", "RBI Grade B")
+    return _EXAM_BY_NICHE.get(niche_key or "")
+
+
+def _ensure_exam_in_title(title: str, topic: str, niche_key: str | None) -> str:
+    """Titles without an exam signal get ~9 views; with one, ~100.  Enforced here,
+    after SEO, so no title ships without an exam name in the first 45 chars."""
+    title = " ".join((title or "").split())
+    exam = _exam_for(topic, niche_key)
+    if not exam:
+        return title
+    m = _EXAM_RE.search(title)
+    if m and m.start() <= 25:
+        return title[:TITLE_MAX].rstrip()
+    if m:                                   # exam present but buried — move it to the front
+        cleaned = re.sub(r"\b(?:for|in|of)\s+(?:the\s+)?" + re.escape(m.group(1)) + r"(?:\s+exams?)?\b", "",
+                         title, count=1, flags=re.I)
+        if cleaned == title:
+            cleaned = title[:m.start()] + title[m.end():]
+        rest = re.sub(r"\s+", " ", cleaned).strip(" -:|–—")
+        found = re.sub(r"\s+", " ", m.group(1)).strip()
+        title = f"{found}: {rest}"
+    else:
+        title = f"{exam}: {title}"
+    if len(title) > TITLE_MAX:
+        cut = title[:TITLE_MAX].rsplit(" ", 1)[0]
+        title = cut.rstrip(" :-,")
+    return title
+
+
+def _finalize(script: "Script", topic: str, niche_key: str | None) -> "Script":
+    _ensure_cta(script, topic)
+    script.title = _ensure_exam_in_title(script.title, topic, niche_key)
+    print(f"[final] title={script.title!r} | pinned={script.pinned_comment!r}")
+    return script
+
+
 def seo_optimize_all(
     title: str, description: str, tags: list[str], topic: str, niche_key: str, api_key: str
 ) -> tuple[str, str, list[str]]:
@@ -483,12 +638,12 @@ TITLE:
 - Put the EXAM NAME and the main CONCEPT keywords in the first 45 characters, the way an aspirant would type
   them. Pattern: "<Exam>: <Concept> <Benefit>", e.g. "IBPS SO IT: OSI Model 7 Layers Trick",
   "SBI PO: Simplification Speed Trick", "RBI Grade B: GDP vs GNP Explained".
-- Under 65 characters, 100% accurate, no false promises, no ALL CAPS, no emojis, no vague curiosity-gap wording.
+- Under 65 characters, MUST start with the exam name, 100% accurate, no false promises, no ALL CAPS, no emojis, no vague curiosity-gap wording.
 - The title MUST keep the main keywords of the TOPIC. Never change the subject.
 
 DESCRIPTION:
 - Line 1: repeat the exam name + concept keywords naturally (what the viewer will learn, for which exam).
-- Line 2: one sentence on how it is asked in the exam. Line 3: "Follow ExamCrackerAI for daily bank exam revision."
+- Line 2: one sentence on how it is asked in the exam. Line 3: a question asking viewers to comment their answer or exam date. Line 4: "Follow ExamCrackerAI for daily bank exam revision."
 - No keyword stuffing, no made-up facts, no dates/cutoffs.
 - End with exactly these hashtags: {' '.join(base_tags)}
 
@@ -639,56 +794,64 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
         except Exception as repair_exc:
             raise RuntimeError(f"Gemini returned invalid JSON and repair failed: {repair_exc}") from parse_exc
 
-    # ── Step 3: QA + topic drift check ───────────────────────────────────────
+    # ── Step 3: QA + topic drift + length + known-error guard ────────────────
     script = _to_script(parsed)
-    qa = validate_script(script, language)
-    drift = _topic_issue(topic, script)
-    if drift:
-        qa.issues = list(qa.issues) + [drift]
-        qa.ok = False
+    qa = _qa_all(script, topic, language)
+
+    # ── Step 4: Gemma fact-check — BLOCKING (v18). Issues → repair → hard fail ─
+    if qa.ok:
+        fc_issues = fact_check_script(script, topic, settings.gemini_api_key)
+        if fc_issues:
+            qa.issues = list(qa.issues) + [f"FACT: {i}" for i in fc_issues]
+            qa.ok = False
 
     if qa.ok:
         word_count = sum(len(s.narration.split()) for s in script.scenes)
         print(f"[qa] script passed: scenes={len(script.scenes)} words={word_count}")
+        return _seo_and_finalize(script, topic, niche_key, settings)
 
-        # ── Step 4: Gemma fact-check (non-fatal — Tier 3, ~free budget) ──────
-        fc_issues = fact_check_script(script, topic, settings.gemini_api_key)
-        if fc_issues:
-            # Append fact-check issues as QA warnings in the description so
-            # they are visible in the artifact output, but don't block the run.
-            print(f"[fact-check] {len(fc_issues)} issue(s) noted — script ships with warnings")
-
-        # ── Step 5: SEO (Tier 2 preferred, saves Tier 1 for next video) ──────
-        script.title, script.description, script.tags = seo_optimize_all(
-            script.title, script.description, script.tags, topic, niche_key or "", settings.gemini_api_key
-        )
-        script.description = _ensure_hashtags(script.description, topic, niche_key)
-        return script
-
-    # ── Step 6: repair pass if QA failed ─────────────────────────────────────
+    # ── Step 5: repair pass (fixes length / facts / drift / QA) ───────────────
     print("[qa] first script needs repair: " + "; ".join(qa.issues))
     repair_prompt = _build_prompt(topic, niche_cfg, language, "; ".join(qa.issues), hook_style=hook_style)
     try:
         print("[pipeline] Script repair via router (Tier 1 preferred)")
         raw2 = router.generate(repair_prompt, call_type=CallType.SCRIPT_GEN)
         repaired = _to_script(_parse_json(raw2))
-        qa2 = validate_script(repaired, language)
-        drift2 = _topic_issue(topic, repaired)
-        if drift2:
-            qa2.issues = list(qa2.issues) + [drift2]
-            qa2.ok = False
+        qa2 = _qa_all(repaired, topic, language)
+        if qa2.ok:
+            fc2 = fact_check_script(repaired, topic, settings.gemini_api_key)
+            if fc2:
+                qa2.issues = list(qa2.issues) + [f"FACT: {i}" for i in fc2]
+                qa2.ok = False
         if not qa2.ok:
             raise RuntimeError("; ".join(qa2.issues))
-
         print(f"[qa] repaired script passed: scenes={len(repaired.scenes)}")
-
-        # Fact-check the repaired script too
-        fact_check_script(repaired, topic, settings.gemini_api_key)
-
-        repaired.title, repaired.description, repaired.tags = seo_optimize_all(
-            repaired.title, repaired.description, repaired.tags, topic, niche_key or "", settings.gemini_api_key
-        )
-        repaired.description = _ensure_hashtags(repaired.description, topic, niche_key)
-        return repaired
+        return _seo_and_finalize(repaired, topic, niche_key, settings)
     except Exception as exc:
-        raise RuntimeError(f"Generated script failed QA after one repair attempt: {exc}") from exc
+        # Nothing unverified is ever published: caller must skip this topic.
+        raise ScriptRejected(f"Script rejected after one repair attempt (not publishing): {exc}") from exc
+
+
+def _qa_all(script: Script, topic: str, language: str):
+    qa = validate_script(script, language)
+    extra: list[str] = []
+    for check in (_topic_issue(topic, script), _length_issue(script)):
+        if check:
+            extra.append(check)
+    extra += [f"FACT: {m}" for m in _known_fact_issues(script)]
+    if extra:
+        qa.issues = list(qa.issues) + extra
+        qa.ok = False
+    return qa
+
+
+def _seo_and_finalize(script: Script, topic: str, niche_key: str | None, settings) -> Script:
+    script.title, script.description, script.tags = seo_optimize_all(
+        script.title, script.description, script.tags, topic, niche_key or "", settings.gemini_api_key
+    )
+    script.description = _ensure_hashtags(script.description, topic, niche_key)
+    # SEO rewrite could re-introduce a known error or drop the CTA/exam — re-guard.
+    bad = _known_fact_issues(script)
+    if bad:
+        raise ScriptRejected("SEO rewrite introduced factual error(s): " + "; ".join(bad))
+    return _finalize(script, topic, niche_key)

@@ -45,7 +45,7 @@ from googleapiclient.http import MediaFileUpload
 
 from .config import Settings, YouTubeCredentials, CONTENT_PLAN_PATH, WORK_DIR, OUT_DIR, ensure_dirs
 from .render import assemble_video
-from .script_gen import generate_script
+from .script_gen import generate_script, ScriptRejected
 from .subject_area import classify_subject_area
 from .trending import get_trending_topic
 from .tts import synthesize_scene
@@ -152,7 +152,11 @@ def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, Any]):
             f"available={list(plan)}"
         )
 
-    niche = available_niches[state["niche"] % len(available_niches)]
+    # v18: weighted rotation — each niche appears `weight` times per cycle
+    # (content_plan.json "weight", default 1). Audit: SBI PO / IT / awareness
+    # outperform RBI Grade B 2-3x, so those carry more slots.
+    rotation = [n for n in available_niches for _ in range(max(1, int(plan[n].get("weight", 1))))]
+    niche = rotation[state["niche"] % len(rotation)]
     cfg = plan[niche]
 
     languages = [
@@ -202,7 +206,15 @@ def _run_one(
     state["last_failed_topic"] = topic
     _save_state(state)
 
-    script = generate_script(topic, niche_cfg, language, settings, niche_key=niche)
+    try:
+        script = generate_script(topic, niche_cfg, language, settings, niche_key=niche)
+    except ScriptRejected as exc:
+        # Failed fact-check/QA twice: skip this topic for good (do NOT retry it
+        # next slot, or one bad topic would block the queue forever).
+        print(f"[pipeline] topic REJECTED, skipping: {topic!r} — {exc}")
+        state["last_failed_topic"] = None
+        _save_state(state)
+        raise
     print(f"[pipeline] title={script.title!r}; scenes={len(script.scenes)}")
 
     voice = niche_cfg.get("voice", {}).get(language, "en-IN")

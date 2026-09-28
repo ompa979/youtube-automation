@@ -206,15 +206,25 @@ def _run_one(
     state["last_failed_topic"] = topic
     _save_state(state)
 
-    try:
-        script = generate_script(topic, niche_cfg, language, settings, niche_key=niche)
-    except ScriptRejected as exc:
-        # Failed fact-check/QA twice: skip this topic for good (do NOT retry it
-        # next slot, or one bad topic would block the queue forever).
-        print(f"[pipeline] topic REJECTED, skipping: {topic!r} — {exc}")
-        state["last_failed_topic"] = None
-        _save_state(state)
-        raise
+    script = None
+    topics = niche_cfg.get("topics", [topic])
+    current_topic = topic
+    for attempt in range(3):
+        try:
+            script = generate_script(current_topic, niche_cfg, language, settings, niche_key=niche)
+            topic = current_topic
+            break
+        except ScriptRejected as exc:
+            print(f"[pipeline] topic REJECTED: {current_topic!r} — {exc}")
+            state["last_failed_topic"] = None
+            if attempt < 2:
+                state["topic"] += 1
+                current_topic = topics[state["topic"] % len(topics)]
+                print(f"[pipeline] Trying next candidate topic in queue: {current_topic!r}")
+            else:
+                _save_state(state)
+                raise
+
     print(f"[pipeline] title={script.title!r}; scenes={len(script.scenes)}")
 
     voice = niche_cfg.get("voice", {}).get(language, "en-IN")

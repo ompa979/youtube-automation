@@ -728,7 +728,8 @@ def fact_check_script(
     narration_dump = "\n".join(
         f"Scene {s.index}: {s.narration}" for s in script.scenes
     )
-    prompt = f"""You are a strict factual accuracy checker for Indian educational content.
+    prompt = f"""You are a FACTUAL ACCURACY checker for Indian educational content.
+Your ONLY job is to catch hard factual errors — NOT style, tone, or pedagogy.
 
 TOPIC: {topic}
 TITLE: {script.title}
@@ -736,16 +737,24 @@ TITLE: {script.title}
 SCRIPT NARRATION:
 {narration_dump}
 
-Your task:
-1. Identify any factual errors, invented statistics, or false claims.
-2. Flag any Devanagari / Hindi characters (English-only pipeline).
-3. Flag invented exam patterns or fake question formats.
-4. Flag any vague filler lines that add zero educational value.
+Check ONLY these things (nothing else):
+1. FACTUAL ERRORS: Any statement that is objectively false (e.g. wrong definition of 2NF,
+   wrong exam name, invented RBI policy, wrong SQL syntax).
+2. INVENTED STATISTICS: Made-up percentages, dates, or numbers with no factual basis.
+3. HINDI/DEVANAGARI: Any non-English characters that slipped through.
+4. FAKE EXAM QUESTIONS: A question that references a table/diagram that isn't shown
+   AND couldn't possibly work without it (not just a CTA or engagement question).
 
-If everything is accurate, return: {{"issues": []}}
-If there are problems, return: {{"issues": ["short description of issue 1", "issue 2", ...]}}
+DO NOT flag:
+- Hook questions (Scene 0 openers like "Did you know..." or "Can you answer this?")
+- Comment CTAs (Scene 4 "Comment below", "Type A/B/C" style endings)
+- Simple explanations or analogies, even if imprecise
+- Teaching style, pacing, or tone
 
-Respond ONLY with that JSON object. No markdown, no explanation outside the JSON."""
+If everything is factually accurate, return: {{"issues": []}}
+If there are FACTUAL problems only, return: {{"issues": ["factual issue 1", "factual issue 2"]}}
+
+Respond ONLY with that JSON. No markdown, no commentary."""
 
     try:
         router = GeminiRouter(api_key=api_key)
@@ -757,10 +766,16 @@ Respond ONLY with that JSON object. No markdown, no explanation outside the JSON
             use_schema=False,
         )
         raw = re.sub(r"```(?:json)?|```", "", raw).strip()
-        data = json.loads(raw)
-        issues = [str(i).strip() for i in data.get("issues", []) if str(i).strip()]
+        raw_issues = [str(i).strip() for i in data.get("issues", []) if str(i).strip()]
+        STYLE_KEYWORDS = ("filler", "engagement", "bait", "hook", "cta", "comment", "vague", "style", "tone", "pedagogy", "pacing")
+        issues = []
+        for issue in raw_issues:
+            if any(k in issue.lower() for k in STYLE_KEYWORDS):
+                print(f"[fact-check] Ignoring non-factual/stylistic comment: {issue}")
+                continue
+            issues.append(issue)
         if issues:
-            print(f"[fact-check] {len(issues)} issue(s) found: {'; '.join(issues)}")
+            print(f"[fact-check] {len(issues)} hard factual issue(s) found: {'; '.join(issues)}")
         else:
             print("[fact-check] PASS — no factual issues detected (cross-model)")
         return issues

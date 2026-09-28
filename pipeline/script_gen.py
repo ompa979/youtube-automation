@@ -147,11 +147,11 @@ calm Indian-educator pronunciation and cadence:
     card_rules = ""
     if niche_cfg.get("visual_style") == "text_card":
         card_rules = """
-TEXT-CARD CHANNEL (this overrides the VISUAL RULES below):
-- Every scene is shown as a text card, not a picture. For EVERY scene provide
-  `card_points`: 2-3 revision-note lines (max 7 words each) that state the exact
-  fact, rule, formula or step being spoken in that scene. Facts only, no filler.
-- `on_screen_text`: a 1-3 word headline for the scene (e.g. "LAYER 3", "INNER JOIN").
+TEXT-CARD CHANNEL (curiosity-first, decluttered layout):
+- Every scene is shown as a sleek, decluttered visual card.
+- `card_points`: Exactly ONE high-impact memory anchor or cheat rule (max 6 words, e.g. ["3NF: KILL TRANSITIVE DEPENDENCY"]).
+  NEVER provide multiple long bullet points. Keep it punchy so the screen breathes and viewers focus on the animated captions.
+- `on_screen_text`: a 1-3 word high-curiosity headline or cue (e.g. "3-SEC TRICK", "EXAM TRAP", "1NF vs 2NF", "CAN YOU SOLVE?").
 - `image_prompt` can be a short placeholder such as "text card".
 """.strip()
     topic_lock = (
@@ -162,7 +162,7 @@ TEXT-CARD CHANNEL (this overrides the VISUAL RULES below):
     return f"""
 {niche_cfg.get('system_prompt', '')}
 
-You are an excellent Indian exam teacher and educational creator.
+You are an elite Indian exam mentor and viral educational Shorts creator.
 
 {lang_instruction}
 
@@ -170,48 +170,21 @@ TOPIC: {topic}
 {topic_lock}
 {card_rules}
 
-PRIMARY GOAL: learner value, clarity, factual accuracy and natural delivery.
+PRIMARY GOAL: Maximum curiosity, zero fluff, instant learner value, and high comment engagement.
 
-LENGTH BUDGET (hard rule — retention data shows best completion rate at 28-34s):
-- Total narration across ALL scenes: {MIN_WORDS}-{MAX_WORDS} words (28-34 seconds spoken).
-- Use 3-5 scenes. Maximum 5 scenes — hard limit. Cut anything not essential.
-- One idea, one takeaway, one concrete example or mnemonic.
-- The comment-CTA scene below counts toward this budget, so keep it very short.
-- PACING SHAPE: open with a question in the first 3 seconds, teach ONE idea with
-  ONE concrete example (a mnemonic trick if the topic allows it), end with the CTA.
-
-CONTENT RULES:
-- Teach ONE coherent idea well.
+CURIOSITY-FIRST & ASPIRANT PRIOR KNOWLEDGE RULES:
+- ASSUME PRIOR KNOWLEDGE: The viewer is actively studying for Indian bank/IT exams. Do NOT waste time explaining what a database is, what SQL is, or what an exam is. They already know the basics. Cut straight to the differentiator, the trap, or the memory shortcut.
+- ZERO INTRODUCTORY FLUFF: Banned phrases: "In this video...", "Let us understand...", "Normalization is a technique...", "As we know...", "Today we will learn...". Start directly in second 0 with the curiosity gap or exam shocker.
 - HOOK STYLE FOR THIS SCRIPT: {hook_instruction}
-- Explain the mechanism or reasoning, not just the fact.
-- Use an analogy or example only when it genuinely improves understanding.
-- Connect to exam relevance only when it naturally fits.
-- A quiz/MCQ is OPTIONAL. Include one only if it improves learning.
-- Never use generic filler: 'guys today we are going to', 'welcome back',
-  'don't forget to subscribe'.
-- Never invent facts.
-- FACT SAFETY: do NOT name the current holder of any post (Governor, Chairman, Minister,
-  CEO, MD etc.) or quote dates/cutoffs/statistics you are not 100% sure of — these change
-  and wrong ones destroy trust. Refer to the POST, not the person. Use exact official
-  designations (e.g. the RBI has a Governor, not a CEO; SBI has a Chairman).
-- COMMENT CTA (mandatory): the LAST scene must end with ONE short spoken line that makes
-  the viewer type a reply in the comments (max 12 words). Vary it; examples:
-  "Comment your answer — A or B?", "Which option did you pick? Tell me below.",
-  "Comment your exam date, I'll reply.", "Can you solve it? Type your answer." Do not say
-  'like/subscribe'. Put the same call to action, as a question, in `pinned_comment`.
-- PACING: vary scene length naturally across the script — let some scenes be
-  short, punchy one-liners and others longer explanations. Do not force every
-  scene to be roughly the same length; uniform pacing reads as mechanical.
+  Make it impossible to scroll past (e.g. "90% of students lose marks on this exact 3NF rule in IBPS SO").
+- SINGLE AHA! MOMENT: Teach ONE trick or comparison with razor clarity.
+- MICRO-CHALLENGE COMMENT CTA (mandatory): The LAST scene must present a low-friction 2-option question to trigger comments:
+  (e.g. "Which normal form removes transitive dependency? Type 2NF or 3NF below!"). Put the exact question in `pinned_comment`.
+- FACT SAFETY: Never invent facts, cutoffs, or statistics.
 
 VISUAL RULES:
-- Scene 0 (the FIRST scene) MUST have the single most visually striking image prompt:
-  one clear dramatic subject, high contrast, instantly understandable at a glance.
-  This is the hook frame — it must stop someone scrolling.
-- Every other scene needs an educational visual (diagram, process, map, comparison,
-  labeled object, timeline, molecule, arrows, conceptual illustration).
-- Prefer diagrams and illustrations over generic stock-photo descriptions.
-- No text, logos or watermarks inside generated images.
-- On-screen text should be a short keyword or memory cue, NOT a transcript line.
+- Scene 0 (the FIRST scene) MUST have the single most visually striking image prompt.
+- On-screen text must be a short keyword or memory cue (1-3 words), NOT a transcript line.
 
 Return EXACTLY this JSON shape (no markdown):
 {{
@@ -223,10 +196,10 @@ Return EXACTLY this JSON shape (no markdown):
   "scenes": [
     {{
       "narration": "natural Indian-English spoken line",
-      "tts_text": "same English spoken line optimized for natural TTS",
-      "image_prompt": "unique premium cinematic educational visual, 20-45 words, vertical 9:16, clear conceptual diagram or illustration of the mechanism, no embedded text or labels, no typed UI, no logos, no watermark",
-      "on_screen_text": "",
-      "card_points": ["only for text-card channels: 2-3 short factual revision-note lines, max 7 words each"]
+      "tts_text": "same English spoken line optimized with commas for natural TTS breath pauses",
+      "image_prompt": "unique premium cinematic educational visual, vertical 9:16, no embedded text or labels",
+      "on_screen_text": "1-3 word curiosity cue",
+      "card_points": ["ONE punchy memory anchor line, max 6 words (e.g. '3NF: KILL TRANSITIVE DEPENDENCY')"]
     }}
   ]
 }}

@@ -18,6 +18,7 @@ HINDI_MARKERS = {
 GENERIC_FILLERS = [
     "hello everyone", "welcome back", "guys aaj", "today we are going to",
     "in this video we will", "don't forget to subscribe",
+    "let us understand", "as we know", "is defined as", "today we will learn",
 ]
 
 MIN_SCENES = 3

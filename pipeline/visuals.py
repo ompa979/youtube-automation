@@ -296,6 +296,15 @@ def _wrap_px(draw, text: str, font, max_w: int) -> list[str]:
     return lines
 
 
+_CURIOUS_BADGES = [
+    "⚡ 3-SEC SHORTCUT",
+    "💡 THE CORE TRICK",
+    "⚠️ EXAM TRAP TO AVOID",
+    "🎯 100% REPEATED RULE",
+    "✍️ COMMENT YOUR ANSWER",
+]
+
+
 def _render_text_card(
     out_path: Path, scene_index: int, headline: str, points: list[str], tag: str,
     width: int = 1080, height: int = 1920,
@@ -307,53 +316,74 @@ def _render_text_card(
     for y in range(height):  # vertical gradient
         t = y / (height - 1)
         px.line([(0, y), (width, y)], fill=tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)))
-    for x in range(-height, width, 120):  # faint diagonal grid so cards are not flat single-tone
+    for x in range(-height, width, 120):  # subtle angled grid lines
         px.line([(x, height), (x + height, 0)], fill=tuple(min(255, c + 10) for c in bottom), width=2)
     d = ImageDraw.Draw(img)
     d.ellipse([width - 360, height - 520, width + 220, height + 60], fill=tuple(min(255, c + 14) for c in bottom))
 
     margin = 70
-    # Tag pill (exam name)
-    tag = (tag or "").upper().strip()
-    if tag:
-        f_tag = _card_font(40)
-        tw = int(d.textlength(tag, font=f_tag))
-        d.rounded_rectangle([margin, 150, margin + tw + 56, 224], radius=37, fill=accent)
-        d.text((margin + 28, 163), tag, font=f_tag, fill=(10, 14, 24))
+    y_badge = 140
 
-    # Headline (max 3 lines, shrinks to fit)
+    # 1. Exam Tag Pill (e.g. "IBPS SO IT")
+    tag = (tag or "").upper().strip()
+    tag_w = 0
+    if tag:
+        f_tag = _card_font(38)
+        tag_w = int(d.textlength(tag, font=f_tag))
+        d.rounded_rectangle([margin, y_badge, margin + tag_w + 50, y_badge + 72], radius=36, fill=accent)
+        d.text((margin + 25, y_badge + 15), tag, font=f_tag, fill=(10, 14, 24))
+
+    # 2. Curiosity Badge Pill (e.g. "⚡ 3-SEC SHORTCUT")
+    badge = _CURIOUS_BADGES[scene_index % len(_CURIOUS_BADGES)]
+    f_badge = _card_font(34, bold=True)
+    badge_x = margin + tag_w + 70 if tag else margin
+    badge_w = int(d.textlength(badge, font=f_badge))
+    badge_end = min(width - margin, badge_x + badge_w + 50)
+    d.rounded_rectangle([badge_x, y_badge, badge_end, y_badge + 72], radius=36, outline=accent, width=3)
+    d.text((badge_x + 25, y_badge + 16), badge, font=f_badge, fill=(255, 255, 255))
+
+    # 3. Main Headline (1-2 punchy lines)
     headline = " ".join((headline or "").split())
-    y = 270
+    y = 260
     if headline:
-        size = 92
-        while size >= 56:
+        size = 80
+        while size >= 52:
             f_h = _card_font(size)
             lines = _wrap_px(d, headline, f_h, width - 2 * margin)
-            if len(lines) <= 3:
+            if len(lines) <= 2:
                 break
             size -= 6
-        for ln in lines[:3]:
+        for ln in lines[:2]:
             d.text((margin, y), ln, font=f_h, fill=(255, 255, 255))
-            y += int(size * 1.12)
-        d.rectangle([margin, y + 8, margin + 180, y + 16], fill=accent)
-        y += 60
+            y += int(size * 1.15)
+        d.rectangle([margin, y + 8, margin + 220, y + 16], fill=accent)
+        y += 45
 
-    # Key points (numbered rows)
-    f_p = _card_font(44, bold=False)
-    f_n = _card_font(40)
-    for i, pt in enumerate([p for p in points if p][:3], start=1):
-        lines = _wrap_px(d, pt, f_p, width - 2 * margin - 110)[:2]
-        row_h = 40 + len(lines) * 56
-        d.rounded_rectangle([margin, y, width - margin, y + row_h], radius=26, fill=(255, 255, 255, 0) if False else tuple(min(255, c + 22) for c in top))
-        d.rounded_rectangle([margin, y, margin + 12, y + row_h], radius=6, fill=accent)
-        d.ellipse([margin + 34, y + row_h // 2 - 30, margin + 94, y + row_h // 2 + 30], fill=accent)
-        d.text((margin + 52, y + row_h // 2 - 24), str(i), font=f_n, fill=(10, 14, 24))
-        ty = y + 20
-        for ln in lines:
-            d.text((margin + 116, ty), ln, font=f_p, fill=(235, 242, 255))
-            ty += 56
-        y += row_h + 18
+    # 4. Single High-Impact Memory Anchor Card (no text walls — pure takeaway)
+    anchor_text = ""
+    valid_points = [p.strip() for p in points if p and p.strip()]
+    if valid_points:
+        anchor_text = valid_points[0]
+    elif headline and len(headline.split()) <= 6:
+        anchor_text = headline
 
+    if anchor_text:
+        anchor_clean = anchor_text.upper()
+        f_anchor = _card_font(46, bold=True)
+        anchor_lines = _wrap_px(d, anchor_clean, f_anchor, width - 2 * margin - 80)[:2]
+        card_h = 44 + len(anchor_lines) * 58
+        card_bg = tuple(min(255, c + 24) for c in top)
+
+        # Glowing container for the memory anchor
+        d.rounded_rectangle([margin, y, width - margin, y + card_h], radius=24, fill=card_bg, outline=accent, width=3)
+        d.rounded_rectangle([margin, y, margin + 14, y + card_h], radius=6, fill=accent)
+
+        ty = y + 22
+        for al in anchor_lines:
+            d.text((margin + 44, ty), al, font=f_anchor, fill=accent)
+            ty += 58
+
+    # The middle zone (Y: 650 to 1400) is now completely clear for the animated karaoke captions!
     img.save(out_path, "JPEG", quality=92)
     return out_path.exists() and out_path.stat().st_size > 5_000
 

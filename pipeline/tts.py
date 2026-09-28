@@ -1,19 +1,17 @@
-"""Premium Indian-English TTS using Google Cloud TTS (Chirp3-HD) with Edge-TTS fallback.
+"""Indian-English TTS using Microsoft Edge TTS (primary, free, no billing) with fallbacks.
 
-Provider priority (Google-only stack):
-1. google_cloud  — Chirp3-HD-Achernar (en-IN), the best Indian English neural voice.
-                   Requires GOOGLE_CLOUD_TTS_KEY (API key) OR GOOGLE_APPLICATION_CREDENTIALS.
-                   Free tier: 1 million WaveNet/Chirp characters/month.
-2. edge          — Microsoft Edge neural voices (en-IN-NeerjaNeural). Excellent quality,
-                   no key needed. Occasionally returns 403 on GitHub runners — retried 3x.
+Provider order:
+1. edge          — en-IN-NeerjaExpressiveNeural. Excellent quality, no key,
+                   no billing. Returns real per-word WordBoundary events.
+                   Occasionally returns 403 on GitHub runners — retried 3×.
+2. google_cloud  — Chirp3-HD (requires GOOGLE_CLOUD_TTS_KEY + billing enabled).
+                   Only used if TTS_PROVIDER=google_cloud is explicitly set.
 3. gtts          — Google India English endpoint. Flat/robotic but never blocked.
 4. espeak-ng     — Offline last resort.
 
-Set TTS_PROVIDER=google_cloud to force Chirp3-HD.
-Set TTS_PROVIDER=edge to use Edge neural voice (default if no Cloud key).
-Set TTS_PROVIDER=gtts to force flat Google TTS.
-
-GOOGLE_CLOUD_TTS_KEY: your Google Cloud API key (enable "Cloud Text-to-Speech API" in Console).
+Set TTS_PROVIDER=edge      to use Edge neural voice (default — no cost, no key).
+Set TTS_PROVIDER=google_cloud to force Chirp3-HD (requires billing on GCP).
+Set TTS_PROVIDER=gtts      to force flat Google TTS.
 """
 from __future__ import annotations
 
@@ -34,6 +32,11 @@ try:
     import edge_tts
 except ImportError:
     edge_tts = None
+
+try:
+    from faster_whisper import WhisperModel as _WhisperModel
+except ImportError:
+    _WhisperModel = None
 
 import requests
 
@@ -125,6 +128,92 @@ def _google_cloud_synth(text: str, audio_path: Path) -> float:
     if not audio_path.exists() or audio_path.stat().st_size < 1000:
         raise RuntimeError("Google Cloud TTS produced no usable audio")
     return _probe_duration(audio_path) or _estimate_duration(text)
+
+
+# ---------------------------------------------------------------------------
+# faster-whisper alignment — used after Chirp TTS to get real word timings
+# ---------------------------------------------------------------------------
+
+# Cache the model across scenes in the same process run (load once, use many).
+_WHISPER_MODEL: "_WhisperModel | None" = None
+_WHISPER_MODEL_SIZE = "tiny"  # tiny = ~40 MB, fast enough on a runner
+
+
+def _load_whisper() -> "_WhisperModel | None":
+    global _WHISPER_MODEL
+    if _WhisperModel is None:
+        return None
+    if _WHISPER_MODEL is None:
+        try:
+            _WHISPER_MODEL = _WhisperModel(_WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
+            print(f"[whisper] model loaded: {_WHISPER_MODEL_SIZE}")
+        except Exception as exc:
+            print(f"[whisper] WARNING: could not load model: {exc}")
+            return None
+    return _WHISPER_MODEL
+
+
+def _whisper_align(audio_path: "Path", script_text: str) -> list[dict]:
+    """Run faster-whisper on *audio_path* and return per-word timings.
+
+    The transcript produced by whisper is aligned back to *script_text* so
+    that specialist terms like '3NF', 'IBPS SO', 'TCP/IP' that whisper might
+    mishear in the audio still appear correctly in the captions.  The
+    alignment is a simple greedy token-match: we split both the whisper
+    output and the script into words, match them positionally, and keep
+    the whisper timestamps with the corrected script word.
+
+    Returns [] on any failure so the caller silently falls back to the
+    character-weight estimator.
+    """
+    model = _load_whisper()
+    if model is None:
+        return []
+    try:
+        segments, _info = model.transcribe(
+            str(audio_path),
+            word_timestamps=True,
+            language="en",
+            vad_filter=True,
+        )
+        # Flatten all word objects from all segments.
+        heard_words: list[dict] = []
+        for seg in segments:
+            for w in (seg.words or []):
+                heard_words.append({
+                    "word": w.word.strip(),
+                    "start": w.start,
+                    "end": w.end,
+                })
+        if not heard_words:
+            return []
+
+        # Align whisper timings to the known script text so specialist terms
+        # are never misheard.  Simple positional alignment: if both sequences
+        # have the same length the match is 1-to-1.  If lengths differ we use
+        # the whisper timestamps for as many script words as possible.
+        script_words = _clean_text(script_text).split()
+        aligned: list[dict] = []
+        for i, sw in enumerate(script_words):
+            if i < len(heard_words):
+                hw = heard_words[i]
+                aligned.append({"word": sw, "start": hw["start"], "end": hw["end"]})
+            else:
+                # Ran out of whisper words — estimate the tail proportionally.
+                if aligned:
+                    prev_end = aligned[-1]["end"]
+                    remaining = len(script_words) - i
+                    tail_duration = max(0.3, 0.4 * remaining)  # rough 400ms/word
+                    step = tail_duration / remaining
+                    for j, sw2 in enumerate(script_words[i:]):
+                        s = prev_end + j * step
+                        aligned.append({"word": sw2, "start": s, "end": s + step})
+                break
+        print(f"[whisper] aligned {len(aligned)}/{len(script_words)} script words")
+        return aligned
+    except Exception as exc:
+        print(f"[whisper] WARNING: alignment failed (using estimator): {exc}")
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -290,12 +379,20 @@ def synthesize_scene(
 
     errors: list[str] = []
 
-    # 1. Google Cloud TTS Chirp3-HD (if key is set — best quality)
-    if GOOGLE_CLOUD_TTS_KEY:
+    # 1. Google Cloud TTS Chirp3-HD — only if explicitly opted in AND key is set.
+    # (Requires billing to be enabled on GCP — not used by default.)
+    if TTS_PROVIDER == "google_cloud" and GOOGLE_CLOUD_TTS_KEY:
         try:
             print(f"[tts] provider=google_cloud voice={GOOGLE_CLOUD_TTS_VOICE}")
             duration = _google_cloud_synth(spoken, audio_path)
-            return audio_path, _estimate_word_timings(spoken, duration), duration
+            # Chirp doesn't return word timings, so we run faster-whisper on
+            # the audio to get real per-word timestamps, then align them to
+            # the known script text so '3NF', 'IBPS SO' etc. can't be misheard.
+            word_timings = _whisper_align(audio_path, spoken)
+            if not word_timings:
+                print("[tts] whisper alignment unavailable — using character-weight estimator")
+                word_timings = _estimate_word_timings(spoken, duration)
+            return audio_path, word_timings, duration
         except Exception as exc:
             errors.append(f"google_cloud: {exc}")
             print(f"[tts] Google Cloud TTS failed: {exc}")

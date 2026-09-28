@@ -1,33 +1,32 @@
-"""Natural Indian-English educational script generation.
+"""Natural Indian-English educational script generation — v19 three-pass pipeline.
 
-Model routing is now handled by GeminiRouter (pipeline/gemini_router.py),
-which uses the full free-tier model catalogue discovered from the
-ExamCrackerAI project dashboard:
+Model routing is handled by GeminiRouter (pipeline/gemini_router.py):
 
-  TIER 1  Flash      — gemini-3.8/3.7/3.6/3.5/3/2.5-flash  (20 RPD each)
-  TIER 2  Flash Lite — gemini-3.5/3.1-flash-lite            (500 RPD each)
-  TIER 3  Gemma 4    — gemma-4-26b / gemma-4-31b            (14,400 RPD each)
+  TIER 2  Flash Lite — gemini-3.5/3.1-flash-lite  (500 RPD each)
+  TIER 3  Gemma 4   — gemma-4-26b / gemma-4-31b  (14,400 RPD each)
 
-Call-type routing:
-  SCRIPT_GEN  → Tier 1 → Tier 2 → Tier 3
-  FACT_CHECK  → Tier 3 (Gemma) → Tier 2 → Tier 1  ← NEW step
-  SEO         → Tier 2 → Tier 1 → Tier 3
-  JSON_REPAIR → Tier 2 → Tier 1 → Tier 3
+Three-pass generation per video (~4-6 Gemini calls):
+  Pass 1  SCRIPT_GEN  → gemini-3.5-flash-lite, thinking=high, schema-constrained
+                         (hard-enforces ≤5 scenes; eliminates most repair calls)
+  Pass 2  FACT_CHECK  → gemini-3.1-flash-lite (cross-model!), thinking=high
+                         BLOCKING: issues → repair → ScriptRejected
+  Pass 3  POLISH      → gemini-3.1-flash-lite, thinking=medium (hook + pacing)
+  SEO     SEO         → gemini-3.5-flash-lite, thinking=low (title/desc/tags)
 
-v18 channel-audit changes (Sep 2026 analytics):
-  1. Comment CTA on every video (last scene + description + pinned_comment)
-  2. Fact-check is now BLOCKING: issues trigger a repair pass, then a hard fail
-     (nothing unverified is published) + deterministic known-error guard
-  4. 20-30 second target: word budget enforced by QA (was "no fixed duration")
-  5. Exam name enforced in the title after SEO (deterministic, not LLM-hoped)
-  (3. niche quota shift lives in content_plan.json — see AUDIT_CHANGES.md)
+v19 changes on top of v18:
+  - Two Flash-Lite models: 3.5 drafts, 3.1 fact-checks + polishes (cross-model)
+  - Schema-constrained output: response_schema enforces ≤5 scenes, required fields
+  - thinking_config per call type: 8192/8192/2048/512/0 tokens
+  - POLISH pass: third Gemini call checks hook (first 3s) and pacing
+  - Word budget tightened: 55-85 words (28-34s), from 45-80 (20-30s)
+  - Prompt updated: pacing shape rule, mnemonic hint, 5-scene hard limit stated
 
 Also provides:
   - seo_optimize_all(): one Gemini call for title + description + tags
-  - fact_check_script(): Gemma-powered factual accuracy pass (NEW)
+  - fact_check_script(): cross-model factual accuracy pass
+  - polish_script(): hook + pacing review pass
   - Hook image rule: scene 0 always a striking single-subject visual
   - Hook STYLE rotation (question / shocking-fact / numbered)
-  - Pacing rule: vary scene length naturally
 """
 from __future__ import annotations
 
@@ -37,6 +36,7 @@ import re
 from dataclasses import dataclass, asdict, field
 
 from .gemini_router import GeminiRouter, CallType
+# POLISH is the third pass — hook + pacing review after fact-check
 from .quality import validate_script
 from .subject_area import classify_subject_area
 
@@ -169,10 +169,13 @@ TOPIC: {topic}
 
 PRIMARY GOAL: learner value, clarity, factual accuracy and natural delivery.
 
-LENGTH BUDGET (hard rule — retention data shows 30s+ Shorts lose viewers):
-- Total narration across ALL scenes: {MIN_WORDS}-{MAX_WORDS} words (about 20-30 seconds spoken).
-- Use 3-5 scenes. Cut anything that is not essential. One idea, one takeaway.
+LENGTH BUDGET (hard rule — retention data shows best completion rate at 28-34s):
+- Total narration across ALL scenes: {MIN_WORDS}-{MAX_WORDS} words (28-34 seconds spoken).
+- Use 3-5 scenes. Maximum 5 scenes — hard limit. Cut anything not essential.
+- One idea, one takeaway, one concrete example or mnemonic.
 - The comment-CTA scene below counts toward this budget, so keep it very short.
+- PACING SHAPE: open with a question in the first 3 seconds, teach ONE idea with
+  ONE concrete example (a mnemonic trick if the topic allows it), end with the CTA.
 
 CONTENT RULES:
 - Teach ONE coherent idea well.
@@ -474,9 +477,10 @@ _SEO_HASHTAGS_BY_SUBJECT_AREA = {
 # v18 — channel-audit enforcement layer (deterministic; does not trust the LLM)
 # ═════════════════════════════════════════════════════════════════════════════
 
-# ── #4 Duration: 20-30 s spoken ≈ 55-80 words at a natural Indian-English pace
-MIN_WORDS = 45
-MAX_WORDS = 80          # hard ceiling enforced by QA (~30 s)
+# ── #4 Duration: 28-34 s spoken ≈ 70-85 words at a natural Indian-English pace
+# Analytics shows best retention in the 28-34s window (not the full 30s+).
+MIN_WORDS = 55
+MAX_WORDS = 85          # hard ceiling enforced by QA (~34 s)
 
 
 def _length_issue(script: "Script") -> str | None:
@@ -694,8 +698,7 @@ _TOPIC_STOP = {
 
 
 def _topic_issue(topic: str, script: "Script") -> str | None:
-    """Reject scripts that drifted off the requested topic (e.g. a NEET-PG request
-    that came back as a Marcus Gunn jaw-winking video)."""
+    """Reject scripts that drifted off the requested topic."""
     tokens = {t for t in re.findall(r"[a-z0-9]{3,}", topic.lower()) if t not in _TOPIC_STOP}
     if not tokens:
         return None
@@ -707,17 +710,16 @@ def _topic_issue(topic: str, script: "Script") -> str | None:
     return None
 
 
-def fact_check_script(script: Script, topic: str, api_key: str) -> list[str]:
-    """Run a Gemma-powered factual accuracy check on the generated script.
+def fact_check_script(
+    script: "Script",
+    topic: str,
+    api_key: str,
+    drafter_model: str = "gemini-3.5-flash-lite",
+) -> list[str]:
+    """Cross-model factual accuracy check.
 
-    Uses CallType.FACT_CHECK → Gemma 4 first (14,400 RPD — effectively free),
-    then Flash Lite as backup.  Returns a list of issue strings (empty = pass).
-
-    The check is intentionally lightweight — it looks for:
-      1. Factual errors or statements that contradict well-known knowledge.
-      2. Made-up statistics, invented names, or fake exam patterns.
-      3. Devanagari / Hindi text that slipped through (should be English-only).
-
+    gemini-3.5-flash-lite drafts; gemini-3.1-flash-lite fact-checks (exclude_model).
+    Two different model weights rarely hallucinate the same thing.
     Non-fatal: if the call fails the pipeline logs a warning and continues.
     """
     narration_dump = "\n".join(
@@ -733,7 +735,7 @@ SCRIPT NARRATION:
 
 Your task:
 1. Identify any factual errors, invented statistics, or false claims.
-2. Flag any Devanagari / Hindi characters that appear (there should be none — English only).
+2. Flag any Devanagari / Hindi characters (English-only pipeline).
 3. Flag invented exam patterns or fake question formats.
 4. Flag any vague filler lines that add zero educational value.
 
@@ -744,26 +746,117 @@ Respond ONLY with that JSON object. No markdown, no explanation outside the JSON
 
     try:
         router = GeminiRouter(api_key=api_key)
-        raw = router.generate(prompt, call_type=CallType.FACT_CHECK)
+        # Cross-model: exclude the drafter so the checker is a DIFFERENT model.
+        raw = router.generate(
+            prompt,
+            call_type=CallType.FACT_CHECK,
+            exclude_model=drafter_model,
+            use_schema=False,
+        )
         raw = re.sub(r"```(?:json)?|```", "", raw).strip()
         data = json.loads(raw)
         issues = [str(i).strip() for i in data.get("issues", []) if str(i).strip()]
         if issues:
             print(f"[fact-check] {len(issues)} issue(s) found: {'; '.join(issues)}")
         else:
-            print("[fact-check] PASS — no factual issues detected")
+            print("[fact-check] PASS — no factual issues detected (cross-model)")
         return issues
     except Exception as exc:
         print(f"[fact-check] WARNING: fact-check call failed (non-fatal, continuing): {exc}")
         return []
 
 
+def polish_script(script: "Script", topic: str, api_key: str) -> "Script":
+    """Third-pass polish: hook strength + pacing review.
+
+    Uses CallType.POLISH (thinking=medium, cross-model from drafter).
+    Returns the original script unchanged if the call fails (non-fatal).
+    """
+    narration_dump = "\n".join(
+        f"Scene {s.index}: {s.narration}" for s in script.scenes
+    )
+    prompt = f"""You are a YouTube Shorts editor reviewing a 28-34 second Indian educational video script.
+
+TOPIC: {topic}
+HOOK (scene 0): {script.scenes[0].narration if script.scenes else ''}
+
+FULL NARRATION:
+{narration_dump}
+
+Evaluate ONLY these two things:
+1. HOOK: Does the very first line open with a genuine question or a surprising fact
+   that makes someone stop scrolling within 3 seconds? If not, rewrite scene 0's
+   narration and tts_text to do that — keep the same topic and word count.
+2. PACING: Are there any scenes that are clearly too similar in length to each other
+   (all 2-3 sentences)? If yes, suggest ONE line that can be cut to create contrast.
+
+Return EXACTLY this JSON and nothing else:
+{{
+  "hook_ok": true_or_false,
+  "hook_fix": "rewritten scene 0 narration, or empty string if hook_ok is true",
+  "hook_fix_tts": "same line optimized for TTS, or empty string",
+  "pacing_cut": "exact narration sentence to cut (verbatim), or empty string if pacing is fine"
+}}"""
+
+    try:
+        router = GeminiRouter(api_key=api_key)
+        raw = router.generate(
+            prompt,
+            call_type=CallType.POLISH,
+            exclude_model="gemini-3.5-flash-lite",  # cross-model polish
+            use_schema=False,
+        )
+        raw = re.sub(r"```(?:json)?|```", "", raw).strip()
+        data = json.loads(raw)
+
+        # Apply hook fix if the model flagged it
+        hook_fix = str(data.get("hook_fix") or "").strip()
+        hook_fix_tts = str(data.get("hook_fix_tts") or "").strip()
+        if hook_fix and script.scenes:
+            print(f"[polish] hook rewritten: {hook_fix!r}")
+            script.scenes[0].narration = hook_fix
+            script.scenes[0].tts_text = hook_fix_tts or hook_fix
+
+        # Apply pacing cut if suggested
+        pacing_cut = str(data.get("pacing_cut") or "").strip()
+        if pacing_cut:
+            for s in script.scenes:
+                if pacing_cut in s.narration:
+                    s.narration = s.narration.replace(pacing_cut, "").strip()
+                    s.tts_text = s.tts_text.replace(pacing_cut, "").strip()
+                    print(f"[polish] pacing cut applied in scene {s.index}: removed {pacing_cut!r}")
+                    break
+
+        print("[polish] DONE")
+        return script
+    except Exception as exc:
+        print(f"[polish] WARNING: polish pass failed (non-fatal, using original): {exc}")
+        return script
+
+
+# The drafter model is constant — fact-check and polish always exclude it
+# so the checker is guaranteed to be a DIFFERENT Flash-Lite weight.
+_DRAFTER_MODEL = "gemini-3.5-flash-lite"
+
+
+
 def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_key: str | None = None) -> Script:
+    """Three-pass generation: draft -> fact-check -> polish.
+
+    Pass 1 (SCRIPT_GEN):   gemini-3.5-flash-lite, thinking=high, schema-constrained.
+    Pass 2 (FACT_CHECK):   gemini-3.1-flash-lite (cross-model), thinking=high.
+                           Issues -> repair pass; still fails -> ScriptRejected.
+    Pass 3 (POLISH):       gemini-3.1-flash-lite, thinking=medium — hook + pacing.
+    SEO:                   gemini-3.5-flash-lite, thinking=low — title/desc/tags.
+
+    ~4-6 Gemini calls per video.  At 500 RPD per Flash-Lite model that is ~80
+    videos per day before the tier-3 Gemma fallback kicks in.
+    """
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is not set. This pipeline is Google-only.")
 
     # One router instance per video — shares the persisted quota state so every
-    # call (script gen, fact-check, SEO, repair) counts against the same day's
+    # call (draft, fact-check, polish, SEO, repair) counts against the same day's
     # budget and no model gets double-counted.
     router = GeminiRouter(api_key=settings.gemini_api_key)
 
@@ -771,60 +864,74 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
     print(f"[pipeline] hook style for this topic: {hook_style}")
     prompt = _build_prompt(topic, niche_cfg, language, hook_style=hook_style)
 
-    # ── Step 1: generate script (Tier 1 Flash preferred) ─────────────────────
+    # ── Pass 1: draft (schema-constrained, high thinking) ────────────────────
+    print("[pipeline] Pass 1 — draft (schema-constrained, thinking=high)")
     try:
-        raw = router.generate(prompt, call_type=CallType.SCRIPT_GEN)
+        raw = router.generate(prompt, call_type=CallType.SCRIPT_GEN, use_schema=True)
     except Exception as e:
         raise RuntimeError(f"All Gemini models failed for script generation: {e}") from e
 
-    # ── Step 2: parse JSON ────────────────────────────────────────────────────
+    # ── Parse JSON -----------------------------------------------------------
+    # With response_schema active the model MUST return valid JSON, so this
+    # branch should almost never fire; kept as a safety net.
     try:
         parsed = _parse_json(raw)
     except Exception as parse_exc:
         print(f"[!] Script JSON invalid: {parse_exc}")
         try:
-            print("[pipeline] JSON repair via router (Tier 2 preferred)")
+            print("[pipeline] JSON repair via router (Flash-Lite preferred)")
             repaired_raw = router.generate(
                 "Convert the following malformed output into ONLY the exact JSON schema requested. "
                 "Do not add markdown or explanations.\n\n" + raw[:12000],
                 call_type=CallType.JSON_REPAIR,
+                use_schema=False,
             )
             parsed = _parse_json(repaired_raw)
             print("[qa] JSON repair succeeded")
         except Exception as repair_exc:
             raise RuntimeError(f"Gemini returned invalid JSON and repair failed: {repair_exc}") from parse_exc
 
-    # ── Step 3: QA + topic drift + length + known-error guard ────────────────
+    # ── QA + topic drift + length + known-error guard ────────────────────────
     script = _to_script(parsed)
     qa = _qa_all(script, topic, language)
 
-    # ── Step 4: Gemma fact-check — BLOCKING (v18). Issues → repair → hard fail ─
+    # ── Pass 2: cross-model fact-check (BLOCKING) ────────────────────────────
+    print("[pipeline] Pass 2 — cross-model fact-check (thinking=high)")
     if qa.ok:
-        fc_issues = fact_check_script(script, topic, settings.gemini_api_key)
+        fc_issues = fact_check_script(
+            script, topic, settings.gemini_api_key, drafter_model=_DRAFTER_MODEL
+        )
         if fc_issues:
             qa.issues = list(qa.issues) + [f"FACT: {i}" for i in fc_issues]
             qa.ok = False
 
     if qa.ok:
+        # ── Pass 3: polish (hook + pacing) ───────────────────────────────────
+        print("[pipeline] Pass 3 — polish (hook + pacing, thinking=medium)")
+        script = polish_script(script, topic, settings.gemini_api_key)
         word_count = sum(len(s.narration.split()) for s in script.scenes)
-        print(f"[qa] script passed: scenes={len(script.scenes)} words={word_count}")
+        print(f"[qa] script passed all 3 passes: scenes={len(script.scenes)} words={word_count}")
         return _seo_and_finalize(script, topic, niche_key, settings)
 
-    # ── Step 5: repair pass (fixes length / facts / drift / QA) ───────────────
-    print("[qa] first script needs repair: " + "; ".join(qa.issues))
+    # ── Repair pass (fixes length / facts / drift / QA failures) ─────────────
+    print("[qa] first draft needs repair: " + "; ".join(qa.issues))
     repair_prompt = _build_prompt(topic, niche_cfg, language, "; ".join(qa.issues), hook_style=hook_style)
     try:
-        print("[pipeline] Script repair via router (Tier 1 preferred)")
-        raw2 = router.generate(repair_prompt, call_type=CallType.SCRIPT_GEN)
+        print("[pipeline] Script repair via router (schema-constrained)")
+        raw2 = router.generate(repair_prompt, call_type=CallType.SCRIPT_GEN, use_schema=True)
         repaired = _to_script(_parse_json(raw2))
         qa2 = _qa_all(repaired, topic, language)
         if qa2.ok:
-            fc2 = fact_check_script(repaired, topic, settings.gemini_api_key)
+            fc2 = fact_check_script(
+                repaired, topic, settings.gemini_api_key, drafter_model=_DRAFTER_MODEL
+            )
             if fc2:
                 qa2.issues = list(qa2.issues) + [f"FACT: {i}" for i in fc2]
                 qa2.ok = False
         if not qa2.ok:
             raise RuntimeError("; ".join(qa2.issues))
+        # Polish the repaired script too
+        repaired = polish_script(repaired, topic, settings.gemini_api_key)
         print(f"[qa] repaired script passed: scenes={len(repaired.scenes)}")
         return _seo_and_finalize(repaired, topic, niche_key, settings)
     except Exception as exc:

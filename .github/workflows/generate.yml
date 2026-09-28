@@ -58,6 +58,9 @@ jobs:
       - name: Install Python deps
         run: pip install -r requirements.txt
 
+      - name: Install faster-whisper (Edge TTS word-timing alignment)
+        run: pip install faster-whisper
+
       - name: Verify source before generation
         run: |
           python -m py_compile pipeline/generate.py pipeline/script_gen.py \
@@ -75,7 +78,6 @@ jobs:
       - name: Generate & Upload (3 videos × 45 min)
         env:
           GEMINI_API_KEY:         ${{ secrets.GEMINI_API_KEY }}
-          GOOGLE_CLOUD_TTS_KEY:   ${{ secrets.GOOGLE_CLOUD_TTS_KEY }}
           PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}
           YT_CREDS_1:             ${{ secrets.YT_CREDS_1 }}
           UPLOAD_ENABLED:         'true'
@@ -84,7 +86,7 @@ jobs:
           LANGUAGES_ENABLED:      'en'
           TTS_PROVIDER:           edge
           TTS_LANGUAGE:           en-IN
-          TTS_VOICE:              en-IN-NeerjaNeural
+          TTS_VOICE:              en-IN-NeerjaExpressiveNeural
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m pipeline.generate --dry-run --count ${{ inputs.count || 3 }}

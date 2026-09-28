@@ -477,19 +477,22 @@ _SEO_HASHTAGS_BY_SUBJECT_AREA = {
 # v18 — channel-audit enforcement layer (deterministic; does not trust the LLM)
 # ═════════════════════════════════════════════════════════════════════════════
 
-# ── #4 Duration: 28-40 s spoken ≈ 70-95 words at a natural Indian-English pace
-# Analytics shows best retention under 40s; Shorts up to 60s are fine.
-MIN_WORDS = 55
-MAX_WORDS = 95          # hard ceiling enforced by QA (~38 s)
+# ── #4 Duration — only enforce YouTube's 60s Shorts hard limit.
+# No artificial word ceiling: quality and completeness matter more than
+# hitting an arbitrary time target.  A 45s Short that teaches well beats
+# a 28s Short that had to cut the key example.
+# At 2.5 words/sec, 60s = 150 words.  Leave 10 words of buffer → 140 max.
+MIN_WORDS = 40           # floor: must teach at least one idea
+MAX_WORDS = 140          # ceiling: YouTube Shorts hard limit (~56 s)
 
 
 def _length_issue(script: "Script") -> str | None:
     words = sum(len(s.narration.split()) for s in script.scenes)
     if words > MAX_WORDS:
-        return (f"narration is {words} words (~{words // 2.5:.0f}s); must be "
-                f"{MIN_WORDS}-{MAX_WORDS} words (22-38s). Cut to the single most important idea")
+        return (f"narration is {words} words (~{words / 2.5:.0f}s); "
+                f"YouTube Shorts must be under 60s — cut the least essential scene")
     if words < MIN_WORDS:
-        return f"narration only {words} words; needs {MIN_WORDS}-{MAX_WORDS} words for a complete idea"
+        return f"narration only {words} words — needs at least {MIN_WORDS} words to teach one complete idea"
     return None
 
 

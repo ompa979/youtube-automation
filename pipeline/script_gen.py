@@ -154,6 +154,22 @@ TEXT-CARD CHANNEL (curiosity-first, decluttered layout):
 - `on_screen_text`: a 1-3 word high-curiosity headline or cue (e.g. "3-SEC TRICK", "EXAM TRAP", "1NF vs 2NF", "CAN YOU SOLVE?").
 - `image_prompt` can be a short placeholder such as "text card".
 """.strip()
+    elif niche_cfg.get("visual_style") == "cinematic_hud":
+        card_rules = """
+CINEMATIC HUD CHANNEL (photorealistic AI visuals + animated motion graphics):
+- Every scene has a FULL-BLEED dramatic AI background image + animated Ken Burns motion + glowing HUD overlays.
+- `image_prompt`: CRITICAL — write a vivid, dark-cinematic visual concept (20-40 words) that DEPICTS the mechanism being explained.
+  Examples:
+    • For BCNF/3NF: "glowing holographic relational database table with neon arrows showing functional dependency, dark background, cyberpunk server room"
+    • For TCP SYN-ACK: "neon laser beam handshake between two holographic server nodes, deep space dark background, volumetric light"
+    • For NPA 90-day: "cracked vault door with glowing red countdown timer, dramatic cinematic lighting, dark banking hall"
+    • For Syllogism: "glowing Venn diagram laser projection, midnight dark background, volumetric God rays"
+  The image MUST visually represent the concept — NOT a generic "education" stock image.
+  DO NOT use text, labels, watermarks, or logos in the image prompt.
+- `on_screen_text`: a 1-3 word HIGH-CURIOSITY headline or memory cue (e.g. "3-SEC TEST", "EXAM TRAP", "90-DAY RULE", "CAN YOU SOLVE?").
+- `card_points`: Exactly ONE punchy memory anchor (max 6 words, e.g. ["BCNF = NO PARTIAL KEY"]).
+""".strip()
+
     topic_lock = (
         "TOPIC LOCK: the title, hook and every scene must be about exactly this topic. "
         "The title must contain the topic's main keywords (and the exam name if the topic names one). "

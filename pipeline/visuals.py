@@ -60,6 +60,13 @@ STYLE_SUFFIX = {
         "layered depth, dramatic studio lighting, realistic textures, visually striking but accurate, "
         "vertical 9:16, no text, no logos, no watermark"
     ),
+    "cinematic_hud": (
+        ", ultra-dramatic dark cinematic concept art, deep midnight-black or navy background, "
+        "single glowing focal element (holographic data grid / neon circuit traces / illuminated "
+        "vault door / glowing server racks / laser network topology), extreme foreground–background "
+        "separation, volumetric God rays, lens flare on accent element, hyperrealistic materials, "
+        "IMAX film grain, vertical 9:16, no text, no labels, no logos, no watermark"
+    ),
 }
 
 GLOBAL_QUALITY = (
@@ -388,6 +395,41 @@ def _render_text_card(
     return out_path.exists() and out_path.stat().st_size > 5_000
 
 
+def _apply_dark_scrim(path: Path, width: int = 1080, height: int = 1920) -> bool:
+    """Burn a calibrated vertical dark gradient scrim over the image so that
+    HUD text and animated karaoke captions always stay legible over any complex
+    AI-generated background. Used exclusively for `cinematic_hud` style.
+
+    Scrim recipe:
+      - Top 30%  : 55% opacity dark fade (room for badge & hook text)
+      - Bottom 30%: 65% opacity dark fade (room for karaoke captions)
+      - Middle 40%: transparent (lets the WOW visual breathe)
+    """
+    try:
+        from PIL import Image, ImageDraw
+        with Image.open(path) as img:
+            img = img.convert("RGBA")
+            scrim = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(scrim)
+            # Top gradient band
+            top_band = int(height * 0.30)
+            for y in range(top_band):
+                alpha = int(140 * (1 - y / top_band))  # 140→0
+                draw.line([(0, y), (width, y)], fill=(0, 0, 0, alpha))
+            # Bottom gradient band
+            bottom_start = int(height * 0.70)
+            for y in range(bottom_start, height):
+                t = (y - bottom_start) / (height - bottom_start)
+                alpha = int(165 * t)  # 0→165
+                draw.line([(0, y), (width, y)], fill=(0, 0, 0, alpha))
+            composite = Image.alpha_composite(img, scrim).convert("RGB")
+            composite.save(path, "JPEG", quality=92)
+        return True
+    except Exception as exc:
+        print(f"[visuals] dark scrim failed (non-fatal): {exc}")
+        return False
+
+
 def fetch_scene_image(
     scene_index: int, image_prompt: str, visual_style: str, settings, subject_area: str = "default",
     card_headline: str = "", card_points: list[str] | None = None, card_tag: str = "",
@@ -404,22 +446,33 @@ def fetch_scene_image(
         return out_path
     out_path.unlink(missing_ok=True)
 
+    fetched = False
     if _fetch_pollinations(prompt, out_path):
-        return out_path
+        fetched = True
 
-    if settings.pexels_api_key:
+    if not fetched and settings.pexels_api_key:
         # Pexels works best with a concise photographic search phrase.
         short = " ".join((image_prompt or "cinematic educational concept").split()[:10])
         if _fetch_pexels(short, out_path, settings.pexels_api_key):
-            return out_path
-        # The specific phrase can return zero results; retry once with a
-        # broad, near-guaranteed-to-match fallback query rather than failing
-        # the whole scene (and wasting every scene generated before it).
-        broad_query = "education abstract concept illustration"
-        print(f"[visuals] scene {scene_index}: specific pexels query failed, retrying with broad fallback")
-        if _fetch_pexels(broad_query, out_path, settings.pexels_api_key):
-            return out_path
+            fetched = True
+        if not fetched:
+            # The specific phrase can return zero results; retry once with a
+            # broad, near-guaranteed-to-match fallback query rather than failing
+            # the whole scene (and wasting every scene generated before it).
+            broad_query = "education abstract concept illustration"
+            print(f"[visuals] scene {scene_index}: specific pexels query failed, retrying with broad fallback")
+            if _fetch_pexels(broad_query, out_path, settings.pexels_api_key):
+                fetched = True
 
-    raise RuntimeError(
-        f"Could not fetch a valid premium visual for scene {scene_index}: {image_prompt!r}"
-    )
+    if not fetched:
+        raise RuntimeError(
+            f"Could not fetch a valid premium visual for scene {scene_index}: {image_prompt!r}"
+        )
+
+    # For cinematic_hud, burn a calibrated dark gradient scrim so that the
+    # progress bar, hook sweep, badge, and karaoke captions always pop with
+    # perfect contrast over any complex AI-generated background.
+    if visual_style == "cinematic_hud":
+        _apply_dark_scrim(out_path)
+
+    return out_path

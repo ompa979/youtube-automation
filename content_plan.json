@@ -1,123 +1,122 @@
 {
-  "version": 12,
-  "last_updated": "2026-09-28T00:00:00Z",
-  "_strategy_note": "v12 lane-locked: bank-exam aspirants only. Channel analytics showed 78% of views from YouTube Search on exact exam topics, near-zero on off-lane science/brain/India-facts topics. Topics are written the way aspirants search.",
+  "version": 13,
+  "last_updated": "2026-09-29T00:00:00Z",
+  "_strategy_note": "v13 cinematic_hud upgrade: topics rewritten as exact high-intent YouTube search queries aspirants type after failing mocks. Visual style upgraded to cinematic_hud so every scene now has a photorealistic AI background + Ken Burns motion + animated progress bar + hook sweep overlay instead of a static text card.",
   "niches": {
     "bank_it_officer": {
       "display_name": "Bank IT Officer",
-      "visual_style": "text_card",
+      "visual_style": "cinematic_hud",
       "card_tag": "IBPS SO IT",
       "voice": {
         "en": "en-IN"
       },
-      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a hook that names the exam and the exact concept, (2) the core rule, definition or method stated plainly, (3) one memory trick or worked example, (4) one line on how this is asked in the exam. Only state facts you are certain of. If you are unsure about a number, date, rate, or exam-pattern detail, leave it out and stay conceptual. Never invent cutoffs, vacancies, dates or statistics. Simple, clear Indian English. Focus area: IT officer subjects: networks, DBMS, OS, security, data structures.",
+      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a confrontational hook that names the EXACT exam pitfall or trap, (2) the single core rule or mental model that solves it, (3) one worked example or mnemonic, (4) a 2-choice comment CTA. Only state facts you are certain of. Never invent cutoffs, vacancies, dates or statistics. Focus area: IT officer subjects: networks, DBMS, OS, security, data structures.",
       "topics": [
-        "OSI model 7 layers with a memory trick for IBPS SO IT",
-        "TCP vs UDP difference asked in IBPS SO IT exam",
-        "SQL joins explained: inner, left, right and full join for bank IT exams",
-        "Normalization 1NF 2NF 3NF with a simple trick for IBPS SO IT",
-        "Primary key vs foreign key vs candidate key for bank IT exams",
-        "Process vs thread difference for IBPS SO IT",
-        "Deadlock and its four conditions explained simply for bank IT exams",
-        "IPv4 vs IPv6 differences that bank IT exams ask",
-        "Firewall vs antivirus vs IDS in cyber security for bank exams",
-        "Symmetric vs asymmetric encryption for IBPS SO IT",
-        "Stack vs queue difference with real-life examples for bank IT exams",
-        "RAM vs ROM vs cache memory hierarchy for bank IT exams",
-        "ARP protocol explained simply for IBPS SO IT",
-        "Ransomware and how banks defend against it for IBPS SO IT"
+        "BCNF vs 3NF: The 5-Second Candidate Key Test for IBPS SO IT",
+        "TCP 3-Way Handshake SYN ACK sequence trap asked in bank exams",
+        "SQL Correlated Subquery vs JOIN: The speed difference IBPS SO IT tests",
+        "Deadlock Banker Algorithm: Find Safe State in 30 seconds for bank exams",
+        "Subnetting without binary conversion: the shortcut for IT Officer exam",
+        "OSI model Layer 3 vs Layer 4 confusion that costs marks in IBPS SO IT",
+        "SQL GROUP BY vs HAVING: The filter order trap in bank IT exams",
+        "Process scheduling FCFS vs SJF: The waiting time trap for bank IT exams",
+        "RSA vs AES: Why bank IT exams always ask which one is asymmetric",
+        "Stack overflow vs heap overflow: The security trap in IBPS SO IT",
+        "Primary key vs Unique key vs Candidate key: The null trap for bank exams",
+        "IPv4 vs IPv6 subnetting difference IBPS SO IT always tests",
+        "SQL Transaction ACID properties: The isolation level trap in bank exams",
+        "Firewall vs IDS vs IPS: The detection vs prevention trap for IT officers"
       ],
       "weight": 2
     },
     "bank_reasoning_quant": {
       "display_name": "Reasoning & Quant",
-      "visual_style": "text_card",
+      "visual_style": "cinematic_hud",
       "card_tag": "BANK PO",
       "voice": {
         "en": "en-IN"
       },
-      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a hook that names the exam and the exact concept, (2) the core rule, definition or method stated plainly, (3) one memory trick or worked example, (4) one line on how this is asked in the exam. Only state facts you are certain of. If you are unsure about a number, date, rate, or exam-pattern detail, leave it out and stay conceptual. Never invent cutoffs, vacancies, dates or statistics. Simple, clear Indian English. Focus area: reasoning and quantitative aptitude speed methods.",
+      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a confrontational hook naming the exact exam mistake aspirants make, (2) the speed shortcut or rule that solves it, (3) one worked example, (4) a 2-choice comment CTA. Only state facts you are certain of. Never invent cutoffs or statistics. Focus area: reasoning and quantitative aptitude speed methods.",
       "topics": [
-        "Machine input output reasoning step-by-step trick for bank PO",
-        "Syllogism using Venn diagrams: the fastest method for IBPS PO",
-        "Blood relations shortcut for bank exams",
-        "Circular seating arrangement: solve it in under two minutes",
-        "Coding-decoding letter shifting trick for SBI clerk",
-        "Simplification and approximation speed trick for SBI PO",
-        "Percentage to fraction table every bank aspirant should memorize",
-        "Successive percentage shortcut for profit and loss in bank exams",
-        "Time and work with the LCM method for IBPS PO",
-        "Number series: 5 common patterns in bank prelims",
-        "Inequality reasoning symbol trick for bank exams",
-        "Data interpretation calculation shortcuts for bank PO"
+        "Syllogism 'Only a Few' vs 'Few' rule that 90% of aspirants get wrong in IBPS PO",
+        "Machine Input-Output: Shifting vs Fixed position shortcut for SBI PO in 60 seconds",
+        "Blood Relations coded tree shortcut to solve in 45 seconds for bank exams",
+        "Circular Seating facing inside vs outside simultaneous shortcut for IBPS PO",
+        "Quadratic Equations root sign shortcut without factorizing for SBI PO",
+        "Inequality reasoning: the double condition trap that costs marks in IBPS Clerk",
+        "Number Series: The difference-of-difference pattern 80% of bank exams use",
+        "Percentage to fraction shortcut: the 5 conversions every bank aspirant must know",
+        "Profit Loss Successive Discount trap: why your formula gives the wrong answer",
+        "Time and Work: The LCM shortcut SBI PO uses every year in prelims",
+        "Data Interpretation: The denominator trick to avoid calculation errors in bank PO",
+        "Coding Decoding letter shift shortcut that appears in every SBI Clerk exam"
       ],
       "weight": 2
     },
     "banking_awareness": {
       "display_name": "Banking Awareness",
-      "visual_style": "text_card",
+      "visual_style": "cinematic_hud",
       "card_tag": "BANK EXAMS",
       "voice": {
         "en": "en-IN"
       },
-      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a hook that names the exam and the exact concept, (2) the core rule, definition or method stated plainly, (3) one memory trick or worked example, (4) one line on how this is asked in the exam. Only state facts you are certain of. If you are unsure about a number, date, rate, or exam-pattern detail, leave it out and stay conceptual. Never invent cutoffs, vacancies, dates or statistics. Simple, clear Indian English. Focus area: banking awareness: RBI, payments, bank types, rules.",
+      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a confrontational hook naming the exact exam trap or confusion, (2) the core rule or distinction stated plainly, (3) one memory trick or worked example, (4) a 2-choice comment CTA. Only state facts you are certain of. Never invent cutoffs, vacancies, dates or statistics. Focus area: banking awareness: RBI, payments, bank types, rules.",
       "topics": [
-        "Repo rate vs reverse repo rate explained for bank exams",
-        "CRR vs SLR difference asked in every bank exam",
-        "IFSC code structure explained for SBI PO",
-        "KYC norms in banking: what aspirants must know",
-        "NPA classification: sub-standard, doubtful and loss assets for bank exams",
-        "Scheduled vs non-scheduled banks for IBPS exams",
-        "Cooperative banks structure in India for bank exams",
-        "Payments banks vs small finance banks for bank exams",
-        "NEFT vs RTGS vs IMPS vs UPI differences for bank exams",
-        "Types of bank accounts and their rules for IBPS clerk",
-        "Basel III in simple words for bank exams",
-        "Functions of RBI that every bank exam asks"
+        "SDF vs Reverse Repo: The exact RBI trap question asked in SBI PO every year",
+        "PCA Framework: The 3 trigger points RBI uses to restrict banks for IBPS PO",
+        "Priority Sector Lending PSL 40 percent sub-target trap in IBPS PO Mains",
+        "NEFT vs RTGS vs IMPS settlement time trap that every bank exam asks",
+        "NPA classification: the 90-day rule trap aspirants always get wrong in IBPS",
+        "Basel III Capital Adequacy Ratio: The 8 percent trap in bank exam MCQs",
+        "CRR vs SLR: Which one the RBI uses to control inflation, bank exam trick",
+        "Payments Banks vs Small Finance Banks: The deposit limit trap in bank exams",
+        "SARFAESI Act: The 60-day notice rule bank exams always trap aspirants with",
+        "NABARD vs SIDBI vs NHB: Which development bank funds what for bank exams",
+        "Functions of RBI: The currency management vs monetary policy trap in IBPS PO",
+        "KYC eKYC difference: The Aadhaar OTP rule that SBI PO mains always tests"
       ],
       "weight": 2
     },
     "rbi_economy": {
       "display_name": "RBI & Economy",
-      "visual_style": "text_card",
+      "visual_style": "cinematic_hud",
       "card_tag": "RBI GRADE B",
       "voice": {
         "en": "en-IN"
       },
-      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a hook that names the exam and the exact concept, (2) the core rule, definition or method stated plainly, (3) one memory trick or worked example, (4) one line on how this is asked in the exam. Only state facts you are certain of. If you are unsure about a number, date, rate, or exam-pattern detail, leave it out and stay conceptual. Never invent cutoffs, vacancies, dates or statistics. Simple, clear Indian English. Focus area: economy and finance for RBI Grade B, SEBI and NABARD.",
+      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a confrontational hook naming the exact exam trap or distinction, (2) the core concept or rule stated plainly, (3) one memory trick or worked example, (4) a 2-choice comment CTA. Only state facts you are certain of. Never invent cutoffs, vacancies, dates or statistics. Focus area: economy and finance for RBI Grade B, SEBI and NABARD.",
       "topics": [
-        "GDP vs GNP vs NNP for RBI Grade B",
-        "Demand-pull vs cost-push inflation for bank exams",
-        "Monetary policy tools of RBI in one minute",
-        "Fiscal deficit vs revenue deficit vs primary deficit for RBI Grade B",
-        "Current account vs capital account in balance of payments for bank exams",
-        "Money supply M0 M1 M2 M3 explained for RBI Grade B",
-        "What is the MPC and how the repo rate is decided for RBI Grade B",
-        "RBI vs SEBI roles: what each regulates for bank exams",
-        "NABARD functions explained for bank exams",
-        "FRBM Act explained simply for RBI Grade B",
-        "Financial inclusion schemes PMJDY, APY and PMJJBY for bank exams"
+        "GDP vs GNP vs NNP: The net factor income trap RBI Grade B always asks",
+        "Demand-pull vs Cost-push inflation: The oil price trap in RBI Grade B paper",
+        "Fiscal Deficit vs Revenue Deficit vs Primary Deficit: The interest payment trap",
+        "Money Supply M1 M2 M3: The near-money trap that RBI Grade B tests every year",
+        "Current Account vs Capital Account: The FDI vs FII classification trap",
+        "FRBM Act 3 percent target: The escape clause trap in RBI Grade B prelims",
+        "MPC voting: How the 6-member repo rate decision works for RBI Grade B",
+        "SEBI vs RBI vs IRDAI: Which regulator governs what, the overlap trap in bank exams",
+        "Financial Inclusion PMJDY: The overdraft limit and account opening trap",
+        "Monetary Policy Transmission: The credit channel trap RBI Grade B always tests"
       ],
       "weight": 1
     },
     "bank_english": {
       "display_name": "Bank English",
-      "visual_style": "text_card",
+      "visual_style": "cinematic_hud",
       "card_tag": "BANK ENGLISH",
       "voice": {
         "en": "en-IN"
       },
-      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a hook that names the exam and the exact concept, (2) the core rule, definition or method stated plainly, (3) one memory trick or worked example, (4) one line on how this is asked in the exam. Only state facts you are certain of. If you are unsure about a number, date, rate, or exam-pattern detail, leave it out and stay conceptual. Never invent cutoffs, vacancies, dates or statistics. Simple, clear Indian English. Focus area: English section methods for bank exams.",
+      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a confrontational hook naming the exact mistake aspirants make, (2) the rule or shortcut that solves it instantly, (3) one worked example from a real bank exam question, (4) a 2-choice comment CTA. Only state facts you are certain of. Focus area: English section methods for bank exams.",
       "topics": [
-        "Reading comprehension 3-step method to save time in IBPS PO",
-        "Subject-verb agreement rules that repeat in bank exam error spotting",
-        "Cloze test strategy for SBI PO",
-        "Para jumbles: how to find the opening sentence fast",
-        "Idioms asked in bank exams with meanings",
-        "One-word substitutions asked in IBPS clerk",
-        "Phrasal verbs that appear in bank exams",
-        "Preposition rules for fill in the blanks in bank exams",
-        "Synonyms and antonyms trick for bank exam vocabulary"
+        "Para Jumbles: The mandatory opening sentence rule SBI PO always uses to trap you",
+        "Subject Verb Agreement: The collective noun trap that appears in every IBPS error spotting",
+        "Reading Comprehension: The 3-step elimination method that saves 4 minutes in IBPS PO",
+        "Cloze Test: The contextual elimination shortcut SBI PO Mains uses every year",
+        "Error Spotting: The 'each of' and 'one of' singular verb trap in bank exams",
+        "Fill in the Blanks: The preposition pair shortcut for bank exam double blanks",
+        "Sentence Improvement: The dangling modifier trap IBPS PO always includes",
+        "Word Rearrangement: The subject-verb-object anchor shortcut for bank exams",
+        "Synonyms Antonyms: The root word shortcut that unlocks 80% of bank vocab questions"
       ],
       "weight": 1
     }

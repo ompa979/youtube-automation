@@ -70,7 +70,7 @@ jobs:
           import json
           d = json.load(open('content_plan.json', encoding='utf-8'))
           niches = d['niches']
-          assert all(v.get('visual_style') in ('educational_ai', 'text_card') for v in niches.values()), "niche visual_style must be educational_ai or text_card"
+          assert all(v.get('visual_style') in ('educational_ai', 'text_card', 'cinematic_hud') for v in niches.values()), "niche visual_style must be educational_ai, text_card, or cinematic_hud"
           total_topics = sum(len(v.get('topics', [])) for v in niches.values())
           print(f'PASS: {len(niches)} niches, {total_topics} topics, visual styles valid')
           PY

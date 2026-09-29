@@ -218,6 +218,33 @@ def _badge_filter(badge_text: str, accent: str) -> str:
     )
 
 
+def _memory_anchor_filter(text: str, accent: str) -> str:
+    """Glassmorphic memory-anchor card at Y≈32% — shows the exam trick/rule.
+
+    This is the 'bullet note' the user misses from text_card mode. It renders
+    the LLM-generated `card_points[0]` (e.g. '3NF: KILL TRANSITIVE DEPENDENCY')
+    as a compact, accent-bordered semi-transparent card above the karaoke
+    captions so viewers see the key takeaway on every scene.
+    """
+    raw = " ".join((text or "").split()).upper()
+    if not raw:
+        return ""
+    # Hard-cap to 50 chars so the card stays compact and readable
+    if len(raw) > 50:
+        raw = raw[:50].rsplit(" ", 1)[0]
+    safe = _escape_drawtext(raw)
+    if not safe:
+        return ""
+    return (
+        f"drawtext=font='Inter':text='\u26a1 {safe}':"
+        f"fontcolor=white:fontsize=34:"
+        f"borderw=3:bordercolor=black@0.85:"
+        f"box=1:boxcolor=black@0.50:boxborderw=14|28|14|28:"
+        f"x=(w-text_w)/2:y=h*0.32:"
+        f"line_spacing=8:{_FADE_IN_ALPHA}"
+    )
+
+
 def _subtitle_filter(narration: str, style: str, accent: str) -> str:
     """Burned-in subtitle strip, BOTTOM-anchored with a 170px safe margin.
 
@@ -280,6 +307,7 @@ def _ken_burns_clip(
     word_timings: list[dict] | None = None,
     scene_index: int = 0,
     total_scenes: int = 1,
+    anchor_text: str = "",
 ) -> None:
     total_frames = max(int(duration * FPS), 1)
     vf = _motion_filter(role, total_frames, subject_area)
@@ -296,14 +324,17 @@ def _ken_burns_clip(
     if mg_f:
         vf = f"{vf},{mg_f}"
 
-    # Layer 2: 3-layer on-screen text system — exam badge (top), fire-tinted
-    # keyword (mid), and a word-by-word bold caption (bottom) instead of a
-    # static full-sentence subtitle block.
+    # Layer 2: 4-layer on-screen text system — exam badge (top), memory
+    # anchor card (≈32%), fire-tinted keyword (mid), and a word-by-word
+    # bold caption (bottom).
     badge_f = _badge_filter(badge_text, accent) if badge_text and on_screen_text else ""
+    anchor_f = _memory_anchor_filter(anchor_text, accent) if anchor_text else ""
     keyword_f = _keyword_filter(on_screen_text) if on_screen_text else ""
 
     if badge_f:
         vf = f"{vf},{badge_f}"
+    if anchor_f:
+        vf = f"{vf},{anchor_f}"
     if keyword_f:
         vf = f"{vf},{keyword_f}"
 
@@ -654,6 +685,7 @@ def assemble_video(
     category: str = "default",
     topic: str = "",
     scene_word_timings: list[list[dict]] | None = None,
+    scene_card_points: list[list[str]] | None = None,
 ) -> Path:
     del scene_ass
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -678,6 +710,12 @@ def assemble_video(
         word_timings = (
             scene_word_timings[i] if scene_word_timings and i < len(scene_word_timings) else None
         )
+        # Memory anchor text from card_points[0] for the glassmorphic overlay
+        anchor_text = ""
+        if scene_card_points and i < len(scene_card_points):
+            pts = scene_card_points[i]
+            if pts and isinstance(pts, list) and len(pts) > 0:
+                anchor_text = str(pts[0]).strip()
         style = _CAPTION_STYLES[i % len(_CAPTION_STYLES)]
 
         # Layer 5 role: hook / static("exam tip") / pan_right(geography) / push_in(default)
@@ -695,6 +733,7 @@ def assemble_video(
             caption_style=style, accent=accent, subject_area=subject_area, badge_text=badge_text,
             word_timings=word_timings,
             scene_index=i, total_scenes=num_narration_scenes,
+            anchor_text=anchor_text,
         )
         clips.append(clip)
         actual_durations.append(actual)

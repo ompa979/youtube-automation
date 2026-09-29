@@ -133,22 +133,36 @@ def _normalize_image(path: Path, target_w: int, target_h: int) -> bool:
         return False
 
 
-def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: int = 1920, attempts: int = 2) -> bool:
+def _fetch_pollinations(
+    prompt: str,
+    out_path: Path,
+    width: int = 1080,
+    height: int = 1920,
+    attempts: int = 2,
+    api_key: str | None = None,
+) -> bool:
     encoded = urllib.parse.quote(prompt, safe="")
     url = POLLINATIONS.format(prompt=encoded)
     last_error: Exception | None = None
 
+    headers: dict[str, str] = {}
+    if api_key and api_key.strip():
+        clean_key = api_key.strip()
+        headers["Authorization"] = f"Bearer {clean_key}"
+
     for attempt in range(1, attempts + 1):
-        params = {
+        params: dict[str, Any] = {
             "width": width,
             "height": height,
             "nologo": "true",
             "model": "flux",
             "seed": random.randint(1, 2_000_000_000),
         }
+        if api_key and api_key.strip():
+            params["key"] = api_key.strip()
         try:
             with _POLLINATIONS_SEMAPHORE:
-                r = requests.get(url, params=params, timeout=45)
+                r = requests.get(url, params=params, headers=headers, timeout=45)
                 r.raise_for_status()
             if len(r.content) < 20_000:
                 raise RuntimeError(f"response too small ({len(r.content)} bytes) — likely an error page, not an image")
@@ -168,6 +182,7 @@ def _fetch_pollinations(prompt: str, out_path: Path, width: int = 1080, height: 
 
     print(f"[visuals] pollinations exhausted all attempts: {last_error}")
     return False
+
 
 
 def _fetch_pexels(query: str, out_path: Path, api_key: str, width: int = 1080, height: int = 1920) -> bool:
@@ -246,6 +261,47 @@ def _premium_prompt(image_prompt: str, visual_style: str, subject_area: str = "d
         + area_suffix
         + text_note
     )
+
+
+def _pollinations_prompt(image_prompt: str, visual_style: str) -> str:
+    """Build a COMPACT prompt for Pollinations free tier.
+
+    The free Pollinations API rejects overly-long URL-encoded prompts with
+    402 Payment Required. `_premium_prompt()` concatenates ~190+ words of
+    style directives that balloon the URL well past the limit. This function
+    keeps only the LLM's actual concept + a minimal style nudge, capped at
+    250 chars total — short enough to always succeed.
+    """
+    base = " ".join((image_prompt or "").split())
+    if len(base) > 140:
+        base = base[:140].rsplit(" ", 1)[0]
+
+    _COMPACT_SUFFIX = {
+        "cinematic_hud": ", dark cinematic concept art, midnight background, glowing focal element, volumetric light, 9:16, no text no labels",
+        "educational_ai": ", cinematic educational illustration, dramatic lighting, 9:16, no text",
+        "handwritten_notes": ", handwritten study notes on textured paper, ink diagrams, 9:16",
+        "text_gradient_ai": ", cinematic editorial illustration, dramatic lighting, 9:16, no text",
+        "mixed_stock_ai": ", documentary photography, cinematic, 9:16, no text",
+        "ai_cinematic": ", ultra-cinematic film still, deep depth of field, 9:16, no text",
+    }
+    suffix = _COMPACT_SUFFIX.get(visual_style, ", cinematic illustration, 9:16, no text")
+    return base + suffix
+
+
+# Dark-themed Pexels fallback queries by subject area — used when Pollinations
+# returns 402/429 and we fall through to Pexels. Generic bright stock photos
+# ("education", "concept") look terrible under a cinematic_hud dark scrim;
+# these queries are curated to return images that already match the dark
+# dramatic aesthetic.
+_DARK_PEXELS_FALLBACK: dict[str, str] = {
+    "geography": "dark aerial landscape night",
+    "history": "dark ancient monument dramatic",
+    "science": "dark laboratory neon glow",
+    "economy": "dark bank vault dramatic lighting",
+    "psychology": "dark brain neural abstract",
+    "india": "dark india monument night",
+    "default": "dark abstract technology concept",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -440,26 +496,49 @@ def fetch_scene_image(
         if not _render_text_card(out_path, scene_index, card_headline, card_points or [], card_tag):
             raise RuntimeError(f"Could not render text card for scene {scene_index}")
         return out_path
-    prompt = _premium_prompt(image_prompt, visual_style, subject_area)
+
+    # Build TWO prompts: a compact one for Pollinations (avoid 402) and the
+    # full-fat one for logging/debugging only.
+    short_prompt = _pollinations_prompt(image_prompt, visual_style)
+    print(f"[visuals] scene {scene_index}: pollinations prompt ({len(short_prompt)} chars)")
 
     if _valid_image(out_path):
         return out_path
     out_path.unlink(missing_ok=True)
 
+    pollinations_key = (
+        getattr(settings, "pollinations_api_key", None)
+        or os.getenv("POLLINATIONS_API_KEY")
+        or os.getenv("POLLINATION_KEY")
+    )
+    if pollinations_key:
+        print("[visuals] pollinations: using authenticated API key")
+
     fetched = False
-    if _fetch_pollinations(prompt, out_path):
+    if _fetch_pollinations(short_prompt, out_path, api_key=pollinations_key):
         fetched = True
 
     if not fetched and settings.pexels_api_key:
-        # Pexels works best with a concise photographic search phrase.
-        short = " ".join((image_prompt or "cinematic educational concept").split()[:10])
-        if _fetch_pexels(short, out_path, settings.pexels_api_key):
-            fetched = True
+        # For cinematic_hud, use curated dark-themed queries so Pexels returns
+        # images matching the dark dramatic aesthetic instead of bright stock.
+        if visual_style == "cinematic_hud":
+            dark_query = _DARK_PEXELS_FALLBACK.get(subject_area, _DARK_PEXELS_FALLBACK["default"])
+            print(f"[visuals] scene {scene_index}: using dark pexels fallback: {dark_query!r}")
+            if _fetch_pexels(dark_query, out_path, settings.pexels_api_key):
+                fetched = True
+        else:
+            # Non-HUD styles: use a concise photographic search phrase.
+            short = " ".join((image_prompt or "cinematic educational concept").split()[:10])
+            if _fetch_pexels(short, out_path, settings.pexels_api_key):
+                fetched = True
+
         if not fetched:
-            # The specific phrase can return zero results; retry once with a
-            # broad, near-guaranteed-to-match fallback query rather than failing
-            # the whole scene (and wasting every scene generated before it).
-            broad_query = "education abstract concept illustration"
+            # Broad fallback — dark-themed for cinematic_hud, generic otherwise.
+            broad_query = (
+                "dark abstract technology background"
+                if visual_style == "cinematic_hud"
+                else "education abstract concept illustration"
+            )
             print(f"[visuals] scene {scene_index}: specific pexels query failed, retrying with broad fallback")
             if _fetch_pexels(broad_query, out_path, settings.pexels_api_key):
                 fetched = True

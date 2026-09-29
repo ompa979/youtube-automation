@@ -35,6 +35,7 @@ class Settings:
     openrouter_api_key: str | None = None
     pexels_api_key: str | None = None
     pixabay_api_key: str | None = None
+    pollinations_api_key: str | None = None
     youtube_projects: list[YouTubeCredentials] = field(default_factory=list)
     upload_enabled: bool = True
     niches_enabled: list[str] = field(default_factory=lambda: ["facts"])

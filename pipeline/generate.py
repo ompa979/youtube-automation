@@ -98,6 +98,7 @@ def _load_settings() -> Settings:
         openrouter_api_key=None,   # intentionally removed
         pexels_api_key=os.getenv("PEXELS_API_KEY"),
         pixabay_api_key=os.getenv("PIXABAY_API_KEY"),
+        pollinations_api_key=os.getenv("POLLINATIONS_API_KEY") or os.getenv("POLLINATION_KEY"),
         youtube_projects=creds,
         upload_enabled=_truthy(os.getenv("UPLOAD_ENABLED"), True),
         niches_enabled=_csv_env("NICHES_ENABLED", ["facts"]),
@@ -282,6 +283,7 @@ def _run_one(
             "text": scene.on_screen_text or "",
             "narration": narration,
             "word_timings": word_timings or [],
+            "card_points": scene.card_points or [],
         }
 
     print(f"[pipeline] processing {len(script.scenes)} scenes with {scene_workers} parallel workers")
@@ -301,6 +303,7 @@ def _run_one(
     scene_texts: list[str] = [r["text"] for r in ordered]
     scene_narrations: list[str] = [r["narration"] for r in ordered]
     scene_word_timings: list[list[dict]] = [r["word_timings"] for r in ordered]
+    scene_card_points: list[list[str]] = [r["card_points"] for r in ordered]
 
     # Write script metadata (overwritten each video — latest always wins)
     metadata_path = OUT_DIR / "script.json"
@@ -317,6 +320,7 @@ def _run_one(
         category=niche,
         topic=topic,
         scene_word_timings=scene_word_timings,
+        scene_card_points=scene_card_points,
     )
     print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
 

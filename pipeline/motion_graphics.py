@@ -256,6 +256,50 @@ def mg_loop_hud(payload: str) -> str:
     return cta
 
 
+
+def mg_money_drop_hud(payload: str) -> str:
+    """Action HUD: Animated money / balance debit badge."""
+    clean = (payload or "₹500 DEDUCTED").replace("'", "").replace(":", " - ")
+    tag = (
+        f"drawtext=font='Inter':text='💸 CHARGE DETECTED':fontcolor=0xFF3355:fontsize=36:"
+        f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=black@0.85:boxborderw=10|24|10|24:"
+        f"x=(w-text_w)/2:y=h*0.25"
+    )
+    val = (
+        f"drawtext=font='Inter':text='{clean}':fontcolor=0xFFE600:fontsize=52:"
+        f"borderw=6:bordercolor=black@0.95:box=1:boxcolor=0x440011@0.92:boxborderw=16|36|16|36:"
+        f"x=(w-text_w)/2:y=h*0.32"
+    )
+    return f"{tag},{val}"
+
+
+def mg_numbered_step_hud(payload: str) -> str:
+    """Action HUD: Bold numbered feature / step card."""
+    clean = (payload or "STEP 01").replace("'", "").replace(":", " - ")
+    card = (
+        f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=46:"
+        f"borderw=5:bordercolor=black@0.95:box=1:boxcolor=0x0D1B2A@0.90:boxborderw=16|36|16|36:"
+        f"x=(w-text_w)/2:y=h*0.28"
+    )
+    return card
+
+
+def mg_warning_freeze_hud(payload: str) -> str:
+    """Action HUD: High-curiosity alert banner (universal, not exam-restricted)."""
+    clean = (payload or "WHAT YOU DON'T REALIZE").replace("'", "").replace(":", " - ")
+    banner = (
+        f"drawtext=font='Inter':text='⚠️ WATCH OUT':fontcolor=0xFFE600:fontsize=38:"
+        f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=0x770000@0.90:boxborderw=12|28|12|28:"
+        f"x=(w-text_w)/2:y=h*0.25"
+    )
+    desc = (
+        f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=44:"
+        f"borderw=5:bordercolor=black@0.95:box=1:boxcolor=black@0.85:boxborderw=16|32|16|32:"
+        f"x=(w-text_w)/2:y=h*0.33"
+    )
+    return f"{banner},{desc}"
+
+
 def build_action_hud(action_type: str, payload: str, duration: float, accent: str) -> str:
     """Return the dedicated Action HUD overlay for this scene's psychological role."""
     act = (action_type or "explanation").lower().strip()
@@ -323,6 +367,7 @@ def ensure_procedural_sfx(sfx_dir: Path) -> None:
         "chime.wav": ["-f", "lavfi", "-i", "sine=f=880:d=0.4,afade=t=out:st=0.05:d=0.35"],
         "whoosh.wav": ["-f", "lavfi", "-i", "anoisesrc=d=0.5:c=pink,lowpass=f=1200,afade=t=in:st=0:d=0.15,afade=t=out:st=0.15:d=0.35"],
         "alert.wav": ["-f", "lavfi", "-i", "sine=f=800:d=0.25,afade=t=out:st=0.05:d=0.20"],
+        "cash.wav": ["-f", "lavfi", "-i", "sine=f=1600:d=0.15,afade=t=out:st=0.02:d=0.13"],
     }
     import subprocess
     for fname, args in cues.items():

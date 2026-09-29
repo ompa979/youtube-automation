@@ -619,18 +619,40 @@ def _has_cta(text: str) -> bool:
     return bool(_CTA_PATTERN.search(text or ""))
 
 
+def _build_content_aware_pinned_comment(topic: str, script: "Script") -> str:
+    """Generate a content-aware pinned comment tailored to the topic (not generic A/B)."""
+    topic_l = topic.lower()
+    all_narr = " ".join(s.narration for s in script.scenes).lower()
+
+    if any(k in topic_l for k in ("charge", "fee", "money", "savings", "bank account", "hidden")):
+        return "💸 Which hidden bank charge surprised you the most?\n\nA️⃣ Minimum balance fee\nB️⃣ SMS / alert charges\nC️⃣ ATM usage fee\nD️⃣ Annual card fee\n\n👇 Comment below — have you ever noticed unexpected deductions?"
+    if any(k in topic_l for k in ("ai", "tool", "phone", "setting", "privacy", "hack", "secret")):
+        return "⚡ Did you know about this trick before watching?\n\nYES 🤯 or NO 👇\n\nComment your favorite tech tool below!"
+    if any(k in topic_l for k in ("rule", "trick", "shortcut", "difference", "vs", "versus")):
+        # Check if the scene actually had an A vs B challenge
+        if "option a" in all_narr or "a or b" in all_narr:
+            return "🎯 Did you guess option A or option B? Comment your answer below!"
+        return "💡 Have you solved a question on this before? Share your exam trick in the comments below!"
+    return "👇 What did you think of this? Drop your thoughts or questions in the comments below!"
+
+
 def _ensure_cta(script: "Script", topic: str) -> None:
     """Guarantee the last scene asks for a comment, the description carries the
-    CTA, and a pinned_comment exists.  Runs after the LLM so it never depends on
-    the model obeying the prompt."""
+    CTA, and a content-aware pinned_comment exists."""
     last = script.scenes[-1]
     if not _has_cta(last.narration):
         cta = _DEFAULT_CTAS[_stable_hash(topic) % len(_DEFAULT_CTAS)]
         last.narration = last.narration.rstrip() + " " + cta
         last.tts_text = last.tts_text.rstrip() + " " + cta
         print(f"[cta] LLM omitted comment CTA — appended: {cta!r}")
-    if not script.pinned_comment:
-        script.pinned_comment = "Comment your answer below — let's see who gets it right!"
+
+    # If pinned_comment is missing or contains generic/mismatched A/B when no A/B was in the video:
+    all_narr = " ".join(s.narration for s in script.scenes).lower()
+    has_ab = "option a" in all_narr or "a or b" in all_narr or "a)" in all_narr
+    if not script.pinned_comment or ("a or b" in script.pinned_comment.lower() and not has_ab):
+        script.pinned_comment = _build_content_aware_pinned_comment(topic, script)
+        print(f"[cta] generated content-aware pinned comment: {script.pinned_comment[:60]}...")
+
     if not _has_cta(script.description):
         script.description = script.description.rstrip() + "\n\n" + script.pinned_comment
 
@@ -656,37 +678,59 @@ def _known_fact_issues(script: "Script") -> list[str]:
 
 
 # ── #5 Exam name in title
+_NON_EXAM_NICHES = {
+    "money_wealth_hacks",
+    "ai_tech_hacks",
+    "science_curiosity",
+    "everyday_life_hacks",
+    "why_things_work",
+    "india_facts",
+    "mind_and_body",
+}
+
+# Only true exam-prep niches have default exam associations
 _EXAM_BY_NICHE = {
     "bank_it_officer": "IBPS SO IT",
     "bank_reasoning_quant": "SBI PO",
-    "banking_awareness": "SBI PO",
-    "rbi_economy": "RBI Grade B",
     "bank_english": "IBPS PO",
 }
+
 _EXAM_RE = re.compile(
     r"\b(IBPS\s*(?:SO(?:\s*IT)?|PO|Clerk|RRB)|SBI\s*(?:PO|Clerk|SO)|RBI\s*(?:Grade\s*B|Assistant)|"
     r"NABARD|SEBI|IFSC|LIC\s*AAO|GATE|UPSC|SSC|NEET)\b", re.I)
-TITLE_MAX = 65
+TITLE_MAX = 85
 
 
 def _exam_for(topic: str, niche_key: str | None) -> str | None:
+    """Return exam name ONLY if the topic itself is about an exam or the niche is an exam-prep niche."""
+    if niche_key in _NON_EXAM_NICHES:
+        return None
     m = _EXAM_RE.search(topic or "")
     if m:
         return re.sub(r"\s+", " ", m.group(1)).upper().replace("RBI GRADE B", "RBI Grade B")
+    # For banking_awareness and rbi_economy, only attach exam if the topic has exam cues
+    if niche_key in ("banking_awareness", "rbi_economy"):
+        if re.search(r"\b(exam|exams|aspirant|mains|prelims|cutoff|paper|mcq|syllabus)\b", topic or "", re.I):
+            return "SBI PO" if niche_key == "banking_awareness" else "RBI Grade B"
+        return None
     return _EXAM_BY_NICHE.get(niche_key or "")
 
 
 def _ensure_exam_in_title(title: str, topic: str, niche_key: str | None) -> str:
-    """Titles without an exam signal get ~9 views; with one, ~100.  Enforced here,
-    after SEO, so no title ships without an exam name in the first 45 chars."""
+    """Ensure exam name appears in title ONLY for true exam topics.
+    For consumer/general topics, leaves the high-CTR search title untouched."""
     title = " ".join((title or "").split())
     exam = _exam_for(topic, niche_key)
     if not exam:
-        return title
+        # Strip any accidental exam prefix from consumer topics
+        if niche_key in _NON_EXAM_NICHES:
+            title = re.sub(r"^(?:IBPS|SBI|RBI|UPSC|SSC)[\w\s]*[:\|–—-]\s*", "", title, flags=re.I).strip()
+        return title[:TITLE_MAX].rstrip()
+
     m = _EXAM_RE.search(title)
     if m and m.start() <= 25:
         return title[:TITLE_MAX].rstrip()
-    if m:                                   # exam present but buried — move it to the front
+    if m:
         cleaned = re.sub(r"\b(?:for|in|of)\s+(?:the\s+)?" + re.escape(m.group(1)) + r"(?:\s+exams?)?\b", "",
                          title, count=1, flags=re.I)
         if cleaned == title:
@@ -746,13 +790,14 @@ CURRENT TITLE: {title}
 CURRENT DESCRIPTION: {description}
 CURRENT TAGS: {tags}
 
-SEARCH-FIRST RULES (about 78% of this channel's views come from YouTube Search, not the Shorts feed —
-aspirants type the exam name + concept, so the title must match that search):
+SEO RULES (Search + Clickability):
 TITLE:
-- Put the EXAM NAME and the main CONCEPT keywords in the first 45 characters, the way an aspirant would type
-  them. Pattern: "<Exam>: <Concept> <Benefit>", e.g. "IBPS SO IT: OSI Model 7 Layers Trick",
-  "SBI PO: Simplification Speed Trick", "RBI Grade B: GDP vs GNP Explained".
-- Under 65 characters, MUST start with the exam name, 100% accurate, no false promises, no ALL CAPS, no emojis, no vague curiosity-gap wording.
+- If this is an EXAM topic (IBPS, SBI, RBI, GATE, UPSC): Put the EXAM NAME and main concept in the title, e.g. "IBPS SO IT: BCNF vs 3NF" or "BCNF vs 3NF in DBMS | IBPS SO IT".
+- If this is a CONSUMER / GENERAL topic (money, tech hacks, psychology, science): DO NOT add exam names like IBPS/SBI! Write a high-CTR, high-intent title, e.g.:
+  * Search-focused: "3 Hidden Bank Charges Draining Your Savings Every Month"
+  * Curiosity-focused: "Your Bank May Be Quietly Taking This Money Every Month"
+  * Direct: "3 Bank Charges That Quietly Drain Your Savings"
+- Under 85 characters, accurate, clear, no ALL CAPS, max 1 emoji if natural.
 - The title MUST keep the main keywords of the TOPIC. Never change the subject.
 
 DESCRIPTION:

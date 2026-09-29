@@ -23,6 +23,28 @@ from .subject_area import classify_subject_area, SUBJECT_AREA_IMAGE_SUFFIX
 
 POLLINATIONS = "https://image.pollinations.ai/prompt/{prompt}"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# VISUAL PROVIDER CIRCUIT BREAKER (V3)
+# Tracks provider health across the entire run. If a provider returns 404/429/402,
+# it is immediately tripped and skipped for all subsequent scenes.
+# ─────────────────────────────────────────────────────────────────────────────
+PROVIDER_STATE: dict[str, str] = {
+    "gemini_image": "available",  # "available" | "cooldown" | "unsupported"
+    "pollinations": "available",  # "available" | "disabled"
+    "pexels": "available",        # "available" | "disabled"
+}
+
+
+def reset_provider_state() -> None:
+    """Reset circuit breaker for a new video run if desired."""
+    global PROVIDER_STATE
+    PROVIDER_STATE = {
+        "gemini_image": "available",
+        "pollinations": "available",
+        "pexels": "available",
+    }
+
+
 # Same fix as Edge-TTS: scenes now run concurrently (generate.py), and firing
 # every scene's image request at Pollinations' free tier simultaneously is
 # what was producing the near-total 429 "Too Many Requests" wall seen in
@@ -143,10 +165,14 @@ def _fetch_gemini_image(
 ) -> bool:
     """Generate high-resolution 9:16 vertical AI image using Google Gemini API.
 
-    Tries Imagen 3 (imagen-3.0-generate-002:predict) first, then falls back to
-    Gemini 3.1 Flash Image ("Nano Banana 2") and Gemini 2.5 Flash Image.
+    Uses circuit breaker: if any call returns 429 (quota), marks 'cooldown'
+    and skips for the entire run. If 404, marks 'unsupported'.
+    Removed broken imagen-3.0-generate-002 endpoint.
     """
     if not api_key or not api_key.strip():
+        return False
+
+    if PROVIDER_STATE.get("gemini_image") != "available":
         return False
 
     clean_key = api_key.strip()
@@ -154,39 +180,11 @@ def _fetch_gemini_image(
     if "9:16" not in clean_prompt.lower():
         clean_prompt += ", vertical 9:16 aspect ratio, cinematic lighting, 8k resolution"
 
-    # Strategy 1: Imagen 3.0 dedicated predict endpoint
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={clean_key}"
-        payload = {
-            "instances": [{"prompt": clean_prompt}],
-            "parameters": {
-                "sampleCount": 1,
-                "aspectRatio": "9:16",
-                "outputMimeType": "image/jpeg",
-            },
-        }
-        r = requests.post(
-            url,
-            json=payload,
-            headers={"Content-Type": "application/json", "x-goog-api-key": clean_key},
-            timeout=60,
-        )
-        if r.status_code == 200:
-            data = r.json()
-            predictions = data.get("predictions", [])
-            if predictions and "bytesBase64Encoded" in predictions[0]:
-                raw_bytes = base64.b64decode(predictions[0]["bytesBase64Encoded"])
-                out_path.write_bytes(raw_bytes)
-                if _valid_image(out_path) and _normalize_image(out_path, width, height):
-                    print(f"[visuals] gemini: successfully generated image via imagen-3.0-generate-002")
-                    return True
-        else:
-            print(f"[visuals] gemini imagen-3.0 status {r.status_code}: {r.text[:120]}")
-    except Exception as exc:
-        print(f"[visuals] gemini imagen-3.0 failed: {exc}")
+    # Multimodal generateContent with responseModalities IMAGE
+    candidate_models = ("gemini-2.0-flash-exp-image-generation", "gemini-2.5-flash-image")
+    all_404 = True
 
-    # Strategy 2: Gemini multimodal generateContent with responseModalities IMAGE (Nano Banana 2 / 2.5)
-    for model in ("gemini-3.1-flash-image", "gemini-2.5-flash-image", "gemini-2.0-flash-exp-image-generation"):
+    for model in candidate_models:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={clean_key}"
             payload = {
@@ -199,7 +197,7 @@ def _fetch_gemini_image(
                 url,
                 json=payload,
                 headers={"Content-Type": "application/json", "x-goog-api-key": clean_key},
-                timeout=60,
+                timeout=45,
             )
             if r.status_code == 200:
                 data = r.json()
@@ -212,11 +210,22 @@ def _fetch_gemini_image(
                             if _valid_image(out_path) and _normalize_image(out_path, width, height):
                                 print(f"[visuals] gemini: successfully generated image via {model}")
                                 return True
+            elif r.status_code == 429:
+                print(f"[visuals] gemini: quota limit hit (429) -> tripping circuit breaker (cooldown for entire run)")
+                PROVIDER_STATE["gemini_image"] = "cooldown"
+                return False
+            elif r.status_code == 404:
+                continue
             else:
-                if r.status_code != 404:
-                    print(f"[visuals] gemini {model} status {r.status_code}: {r.text[:120]}")
+                all_404 = False
+                print(f"[visuals] gemini {model} status {r.status_code}: {r.text[:120]}")
         except Exception as exc:
-            print(f"[visuals] gemini {model} failed: {exc}")
+            print(f"[visuals] gemini {model} error: {exc}")
+
+    if all_404:
+        # If all experimental image models returned 404 on this API tier, trip circuit breaker
+        print("[visuals] gemini: image models not accessible on this API key -> disabling for run")
+        PROVIDER_STATE["gemini_image"] = "unsupported"
 
     return False
 
@@ -229,6 +238,8 @@ def _fetch_pollinations(
     attempts: int = 2,
     api_key: str | None = None,
 ) -> bool:
+    if PROVIDER_STATE.get("pollinations") != "available":
+        return False
     encoded = urllib.parse.quote(prompt, safe="")
     url = POLLINATIONS.format(prompt=encoded)
     last_error: Exception | None = None
@@ -264,14 +275,12 @@ def _fetch_pollinations(
             last_error = exc
             out_path.unlink(missing_ok=True)
             print(f"[visuals] pollinations attempt {attempt}/{attempts} failed: {exc}")
-            if "402" in str(exc) or "Payment Required" in str(exc):
-                # Unfunded API key: immediately drop key and use free tier for next retry!
-                print("[visuals] pollinations: key has 0 balance (402), switching to free tier without key")
-                current_key = None
-                headers = {}
+            if "402" in str(exc) or "Payment Required" in str(exc) or "429" in str(exc):
+                print(f"[visuals] pollinations: error ({exc}) -> tripping circuit breaker (disabled for run)")
+                PROVIDER_STATE["pollinations"] = "disabled"
+                return False
             if attempt < attempts:
-                is_429 = "429" in str(exc) or "Too Many Requests" in str(exc)
-                time.sleep(8 if is_429 else 2)
+                time.sleep(2)
 
     print(f"[visuals] pollinations exhausted all attempts: {last_error}")
     return False
@@ -574,6 +583,56 @@ def _render_text_card(
     return out_path.exists() and out_path.stat().st_size > 5_000
 
 
+
+def _render_procedural_backdrop(out_path: Path, scene_index: int, subject_area: str = "default", width: int = 1080, height: int = 1920) -> bool:
+    """Procedural fallback when all external visual APIs are rate-limited or unavailable.
+    Creates a sleek dark-cinematic abstract vertical backdrop with deep contrast gradients,
+    subtle grid geometry, and glowing ambient accents.
+    """
+    try:
+        from PIL import Image, ImageDraw
+        # Color palettes based on subject area
+        palettes = {
+            "economy": ((6, 12, 28), (14, 28, 54), (0, 200, 255)),
+            "science": ((10, 8, 30), (28, 16, 68), (180, 80, 255)),
+            "geography": ((4, 24, 28), (10, 56, 60), (40, 220, 180)),
+            "history": ((24, 14, 8), (56, 32, 16), (255, 170, 50)),
+            "default": ((8, 14, 24), (18, 32, 52), (0, 215, 255)),
+        }
+        top, bottom, accent = palettes.get(subject_area, palettes["default"])
+        img = Image.new("RGB", (width, height), top)
+        d = ImageDraw.Draw(img)
+
+        # Smooth vertical gradient
+        for y in range(height):
+            t = y / (height - 1)
+            r = int(top[0] + (bottom[0] - top[0]) * t)
+            g = int(top[1] + (bottom[1] - top[1]) * t)
+            b = int(top[2] + (bottom[2] - top[2]) * t)
+            d.line([(0, y), (width, y)], fill=(r, g, b))
+
+        # Ambient glowing orb in upper third
+        orb_x, orb_y = width // 2 + (scene_index % 2 * 200 - 100), height // 3
+        for radius in range(350, 0, -25):
+            alpha = int(22 * (1 - radius / 350))
+            col = tuple(min(255, c + alpha) for c in bottom)
+            d.ellipse([orb_x - radius, orb_y - radius, orb_x + radius, orb_y + radius], fill=col)
+
+        # Subtle dark tech grid lines
+        grid_step = 160
+        for x in range(0, width, grid_step):
+            d.line([(x, 0), (x, height)], fill=tuple(min(255, c + 6) for c in bottom), width=1)
+        for y in range(0, height, grid_step):
+            d.line([(0, y), (width, y)], fill=tuple(min(255, c + 6) for c in bottom), width=1)
+
+        img.save(out_path, "JPEG", quality=92)
+        print(f"[visuals] generated procedural backdrop for scene {scene_index}")
+        return True
+    except Exception as exc:
+        print(f"[visuals] procedural backdrop failed: {exc}")
+        return False
+
+
 def _apply_dark_scrim(path: Path, width: int = 1080, height: int = 1920) -> bool:
     """Burn a calibrated vertical dark gradient scrim over the image so that
     HUD text and animated karaoke captions always stay legible over any complex
@@ -663,9 +722,11 @@ def fetch_scene_image(
                 fetched = True
 
     if not fetched:
-        raise RuntimeError(
-            f"Could not fetch a valid premium visual for scene {scene_index}: {image_prompt!r}"
-        )
+        print(f"[visuals] scene {scene_index}: all external APIs exhausted -> falling back to procedural backdrop")
+        if _render_procedural_backdrop(out_path, scene_index, subject_area):
+            fetched = True
+        else:
+            raise RuntimeError(f"Could not fetch or generate a visual for scene {scene_index}: {image_prompt!r}")
 
     # For cinematic_hud, burn a calibrated dark gradient scrim so that the
     # progress bar, hook sweep, badge, and karaoke captions always pop with

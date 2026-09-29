@@ -23,19 +23,22 @@ from .script_gen import Script
 
 
 def _creds_from_payload(payload: dict) -> Credentials:
+    configured_scopes = payload.get("scopes", [])
+    if isinstance(configured_scopes, str):
+        configured_scopes = [configured_scopes]
+    required_scopes = [
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube.force-ssl",
+    ]
+    # Guarantee force-ssl is present even if payload had a narrow scope list
+    merged_scopes = list(dict.fromkeys(configured_scopes + required_scopes))
     return Credentials(
         token=payload.get("token"),
         refresh_token=payload["refresh_token"],
         token_uri=payload.get("token_uri", "https://oauth2.googleapis.com/token"),
         client_id=payload["client_id"],
         client_secret=payload["client_secret"],
-        scopes=payload.get(
-            "scopes",
-            [
-                "https://www.googleapis.com/auth/youtube.upload",
-                "https://www.googleapis.com/auth/youtube.force-ssl",
-            ],
-        ),
+        scopes=merged_scopes,
     )
 
 
@@ -108,10 +111,9 @@ def _build_timestamp_comment(script: Script, durations: list[float]) -> str:
     return "\n".join(lines)
 
 
-def _post_pinned_comment(yt, video_id: str, text: str) -> None:
-    """Post a comment and pin it to the top of the comments section."""
+def _post_pinned_comment(yt, video_id: str, text: str) -> str:
+    """Post a comment to the video. Returns 'SUCCESS', 'FAILED (AUTH_SCOPE)', or 'FAILED'."""
     try:
-        # Insert comment thread
         resp = yt.commentThreads().insert(
             part="snippet",
             body={
@@ -123,15 +125,16 @@ def _post_pinned_comment(yt, video_id: str, text: str) -> None:
                 }
             },
         ).execute()
-
         comment_id = resp["snippet"]["topLevelComment"]["id"]
-
-        # NOTE: the YouTube Data API cannot pin comments (setModerationStatus
-        # only publishes/holds). The comment is posted as the channel's first
-        # comment; pin manually in Studio if you want it on top.
         print(f"[upload] CTA comment posted (id={comment_id})")
+        return "SUCCESS"
     except Exception as exc:
-        print(f"[!] Pinned comment failed (non-fatal): {exc}")
+        msg = str(exc).lower()
+        if "403" in msg and ("insufficient" in msg or "scope" in msg):
+            print("[!] COMMENT: FAILED — AUTH_SCOPE (token lacks https://www.googleapis.com/auth/youtube.force-ssl; re-authorization required)")
+            return "FAILED (AUTH_SCOPE)"
+        print(f"[!] COMMENT: FAILED — {exc}")
+        return "FAILED" 
 
 
 def upload_video(
@@ -196,10 +199,13 @@ def upload_video(
     # v18: first comment = the engagement CTA (audit: 0 comments on 50 videos).
     # Timestamps are pointless on 25s Shorts, so the CTA replaces them.
     comment_text = (script.pinned_comment or "").strip()
+    comment_status = "SKIPPED"
     if comment_text:
-        _post_pinned_comment(yt, video_id, comment_text)
+        comment_status = _post_pinned_comment(yt, video_id, comment_text)
     elif scene_durations:
-        _post_pinned_comment(yt, video_id, _build_timestamp_comment(script, scene_durations))
+        comment_status = _post_pinned_comment(yt, video_id, _build_timestamp_comment(script, scene_durations))
+
+    print(f"[upload summary] UPLOAD: SUCCESS | VIDEO: {url} | COMMENT: {comment_status}")
 
     return {
         "video_id": video_id,

@@ -361,7 +361,7 @@ def _ken_burns_clip(
     cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", str(image),
         "-vf", vf_words, "-t", f"{duration:.3f}", "-r", str(FPS),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
         "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", str(out),
     ]
     if has_words:
@@ -402,7 +402,7 @@ def _make_outro_clip(accent: str, cta_text: str, out: Path, duration: float = 1.
     _run([
         "ffmpeg", "-y", "-f", "lavfi", "-i", f"color=c={accent}:s={W}x{H}:d={duration:.3f}",
         "-vf", vf, "-r", str(FPS),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
         "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", str(out),
     ])
 
@@ -432,7 +432,7 @@ def _make_loopback_clip(
     _run([
         "ffmpeg", "-y", "-loop", "1", "-i", str(image),
         "-vf", vf, "-t", f"{duration:.3f}", "-r", str(FPS),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
         "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", str(out),
     ])
 
@@ -456,18 +456,45 @@ def extract_thumbnail(video_path: Path, out: Path, at_sec: float = 0.5) -> Path:
 
 
 def _score_frame(path: Path) -> float:
-    """Higher = more 'thumbnail-worthy': rewards contrast (a visually punchy,
-    instantly-readable frame), penalizes frames that are too dark or too
-    bright (washed out / crushed-black candidates)."""
-    from PIL import Image
-    img = Image.open(path).convert("L").resize((160, 284))
-    pixels = list(img.getdata())
-    n = len(pixels)
-    mean = sum(pixels) / n
-    variance = sum((p - mean) ** 2 for p in pixels) / n
-    contrast = variance ** 0.5
-    brightness_penalty = abs(mean - 128) / 128  # 0 = ideal midtone, 1 = worst
-    return contrast * (1 - 0.3 * brightness_penalty)
+    """Enhanced content-aware thumbnail scoring (V3).
+    Rewards:
+      - High edge density (indicates sharp, readable on-screen text and graphic elements)
+      - High dynamic range / contrast (pop on small mobile screens)
+      - Rich color saturation (stands out in YouTube feed)
+    Penalizes:
+      - Crushed dark frames (mean < 35) or blown-out frames (mean > 215)
+    """
+    try:
+        from PIL import Image, ImageFilter, ImageStat
+        with Image.open(path) as img:
+            rgb = img.convert("RGB").resize((180, 320))
+            gray = rgb.convert("L")
+
+            # 1. Edge density / text sharpness (find edges filter)
+            edges = gray.filter(ImageFilter.FIND_EDGES)
+            edge_stat = ImageStat.Stat(edges)
+            edge_score = edge_stat.mean[0]
+
+            # 2. Luminance & Contrast
+            gray_stat = ImageStat.Stat(gray)
+            mean_lum = gray_stat.mean[0]
+            contrast = gray_stat.stddev[0]
+
+            # Brightness penalty: ideal midtone is ~120
+            lum_penalty = max(0.2, 1.0 - abs(mean_lum - 120) / 100.0)
+
+            # 3. Colorfulness / saturation
+            r, g, b = rgb.split()
+            r_stat, g_stat, b_stat = ImageStat.Stat(r), ImageStat.Stat(g), ImageStat.Stat(b)
+            colorfulness = (r_stat.stddev[0] + g_stat.stddev[0] + b_stat.stddev[0]) / 3.0
+
+            # Composite score (heavily rewards text edge sharpness + contrast)
+            final_score = (contrast * 1.2) + (edge_score * 2.2) + (colorfulness * 0.8)
+            final_score *= lum_penalty
+            return float(final_score)
+    except Exception as exc:
+        print(f"[render] _score_frame error: {exc}")
+        return 50.0
 
 
 def extract_best_thumbnail(video_path: Path, out: Path, scene0_duration: float) -> Path:
@@ -597,7 +624,7 @@ def _join_with_transitions(
         "ffmpeg", "-y", *inputs,
         "-filter_complex", ";".join(filters),
         "-map", current,
-        "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p", str(out),
+        "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p", str(out),
     ]
     _run(cmd)
     return cut_offsets
@@ -608,7 +635,7 @@ def _concat_audio(paths: list[Path], out: Path) -> None:
     listfile.write_text("\n".join(f"file '{p.resolve()}'" for p in paths), encoding="utf-8")
     _run([
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(listfile),
-        "-c:a", "libmp3lame", "-b:a", "192k", str(out),
+        "-c:a", "libmp3lame", "-b:a", "160k", str(out),
     ])
 
 
@@ -839,7 +866,7 @@ def assemble_video(
     _run([
         "ffmpeg", "-y", "-i", str(voice_raw),
         "-af", f"apad=whole_dur={total_video_duration:.3f}",
-        "-c:a", "libmp3lame", "-b:a", "192k", str(voice),
+        "-c:a", "libmp3lame", "-b:a", "160k", str(voice),
     ])
 
     final = OUT_DIR / f"{slug}.mp4"
@@ -847,7 +874,7 @@ def assemble_video(
     sfx = _pick_sfx() if cut_offsets else None
 
     common_video = [
-        "-c:v", "libx264", "-preset", "medium", "-crf", "17",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "22",
         "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
     ]
@@ -925,7 +952,7 @@ def assemble_video(
     cmd += [
         "-filter_complex", fc,
         "-map", "0:v", "-map", "[aout]",
-        *common_video, "-c:a", "aac", "-b:a", "192k", "-shortest", str(final),
+        *common_video, "-c:a", "aac", "-b:a", "160k", "-shortest", str(final),
     ]
 
     try:
@@ -944,13 +971,13 @@ def assemble_video(
                 "ffmpeg", "-y", "-i", str(silent_video), "-i", str(voice), "-i", str(music),
                 "-filter_complex", fc_fallback,
                 "-map", "0:v", "-map", "[aout]",
-                *common_video, "-c:a", "aac", "-b:a", "192k", "-shortest", str(final),
+                *common_video, "-c:a", "aac", "-b:a", "160k", "-shortest", str(final),
             ]
         else:
             cmd_fallback = [
                 "ffmpeg", "-y", "-i", str(silent_video), "-i", str(voice),
                 "-map", "0:v", "-map", "1:a",
-                *common_video, "-c:a", "aac", "-b:a", "192k", "-shortest", str(final),
+                *common_video, "-c:a", "aac", "-b:a", "160k", "-shortest", str(final),
             ]
         _run(cmd_fallback)
 

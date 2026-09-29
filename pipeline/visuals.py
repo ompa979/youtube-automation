@@ -6,6 +6,7 @@ cinematic editorial art direction while preserving the scene's educational idea.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 import random
@@ -131,6 +132,93 @@ def _normalize_image(path: Path, target_w: int, target_h: int) -> bool:
         return True
     except Exception:
         return False
+
+
+def _fetch_gemini_image(
+    prompt: str,
+    out_path: Path,
+    api_key: str,
+    width: int = 1080,
+    height: int = 1920,
+) -> bool:
+    """Generate high-resolution 9:16 vertical AI image using Google Gemini API.
+
+    Tries Imagen 3 (imagen-3.0-generate-002:predict) first, then falls back to
+    Gemini 3.1 Flash Image ("Nano Banana 2") and Gemini 2.5 Flash Image.
+    """
+    if not api_key or not api_key.strip():
+        return False
+
+    clean_key = api_key.strip()
+    clean_prompt = " ".join((prompt or "").split())
+    if "9:16" not in clean_prompt.lower():
+        clean_prompt += ", vertical 9:16 aspect ratio, cinematic lighting, 8k resolution"
+
+    # Strategy 1: Imagen 3.0 dedicated predict endpoint
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={clean_key}"
+        payload = {
+            "instances": [{"prompt": clean_prompt}],
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": "9:16",
+                "outputMimeType": "image/jpeg",
+            },
+        }
+        r = requests.post(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json", "x-goog-api-key": clean_key},
+            timeout=60,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            predictions = data.get("predictions", [])
+            if predictions and "bytesBase64Encoded" in predictions[0]:
+                raw_bytes = base64.b64decode(predictions[0]["bytesBase64Encoded"])
+                out_path.write_bytes(raw_bytes)
+                if _valid_image(out_path) and _normalize_image(out_path, width, height):
+                    print(f"[visuals] gemini: successfully generated image via imagen-3.0-generate-002")
+                    return True
+        else:
+            print(f"[visuals] gemini imagen-3.0 status {r.status_code}: {r.text[:120]}")
+    except Exception as exc:
+        print(f"[visuals] gemini imagen-3.0 failed: {exc}")
+
+    # Strategy 2: Gemini multimodal generateContent with responseModalities IMAGE (Nano Banana 2 / 2.5)
+    for model in ("gemini-3.1-flash-image", "gemini-2.5-flash-image", "gemini-2.0-flash-exp-image-generation"):
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={clean_key}"
+            payload = {
+                "contents": [{"parts": [{"text": clean_prompt}]}],
+                "generationConfig": {
+                    "responseModalities": ["IMAGE"],
+                },
+            }
+            r = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json", "x-goog-api-key": clean_key},
+                timeout=60,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                for cand in data.get("candidates", []):
+                    for part in cand.get("content", {}).get("parts", []):
+                        inline = part.get("inlineData") or part.get("inline_data")
+                        if inline and inline.get("data"):
+                            raw_bytes = base64.b64decode(inline["data"])
+                            out_path.write_bytes(raw_bytes)
+                            if _valid_image(out_path) and _normalize_image(out_path, width, height):
+                                print(f"[visuals] gemini: successfully generated image via {model}")
+                                return True
+            else:
+                if r.status_code != 404:
+                    print(f"[visuals] gemini {model} status {r.status_code}: {r.text[:120]}")
+        except Exception as exc:
+            print(f"[visuals] gemini {model} failed: {exc}")
+
+    return False
 
 
 def _fetch_pollinations(
@@ -497,26 +585,34 @@ def fetch_scene_image(
             raise RuntimeError(f"Could not render text card for scene {scene_index}")
         return out_path
 
-    # Build TWO prompts: a compact one for Pollinations (avoid 402) and the
-    # full-fat one for logging/debugging only.
+    full_prompt = _premium_prompt(image_prompt, visual_style, subject_area)
     short_prompt = _pollinations_prompt(image_prompt, visual_style)
-    print(f"[visuals] scene {scene_index}: pollinations prompt ({len(short_prompt)} chars)")
 
     if _valid_image(out_path):
         return out_path
     out_path.unlink(missing_ok=True)
 
-    pollinations_key = (
-        getattr(settings, "pollinations_api_key", None)
-        or os.getenv("POLLINATIONS_API_KEY")
-        or os.getenv("POLLINATION_KEY")
-    )
-    if pollinations_key:
-        print("[visuals] pollinations: using authenticated API key")
-
     fetched = False
-    if _fetch_pollinations(short_prompt, out_path, api_key=pollinations_key):
-        fetched = True
+
+    # 1. Primary: Google Gemini / Imagen 3 using GEMINI_API_KEY
+    gemini_key = getattr(settings, "gemini_api_key", None) or os.getenv("GEMINI_API_KEY")
+    if gemini_key:
+        print(f"[visuals] scene {scene_index}: generating via Google Gemini / Imagen 3...")
+        if _fetch_gemini_image(full_prompt, out_path, gemini_key):
+            fetched = True
+
+    # 2. Secondary: Pollinations (Flux)
+    if not fetched:
+        pollinations_key = (
+            getattr(settings, "pollinations_api_key", None)
+            or os.getenv("POLLINATIONS_API_KEY")
+            or os.getenv("POLLINATION_KEY")
+        )
+        if pollinations_key:
+            print("[visuals] pollinations: using authenticated API key")
+        print(f"[visuals] scene {scene_index}: trying pollinations ({len(short_prompt)} chars)")
+        if _fetch_pollinations(short_prompt, out_path, api_key=pollinations_key):
+            fetched = True
 
     if not fetched and settings.pexels_api_key:
         # For cinematic_hud, use curated dark-themed queries so Pexels returns

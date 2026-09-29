@@ -23,22 +23,21 @@ from .script_gen import Script
 
 
 def _creds_from_payload(payload: dict) -> Credentials:
-    configured_scopes = payload.get("scopes", [])
-    if isinstance(configured_scopes, str):
-        configured_scopes = [configured_scopes]
-    required_scopes = [
-        "https://www.googleapis.com/auth/youtube.upload",
-        "https://www.googleapis.com/auth/youtube.force-ssl",
-    ]
-    # Guarantee force-ssl is present even if payload had a narrow scope list
-    merged_scopes = list(dict.fromkeys(configured_scopes + required_scopes))
+    # Use only the scopes granted when this refresh token was generated.
+    # Requesting additional scopes (like force-ssl) during token refresh causes Google OAuth
+    # to throw 'invalid_scope: Bad Request' and block the entire upload.
+    scopes = payload.get("scopes")
+    if not scopes:
+        scopes = ["https://www.googleapis.com/auth/youtube.upload"]
+    elif isinstance(scopes, str):
+        scopes = [scopes]
     return Credentials(
         token=payload.get("token"),
         refresh_token=payload["refresh_token"],
         token_uri=payload.get("token_uri", "https://oauth2.googleapis.com/token"),
         client_id=payload["client_id"],
         client_secret=payload["client_secret"],
-        scopes=merged_scopes,
+        scopes=scopes,
     )
 
 
@@ -197,13 +196,18 @@ def upload_video(
     _set_thumbnail(yt, video_id, thumb_path)
 
     # v18: first comment = the engagement CTA (audit: 0 comments on 50 videos).
-    # Timestamps are pointless on 25s Shorts, so the CTA replaces them.
+    # Check if force-ssl scope was authorized before attempting comment insert
+    can_post_comment = any("force-ssl" in s for s in (creds.scopes or []))
     comment_text = (script.pinned_comment or "").strip()
-    comment_status = "SKIPPED"
-    if comment_text:
-        comment_status = _post_pinned_comment(yt, video_id, comment_text)
-    elif scene_durations:
-        comment_status = _post_pinned_comment(yt, video_id, _build_timestamp_comment(script, scene_durations))
+    comment_status = "SKIPPED (AUTH_SCOPE)"
+
+    if can_post_comment:
+        if comment_text:
+            comment_status = _post_pinned_comment(yt, video_id, comment_text)
+        elif scene_durations:
+            comment_status = _post_pinned_comment(yt, video_id, _build_timestamp_comment(script, scene_durations))
+    else:
+        print("[upload] Pinned comment skipped: OAuth credentials only have 'youtube.upload' scope. (Re-authorize token with force-ssl scope if you want automated comments).")
 
     print(f"[upload summary] UPLOAD: SUCCESS | VIDEO: {url} | COMMENT: {comment_status}")
 

@@ -119,6 +119,94 @@
         "Synonyms Antonyms: The root word shortcut that unlocks 80% of bank vocab questions"
       ],
       "weight": 1
+    },
+    "ai_tech_hacks": {
+      "display_name": "AI & Tech Hacks",
+      "visual_style": "cinematic_hud",
+      "card_tag": "TECH HACKS",
+      "voice": {
+        "en": "en-US"
+      },
+      "system_prompt": "Create an electrifying 30-45 second viral Short about hidden AI tools, secret smartphone settings, and futuristic tech hacks. Structure: (1) an immediate high-stakes hook revealing a shocking capability, (2) the exact step-by-step method or how the technology works, (3) a mind-blowing use case or warning, (4) a high-engagement 2-choice comment question. Keep it fast-paced, highly visual, and punchy.",
+      "topics": [
+        "3 Free AI tools that feel completely illegal to know in 2026",
+        "The hidden smartphone setting draining your battery and tracking your location",
+        "How to turn any messy pencil sketch into a 3D animation in 5 seconds",
+        "Why your phone shows you ads for things you only talked about out loud",
+        "The 10-second AI trick to remove any watermark or stranger from a video",
+        "How quantum computers will crack every password on Earth in 20 seconds",
+        "Secret Google Maps features that 99 percent of people have never seen",
+        "How AI can now clone your voice from just a 3-second audio recording",
+        "The single privacy setting you must turn off on your phone right now",
+        "How to get free unlimited cloud storage without paying a single dollar"
+      ],
+      "weight": 3
+    },
+    "science_curiosity": {
+      "display_name": "Science & Mind-Blowing Facts",
+      "visual_style": "cinematic_hud",
+      "card_tag": "DID YOU KNOW",
+      "voice": {
+        "en": "en-US"
+      },
+      "system_prompt": "Create an awe-inspiring 30-45 second viral Short about mysterious science, cosmic phenomena, and mind-bending biological facts. Structure: (1) a jaw-dropping hook stating a counter-intuitive reality, (2) the fascinating scientific mechanism behind it with vivid visual analogies, (3) the mind-blowing consequence, (4) a thought-provoking comment CTA. Focus on wonder, curiosity, and high replay value.",
+      "topics": [
+        "What actually happens to your body if you fall into a supermassive black hole",
+        "The immortal jellyfish that can reverse its own biological age forever",
+        "Why commercial airplanes are strictly forbidden from flying over Tibet",
+        "The terrifying reason why deep space is completely silent and pitch black",
+        "What would happen if the Earth suddenly stopped spinning for just 5 seconds",
+        "Why the Mariana Trench is more mysterious and unexplored than the surface of Mars",
+        "The strange physics of neutron stars where one teaspoon weighs 6 billion tons",
+        "Why you get goosebumps when you hear incredible music: the brain secret",
+        "The deepest hole ever dug on Earth and the bizarre sounds scientists recorded",
+        "What happens to your brain when you experience deja vu: the neural glitch"
+      ],
+      "weight": 3
+    },
+    "money_wealth_hacks": {
+      "display_name": "Money & Wealth Hacks",
+      "visual_style": "cinematic_hud",
+      "card_tag": "MONEY HACKS",
+      "voice": {
+        "en": "en-US"
+      },
+      "system_prompt": "Create an eye-opening 30-45 second viral Short about financial secrets, consumer banking traps, and wealth-building psychology. Structure: (1) a confrontational hook exposing a financial trap or hidden wealth rule, (2) the exact numbers and contrast that make the reality click, (3) the actionable counter-strategy, (4) an engaging 2-choice comment question. Keep it relatable, honest, and high-impact.",
+      "topics": [
+        "The 3 hidden bank charges quietly draining your savings account every month",
+        "Why banks pay you 3 percent on savings while earning 12 percent on your money",
+        "The 50 30 20 budget rule that actually builds wealth in your 20s",
+        "How credit card companies make billions from the minimum payment trap",
+        "The secret ATM rule that lets you get your cash back if the machine fails",
+        "Why you should never use a debit card for online shopping: the fraud trap",
+        "The compound interest secret that turns 5000 a month into 1 Crore",
+        "Why the super wealthy borrow money against assets instead of taking a salary",
+        "The psychological supermarket trick that forces you to spend 30 percent more",
+        "How inflation quietly halves the purchasing power of cash sitting in your bank"
+      ],
+      "weight": 3
+    },
+    "everyday_life_hacks": {
+      "display_name": "Everyday Life & Mind Hacks",
+      "visual_style": "cinematic_hud",
+      "card_tag": "LIFE HACKS",
+      "voice": {
+        "en": "en-US"
+      },
+      "system_prompt": "Create an irresistible 30-45 second viral Short about psychological life hacks, human behavior, and high-performance productivity tricks. Structure: (1) a punchy hook promising a cure for a universal frustration, (2) the psychological principle explained in simple terms, (3) how to apply it in 10 seconds today, (4) a relatable comment CTA. High curiosity, immediate practical value.",
+      "topics": [
+        "The 2-minute rule that permanently cures severe procrastination",
+        "How to spot if someone is lying to you: the 3 subconscious micro-expressions",
+        "The military method to fall asleep in under 2 minutes anywhere in the world",
+        "Why you wake up exhausted even after 8 hours of sleep: the sleep cycle trap",
+        "The psychological trick to win any argument without raising your voice",
+        "How the Doorway Effect makes your brain instantly forget what you entered a room for",
+        "The Feynman technique: How to master any complex topic in 4 simple steps",
+        "The 5-second rule that stops your brain from hesitating and self-sabotage",
+        "How a 24-hour dopamine detox resets your attention span and motivation",
+        "The subtle body language secret that makes you look instantly confident in any room"
+      ],
+      "weight": 3
     }
   }
 }

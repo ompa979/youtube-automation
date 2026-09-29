@@ -304,6 +304,8 @@ def _run_one(
     scene_narrations: list[str] = [r["narration"] for r in ordered]
     scene_word_timings: list[list[dict]] = [r["word_timings"] for r in ordered]
     scene_card_points: list[list[str]] = [r["card_points"] for r in ordered]
+    scene_action_types: list[str] = [getattr(scene, "action_type", "explanation") for scene in script.scenes]
+    scene_action_payloads: list[str] = [getattr(scene, "action_payload", "") for scene in script.scenes]
 
     # Write script metadata (overwritten each video — latest always wins)
     metadata_path = OUT_DIR / "script.json"
@@ -321,6 +323,8 @@ def _run_one(
         topic=topic,
         scene_word_timings=scene_word_timings,
         scene_card_points=scene_card_points,
+        scene_action_types=scene_action_types,
+        scene_action_payloads=scene_action_payloads,
     )
     print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
 

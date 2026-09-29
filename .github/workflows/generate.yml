@@ -84,12 +84,12 @@ jobs:
           YT_CREDS_1:             ${{ secrets.YT_CREDS_1 }}
           UPLOAD_ENABLED:         'true'
           UPLOAD_COUNT:           ${{ inputs.count || '3' }}
-          NICHES_ENABLED:         'bank_it_officer,bank_reasoning_quant,banking_awareness,rbi_economy,bank_english'
+          NICHES_ENABLED:         'ai_tech_hacks,science_curiosity,money_wealth_hacks,everyday_life_hacks,banking_awareness,bank_it_officer,bank_reasoning_quant,rbi_economy,bank_english'
           LANGUAGES_ENABLED:      'en'
           TTS_PROVIDER:           edge
           TTS_LANGUAGE:           en-IN
           TTS_VOICE:              en-IN-PrabhatNeural
-          TTS_RATE:               '-10%'
+          TTS_RATE:               '+0%'
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             python -m pipeline.generate --dry-run --count ${{ inputs.count || 3 }}

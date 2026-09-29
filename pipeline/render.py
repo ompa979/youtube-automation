@@ -308,18 +308,22 @@ def _ken_burns_clip(
     scene_index: int = 0,
     total_scenes: int = 1,
     anchor_text: str = "",
+    action_type: str = "explanation",
+    action_payload: str = "",
 ) -> None:
     total_frames = max(int(duration * FPS), 1)
     vf = _motion_filter(role, total_frames, subject_area)
 
     # Motion graphics overlay — progress bar, vignette pulse, rule line,
-    # hook sweep, scene dots. Applied BEFORE text so text renders on top.
+    # hook sweep, scene dots, and dedicated Action HUD.
     mg_f = build_motion_graphics_filter(
         duration=duration,
         accent=accent,
         scene_index=scene_index,
         total_scenes=total_scenes,
         is_hook=(role == "hook"),
+        action_type=action_type,
+        action_payload=action_payload,
     )
     if mg_f:
         vf = f"{vf},{mg_f}"
@@ -686,6 +690,8 @@ def assemble_video(
     topic: str = "",
     scene_word_timings: list[list[dict]] | None = None,
     scene_card_points: list[list[str]] | None = None,
+    scene_action_types: list[str] | None = None,
+    scene_action_payloads: list[str] | None = None,
 ) -> Path:
     del scene_ass
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -718,6 +724,19 @@ def assemble_video(
                 anchor_text = str(pts[0]).strip()
         style = _CAPTION_STYLES[i % len(_CAPTION_STYLES)]
 
+        act_type = (
+            scene_action_types[i]
+            if scene_action_types and i < len(scene_action_types)
+            else "explanation"
+        )
+        act_payload = (
+            scene_action_payloads[i]
+            if scene_action_payloads and i < len(scene_action_payloads)
+            else ""
+        )
+        if not act_payload and anchor_text:
+            act_payload = anchor_text
+
         # Layer 5 role: hook / static("exam tip") / pan_right(geography) / push_in(default)
         if i == 0:
             role = "hook"
@@ -734,6 +753,8 @@ def assemble_video(
             word_timings=word_timings,
             scene_index=i, total_scenes=num_narration_scenes,
             anchor_text=anchor_text,
+            action_type=act_type,
+            action_payload=act_payload,
         )
         clips.append(clip)
         actual_durations.append(actual)
@@ -770,11 +791,15 @@ def assemble_video(
         num_narration_scenes=num_narration_scenes, subject_area=subject_area,
     )
     total_video_duration = _probe_duration(silent_video)
-    # The cut into the last narration scene ("exam tip") is cut_offsets[
-    # num_narration_scenes - 2] when there are >= 2 narration scenes — same
-    # index _semantic_transition used to pick "fadeblack" for that cut.
+
+    # Trigger distinct chime on reveal scene if present, otherwise on closing tip cut
     chime_offset: float | None = None
-    if num_narration_scenes >= 2 and len(cut_offsets) >= num_narration_scenes - 1:
+    if scene_action_types:
+        for idx, act in enumerate(scene_action_types):
+            if act == "reveal" and idx > 0 and idx - 1 < len(cut_offsets):
+                chime_offset = cut_offsets[idx - 1]
+                break
+    if chime_offset is None and num_narration_scenes >= 2 and len(cut_offsets) >= num_narration_scenes - 1:
         chime_offset = cut_offsets[num_narration_scenes - 2]
 
     voice_raw = WORK_DIR / "voice_raw.mp3"

@@ -22,7 +22,7 @@ GENERIC_FILLERS = [
 ]
 
 MIN_SCENES = 3
-MAX_SCENES = 5
+MAX_SCENES = 6
 
 # Rough spoken-word budget for a tight Short. At natural pace (~150 wpm /
 # 2.5 words-per-second), this keeps total narration under ~65s.

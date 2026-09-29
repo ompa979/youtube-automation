@@ -234,9 +234,9 @@ def _fetch_pollinations(
     last_error: Exception | None = None
 
     headers: dict[str, str] = {}
-    if api_key and api_key.strip():
-        clean_key = api_key.strip()
-        headers["Authorization"] = f"Bearer {clean_key}"
+    current_key = api_key.strip() if api_key and api_key.strip() else None
+    if current_key:
+        headers["Authorization"] = f"Bearer {current_key}"
 
     for attempt in range(1, attempts + 1):
         params: dict[str, Any] = {
@@ -246,8 +246,8 @@ def _fetch_pollinations(
             "model": "flux",
             "seed": random.randint(1, 2_000_000_000),
         }
-        if api_key and api_key.strip():
-            params["key"] = api_key.strip()
+        if current_key:
+            params["key"] = current_key
         try:
             with _POLLINATIONS_SEMAPHORE:
                 r = requests.get(url, params=params, headers=headers, timeout=45)
@@ -264,16 +264,47 @@ def _fetch_pollinations(
             last_error = exc
             out_path.unlink(missing_ok=True)
             print(f"[visuals] pollinations attempt {attempt}/{attempts} failed: {exc}")
+            if "402" in str(exc) or "Payment Required" in str(exc):
+                # Unfunded API key: immediately drop key and use free tier for next retry!
+                print("[visuals] pollinations: key has 0 balance (402), switching to free tier without key")
+                current_key = None
+                headers = {}
             if attempt < attempts:
                 is_429 = "429" in str(exc) or "Too Many Requests" in str(exc)
-                time.sleep(8 if is_429 else 2)  # 429s need real cooldown, not a token retry
+                time.sleep(8 if is_429 else 2)
 
     print(f"[visuals] pollinations exhausted all attempts: {last_error}")
     return False
 
 
+# Track photo IDs used in current video to ensure 100% visual variety
+_USED_PEXELS_IDS: set[int] = set()
 
-def _fetch_pexels(query: str, out_path: Path, api_key: str, width: int = 1080, height: int = 1920) -> bool:
+
+def _extract_scene_pexels_query(image_prompt: str, subject_area: str = "default") -> str:
+    """Extract a distinct, photographic search query tailored to THIS specific scene."""
+    stops = {
+        "a", "an", "the", "in", "on", "at", "by", "with", "and", "or", "of", "to", "from",
+        "cinematic", "photorealistic", "ultra-detailed", "vertical", "9:16", "lighting",
+        "dark", "concept", "art", "glowing", "focal", "element", "volumetric", "light",
+        "no", "text", "labels", "ultra-striking", "hook", "visual", "close-up", "shot",
+        "view", "background", "showing", "scene", "illustration", "image"
+    }
+    words = [w.strip(".,;:\"'!?()[]{}") for w in (image_prompt or "").split()]
+    meaningful = [w for w in words if len(w) > 2 and w.lower() not in stops]
+    if len(meaningful) >= 2:
+        return f"dark {' '.join(meaningful[:3])}"
+    return _DARK_PEXELS_FALLBACK.get(subject_area, "dark abstract technology")
+
+
+def _fetch_pexels(
+    query: str,
+    out_path: Path,
+    api_key: str,
+    width: int = 1080,
+    height: int = 1920,
+    scene_index: int = 0,
+) -> bool:
     try:
         r = requests.get(
             "https://api.pexels.com/v1/search",
@@ -281,7 +312,7 @@ def _fetch_pexels(query: str, out_path: Path, api_key: str, width: int = 1080, h
             params={
                 "query": query,
                 "orientation": "portrait",
-                "per_page": 5,
+                "per_page": 15,
                 "size": "large",
             },
             timeout=45,
@@ -291,23 +322,27 @@ def _fetch_pexels(query: str, out_path: Path, api_key: str, width: int = 1080, h
         if not photos:
             print(f"[visuals] pexels returned 0 results for query {query!r}")
             return False
-        # Pick the highest-resolution candidate instead of blindly taking photo 1.
-        candidates = sorted(
-            photos,
-            key=lambda p: int(p.get("width", 0)) * int(p.get("height", 0)),
-            reverse=True,
-        )
-        for photo in candidates:
-            src = photo.get("src", {}).get("large2x") or photo.get("src", {}).get("original")
-            if not src:
-                continue
-            img = requests.get(src, timeout=90)
-            img.raise_for_status()
-            out_path.write_bytes(img.content)
-            if _valid_image(out_path) and _normalize_image(out_path, width, height):
-                return True
-            out_path.unlink(missing_ok=True)
-        print(f"[visuals] pexels: none of {len(candidates)} candidates passed image validation for query {query!r}")
+
+        # Pick photo not yet used in this Short to guarantee visual variety across scenes
+        chosen = None
+        for p in photos:
+            pid = p.get("id")
+            if pid and pid not in _USED_PEXELS_IDS:
+                chosen = p
+                _USED_PEXELS_IDS.add(pid)
+                break
+        if not chosen:
+            chosen = photos[scene_index % len(photos)]
+
+        src = chosen.get("src", {}).get("large2x") or chosen.get("src", {}).get("original") or chosen.get("src", {}).get("large")
+        if not src:
+            return False
+        img = requests.get(src, timeout=90)
+        img.raise_for_status()
+        out_path.write_bytes(img.content)
+        if _valid_image(out_path) and _normalize_image(out_path, width, height):
+            return True
+        out_path.unlink(missing_ok=True)
         return False
     except Exception as exc:
         out_path.unlink(missing_ok=True)
@@ -615,28 +650,16 @@ def fetch_scene_image(
             fetched = True
 
     if not fetched and settings.pexels_api_key:
-        # For cinematic_hud, use curated dark-themed queries so Pexels returns
-        # images matching the dark dramatic aesthetic instead of bright stock.
-        if visual_style == "cinematic_hud":
-            dark_query = _DARK_PEXELS_FALLBACK.get(subject_area, _DARK_PEXELS_FALLBACK["default"])
-            print(f"[visuals] scene {scene_index}: using dark pexels fallback: {dark_query!r}")
-            if _fetch_pexels(dark_query, out_path, settings.pexels_api_key):
-                fetched = True
-        else:
-            # Non-HUD styles: use a concise photographic search phrase.
-            short = " ".join((image_prompt or "cinematic educational concept").split()[:10])
-            if _fetch_pexels(short, out_path, settings.pexels_api_key):
-                fetched = True
+        scene_query = _extract_scene_pexels_query(image_prompt, subject_area)
+        print(f"[visuals] scene {scene_index}: querying pexels with scene-specific query: {scene_query!r}")
+        if _fetch_pexels(scene_query, out_path, settings.pexels_api_key, scene_index=scene_index):
+            fetched = True
 
         if not fetched:
-            # Broad fallback — dark-themed for cinematic_hud, generic otherwise.
-            broad_query = (
-                "dark abstract technology background"
-                if visual_style == "cinematic_hud"
-                else "education abstract concept illustration"
-            )
-            print(f"[visuals] scene {scene_index}: specific pexels query failed, retrying with broad fallback")
-            if _fetch_pexels(broad_query, out_path, settings.pexels_api_key):
+            # Broad category fallback
+            fallback_query = _DARK_PEXELS_FALLBACK.get(subject_area, "dark abstract technology background")
+            print(f"[visuals] scene {scene_index}: retrying pexels with fallback: {fallback_query!r}")
+            if _fetch_pexels(fallback_query, out_path, settings.pexels_api_key, scene_index=scene_index):
                 fetched = True
 
     if not fetched:

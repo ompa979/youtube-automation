@@ -93,6 +93,8 @@ class Scene:
     image_prompt: str
     on_screen_text: str
     card_points: list[str] = field(default_factory=list)
+    action_type: str = "explanation"
+    action_payload: str = ""
 
 
 @dataclass
@@ -178,7 +180,7 @@ CINEMATIC HUD CHANNEL (photorealistic AI visuals + animated motion graphics):
     return f"""
 {niche_cfg.get('system_prompt', '')}
 
-You are an elite Indian exam mentor and viral educational Shorts creator.
+You are an elite viral educational Shorts creator and interactive challenge designer.
 
 {lang_instruction}
 
@@ -186,41 +188,82 @@ TOPIC: {topic}
 {topic_lock}
 {card_rules}
 
-PRIMARY GOAL: Maximum curiosity, zero fluff, instant learner value, and high comment engagement.
+🔥 "SEXY SHORTS ENGINE V2" INTERACTIVE CHALLENGE ARCHITECTURE (MANDATORY):
+Do NOT create a passive lecture or study card ("Here is an educational fact. Please watch me explain it.").
+Make the viewer actively PLAY A GAME in the video!
 
-CURIOSITY-FIRST & ASPIRANT PRIOR KNOWLEDGE RULES:
-- ASSUME PRIOR KNOWLEDGE: The viewer is actively studying for Indian bank/IT exams. Do NOT waste time explaining what a database is, what SQL is, or what an exam is. They already know the basics. Cut straight to the differentiator, the trap, or the memory shortcut.
-- ZERO INTRODUCTORY FLUFF: Banned phrases: "In this video...", "Let us understand...", "Normalization is a technique...", "As we know...", "Today we will learn...". Start directly in second 0 with the curiosity gap or exam shocker.
-- HOOK STYLE FOR THIS SCRIPT: {hook_instruction}
-  Make it impossible to scroll past (e.g. "90% of students lose marks on this exact 3NF rule in IBPS SO").
-- SINGLE AHA! MOMENT: Teach ONE trick or comparison with razor clarity.
-- MICRO-CHALLENGE COMMENT CTA (mandatory): The LAST scene must present a low-friction 2-option question to trigger comments:
-  (e.g. "Which normal form removes transitive dependency? Type 2NF or 3NF below!"). Put the exact question in `pinned_comment`.
-- FACT SAFETY: Never invent facts, cutoffs, or statistics.
+Target: EXACTLY 5 or 6 fast scenes (45-65 total words across the entire Short, 18-24 seconds total).
+Each scene must perform an exact psychological function:
+
+Scene 0 (0-2s) — PATTERN INTERRUPT:
+- Spoken line MUST start with an explosive pattern interrupt: "STOP. 🚨", "WAIT.", "You are about to make a huge mistake.", or an aggressive contradiction.
+- `action_type`: "pattern_interrupt"
+- `action_payload`: "STOP. 🚨"
+- `on_screen_text`: "STOP 🚨"
+- `card_points`: ["TRAP DETECTED"]
+- `image_prompt`: action visual: [object] + [action] + [contrast]
+
+Scene 1 (2-5s) — THE CHALLENGE / QUESTION:
+- Force the viewer to guess: "Which one does X? A or B?", "Where does this belong?"
+- `action_type`: "challenge"
+- `action_payload`: "A) [Option 1]  vs  B) [Option 2]"
+- `on_screen_text`: "A OR B?"
+- `card_points`: ["A) [Option 1]  |  B) [Option 2]"]
+
+Scene 2 (5-7s) — COUNTDOWN & TENSION:
+- Build tension: "3... 2... 1... Think fast!", "Don't answer yet!"
+- `action_type`: "countdown"
+- `action_payload`: "3... 2... 1..."
+- `on_screen_text`: "3... 2... 1..."
+- `card_points`: ["THINK FAST"]
+
+Scene 3 (7-11s) — THE REVEAL & REJECTION:
+- Reveal the answer AND reject the wrong answer: "[Correct]! [Wrong] is completely wrong. But why?"
+- `action_type`: "reveal"
+- `action_payload`: "[Wrong] ❌  |  [Correct] ✅"
+- `on_screen_text`: "REVEAL!"
+- `card_points`: ["[Wrong] ❌  |  [Correct] ✅"]
+
+Scene 4 (11-16s) — THE MECHANISM / EQUATION:
+- Show the visual equation or mechanism: "Here is why: X does this, but Y does that."
+- `action_type`: "mechanism"
+- `action_payload`: "[INPUT 1] + [INPUT 2] → [RESULT]"
+- `on_screen_text`: "THE TRICK"
+- `card_points`: ["[INPUT 1] + [INPUT 2] → [RESULT]"]
+
+Scene 5 (16-21s) — EXAM TRAP & SEAMLESS LOOP:
+- The exam trap + comment CTA: "The trap? Exams test if you confuse X with Y. Did you guess A or B? Comment below, because..."
+- `action_type`: "loop"
+- `action_payload`: "👇 A OR B?"
+- `on_screen_text`: "DID YOU WIN?"
+- `card_points`: ["COMMENT: A OR B?"]
+- The last words must seamlessly lead back into Scene 0 ("STOP.")!
 
 VISUAL RULES:
-- Scene 0 (the FIRST scene) MUST have the single most visually striking image prompt.
-- On-screen text must be a short keyword or memory cue (1-3 words), NOT a transcript line.
+- `image_prompt`: Follow [object] + [action] + [destination/contrast], dark cinematic lighting, vertical 9:16, no text or labels.
+- On-screen text: 1-3 word high-curiosity headline.
 
 Return EXACTLY this JSON shape (no markdown):
 {{
   "title": "clear title, under 80 chars, accurate, no fake clickbait",
   "hook": "the first spoken line",
   "description": "2-3 useful sentences with 3 relevant hashtags",
-  "pinned_comment": "one short question that invites a comment reply (e.g. 'Comment your answer: A or B?')",
+  "pinned_comment": "one short question that invites a comment reply (e.g. 'Did you guess A or B? Comment below!')",
   "tags": ["8-12 lowercase tags"],
   "scenes": [
     {{
-      "narration": "natural Indian-English spoken line",
+      "action_type": "pattern_interrupt | challenge | countdown | reveal | mechanism | loop",
+      "action_payload": "short cue string for HUD overlay",
+      "narration": "natural fast-paced spoken line",
       "tts_text": "same English spoken line optimized with commas for natural TTS breath pauses",
-      "image_prompt": "unique premium cinematic educational visual, vertical 9:16, no embedded text or labels",
+      "image_prompt": "action-oriented visual prompt: [object] + [action] + [destination], vertical 9:16, no text",
       "on_screen_text": "1-3 word curiosity cue",
-      "card_points": ["ONE punchy memory anchor line, max 6 words (e.g. '3NF: KILL TRANSITIVE DEPENDENCY')"]
+      "card_points": ["ONE punchy memory anchor line, max 6 words"]
     }}
   ]
 }}
 
-Use 3-5 scenes. Do not split a sentence just to create more scenes.
+Use exactly 5 or 6 scenes. Total word count across all scenes must be between 45 and 65 words.
 {repair_text}
 """.strip()
 
@@ -388,6 +431,25 @@ def _to_script(data: dict) -> Script:
             raw_points = [raw_points]
         card_points = [" ".join(str(x).split())[:70] for x in raw_points if str(x).strip()][:3]
 
+        action_type = _first_text(raw, "action_type", "type", "purpose", "scene_type").lower()
+        if not action_type or action_type not in (
+            "pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap", "loop"
+        ):
+            if i == 0:
+                action_type = "pattern_interrupt"
+            elif i == 1:
+                action_type = "challenge"
+            elif i == 2:
+                action_type = "countdown"
+            elif i == 3:
+                action_type = "reveal"
+            elif i == 4:
+                action_type = "mechanism"
+            elif i >= 5:
+                action_type = "trap" if i == 5 and len(raw_scenes) > 6 else "loop"
+
+        action_payload = _first_text(raw, "action_payload", "payload", "cue", "detail")
+
         scenes.append(Scene(
             index=i,
             narration=narration,
@@ -395,6 +457,8 @@ def _to_script(data: dict) -> Script:
             image_prompt=image_prompt,
             on_screen_text=on_screen_text.upper(),
             card_points=card_points,
+            action_type=action_type,
+            action_payload=action_payload,
         ))
 
     return Script(

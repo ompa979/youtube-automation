@@ -145,12 +145,145 @@ def mg_scene_counter(current: int, total: int, accent: str) -> str:
     return ",".join(dots)
 
 
+def mg_pattern_interrupt_hud() -> str:
+    """Action HUD: Red warning border + huge 'STOP. 🚨' interrupt stamp."""
+    border = f"drawbox=x=0:y=0:w={W}:h={H}:color=0xFF1133@0.65:thickness=14:enable='lte(t,1.4)'"
+    stamp = (
+        f"drawtext=font='Inter':text='STOP. 🚨':fontcolor=white:fontsize=76:"
+        f"borderw=8:bordercolor=black@0.95:box=1:boxcolor=0xCC0022@0.92:boxborderw=20|40|20|40:"
+        f"x=(w-text_w)/2:y=h*0.28:enable='lte(t,1.6)'"
+    )
+    return f"{border},{stamp}"
+
+
+def mg_challenge_hud(payload: str) -> str:
+    """Action HUD: Quick test badge + dual comparison pill."""
+    clean = (payload or "A  OR  B").replace("'", "").replace(":", "-")
+    tag = (
+        f"drawtext=font='Inter':text='⚡ QUICK TEST':fontcolor=0xFFE600:fontsize=36:"
+        f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=black@0.75:boxborderw=12|24|12|24:"
+        f"x=(w-text_w)/2:y=h*0.25"
+    )
+    card = (
+        f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=44:"
+        f"borderw=5:bordercolor=black@0.95:box=1:boxcolor=0x002B49@0.88:boxborderw=16|32|16|32:"
+        f"x=(w-text_w)/2:y=h*0.33"
+    )
+    return f"{tag},{card}"
+
+
+def mg_countdown_hud(duration: float) -> str:
+    """Action HUD: 3-2-1 center circular countdown."""
+    c3 = (
+        f"drawtext=font='Inter':text='3':fontcolor=white:fontsize=120:"
+        f"borderw=8:bordercolor=black@0.95:box=1:boxcolor=0xCC0022@0.85:boxborderw=30|50|30|50:"
+        f"x=(w-text_w)/2:y=(h-text_h)/2-100:enable='lte(t,0.9)'"
+    )
+    c2 = (
+        f"drawtext=font='Inter':text='2':fontcolor=white:fontsize=120:"
+        f"borderw=8:bordercolor=black@0.95:box=1:boxcolor=0xFF8800@0.85:boxborderw=30|50|30|50:"
+        f"x=(w-text_w)/2:y=(h-text_h)/2-100:enable='between(t,0.9,1.8)'"
+    )
+    c1 = (
+        f"drawtext=font='Inter':text='1':fontcolor=white:fontsize=120:"
+        f"borderw=8:bordercolor=black@0.95:box=1:boxcolor=0x00CC44@0.85:boxborderw=30|50|30|50:"
+        f"x=(w-text_w)/2:y=(h-text_h)/2-100:enable='gte(t,1.8)'"
+    )
+    tip = (
+        f"drawtext=font='Inter':text='THINK FAST ⏱️':fontcolor=0xFFE600:fontsize=36:"
+        f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=black@0.75:boxborderw=10|24|10|24:"
+        f"x=(w-text_w)/2:y=(h-text_h)/2+60"
+    )
+    return f"{c3},{c2},{c1},{tip}"
+
+
+def mg_reveal_hud(payload: str) -> str:
+    """Action HUD: Reveal stamped box showing correct answer and rejection."""
+    clean = (payload or "ANSWER REVEALED").replace("'", "").replace(":", "-")
+    tag = (
+        f"drawtext=font='Inter':text='💥 REVEAL':fontcolor=white:fontsize=38:"
+        f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=0x00AA44@0.92:boxborderw=12|28|12|28:"
+        f"x=(w-text_w)/2:y=h*0.25"
+    )
+    ans = (
+        f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=46:"
+        f"borderw=6:bordercolor=black@0.95:box=1:boxcolor=black@0.80:boxborderw=16|32|16|32:"
+        f"x=(w-text_w)/2:y=h*0.33"
+    )
+    return f"{tag},{ans}"
+
+
+def mg_mechanism_hud(payload: str) -> str:
+    """Action HUD: Formula / visual equation box."""
+    clean = (payload or "THE CORE RULE").replace("'", "").replace(":", "-")
+    tag = (
+        f"drawtext=font='Inter':text='🧠 THE MECHANISM':fontcolor=0x00E5FF:fontsize=34:"
+        f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=black@0.75:boxborderw=10|24|10|24:"
+        f"x=(w-text_w)/2:y=h*0.25"
+    )
+    formula = (
+        f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=42:"
+        f"borderw=5:bordercolor=black@0.95:box=1:boxcolor=0x0D1B2A@0.88:boxborderw=16|32|16|32:"
+        f"x=(w-text_w)/2:y=h*0.33"
+    )
+    return f"{tag},{formula}"
+
+
+def mg_trap_hud(payload: str) -> str:
+    """Action HUD: Exam trap warning banner."""
+    clean = (payload or "WATCH FOR THIS TRAP").replace("'", "").replace(":", "-")
+    banner = (
+        f"drawtext=font='Inter':text='⚠️ EXAM TRAP':fontcolor=0xFFE600:fontsize=38:"
+        f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=0x880000@0.90:boxborderw=12|28|12|28:"
+        f"x=(w-text_w)/2:y=h*0.25"
+    )
+    desc = (
+        f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=42:"
+        f"borderw=5:bordercolor=black@0.95:box=1:boxcolor=black@0.82:boxborderw=16|32|16|32:"
+        f"x=(w-text_w)/2:y=h*0.33"
+    )
+    return f"{banner},{desc}"
+
+
+def mg_loop_hud(payload: str) -> str:
+    """Action HUD: Interactive comment bait."""
+    prompt_text = (payload or "👇 DID YOU WIN? COMMENT: A OR B").replace("'", "").replace(":", "-")
+    cta = (
+        f"drawtext=font='Inter':text='{prompt_text}':fontcolor=0xFFE600:fontsize=44:"
+        f"borderw=6:bordercolor=black@0.95:box=1:boxcolor=0x003366@0.90:boxborderw=18|36|18|36:"
+        f"x=(w-text_w)/2:y=h*0.30"
+    )
+    return cta
+
+
+def build_action_hud(action_type: str, payload: str, duration: float, accent: str) -> str:
+    """Return the dedicated Action HUD overlay for this scene's psychological role."""
+    act = (action_type or "explanation").lower().strip()
+    if act == "pattern_interrupt":
+        return mg_pattern_interrupt_hud()
+    elif act == "challenge":
+        return mg_challenge_hud(payload)
+    elif act == "countdown":
+        return mg_countdown_hud(duration)
+    elif act == "reveal":
+        return mg_reveal_hud(payload)
+    elif act == "mechanism":
+        return mg_mechanism_hud(payload)
+    elif act in ("trap", "warning"):
+        return mg_trap_hud(payload)
+    elif act == "loop":
+        return mg_loop_hud(payload)
+    return ""
+
+
 def build_motion_graphics_filter(
     duration: float,
     accent: str,
     scene_index: int = 0,
     total_scenes: int = 1,
     is_hook: bool = False,
+    action_type: str = "explanation",
+    action_payload: str = "",
 ) -> str:
     """Compose all MG layers for one scene. Returns a comma-joined ffmpeg filter string
     ready to be appended after the Ken Burns / color-grade chain.
@@ -173,5 +306,10 @@ def build_motion_graphics_filter(
     # MG-6: scene counter dots (show when >=2 scenes)
     if total_scenes >= 2:
         parts.append(mg_scene_counter(scene_index, total_scenes, accent))
+
+    # Action HUD layer: dedicated interactive visual device
+    action_hud = build_action_hud(action_type, action_payload, duration, accent)
+    if action_hud:
+        parts.append(action_hud)
 
     return ",".join(parts)

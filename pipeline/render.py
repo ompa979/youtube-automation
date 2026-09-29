@@ -35,7 +35,7 @@ from pathlib import Path
 
 from .config import WORK_DIR, OUT_DIR, ASSETS_DIR
 from .captions import build_word_ass
-from .motion_graphics import build_motion_graphics_filter
+from .motion_graphics import build_motion_graphics_filter, ensure_procedural_sfx
 from .subject_area import (
     classify_subject_area,
     ACCENT_HEX,
@@ -110,11 +110,15 @@ def _escape_drawtext(text: str) -> str:
 # ---------------------------------------------------------------------------
 def _motion_filter(role: str, total_frames: int, subject_area: str = "default") -> str:
     n = max(total_frames, 1)
-    if role == "hook":
+    if role in ("hook", "shake_and_push"):
         z = f"1.16-0.16*on/{n}"
         x = f"iw/2-(iw/zoom/2)-30*on/{n}"
         y = "ih/2-(ih/zoom/2)"
-    elif role == "pan_right":
+    elif role in ("snap_zoom", "push_fast"):
+        z = f"1.00+0.18*on/{n}"
+        x = "iw/2-(iw/zoom/2)"
+        y = f"ih/2-(ih/zoom/2)+45*on/{n}"
+    elif role in ("pan_right", "pan_subtle"):
         z = "1.10"
         x = f"iw/2-(iw/zoom/2)-70*on/{n}"
         y = "ih/2-(ih/zoom/2)"
@@ -678,6 +682,18 @@ def _pick_chime() -> Path | None:
     return chime if chime.exists() else None
 
 
+def _pick_sfx_by_name(name: str) -> Path | None:
+    sfx_dir = ASSETS_DIR / "sfx"
+    if not sfx_dir.exists():
+        return None
+    stem = name.strip().lower()
+    for ext in (".wav", ".mp3"):
+        candidate = sfx_dir / f"{stem}{ext}"
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def assemble_video(
     scene_images: list[Path],
     scene_audios: list[Path],
@@ -692,9 +708,16 @@ def assemble_video(
     scene_card_points: list[list[str]] | None = None,
     scene_action_types: list[str] | None = None,
     scene_action_payloads: list[str] | None = None,
+    scene_motion_types: list[str] | None = None,
+    scene_camera_motions: list[str] | None = None,
+    scene_sfx_cues: list[str] | None = None,
 ) -> Path:
     del scene_ass
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        ensure_procedural_sfx(ASSETS_DIR / "sfx")
+    except Exception:
+        pass
     if not scene_images or not scene_audios or len(scene_images) != len(scene_audios):
         raise ValueError("Cannot render video: scene image/audio counts do not match")
 
@@ -738,7 +761,9 @@ def assemble_video(
             act_payload = anchor_text
 
         # Layer 5 role: hook / static("exam tip") / pan_right(geography) / push_in(default)
-        if i == 0:
+        if scene_camera_motions and i < len(scene_camera_motions) and scene_camera_motions[i]:
+            role = scene_camera_motions[i]
+        elif i == 0:
             role = "hook"
         elif i == num_narration_scenes - 1 and num_narration_scenes >= 2:
             role = "static"
@@ -867,6 +892,27 @@ def assemble_video(
             f"[{chime_idx}:a]adelay={ms}|{ms},volume=0.30,aformat=channel_layouts=stereo[chime]"
         )
         mix_labels.append("[chime]")
+
+    # Named SFX per scene (tick, alert, boom)
+    if scene_sfx_cues and cut_offsets:
+        named_loaded: dict[str, int] = {}
+        scene_starts = [0.0] + list(cut_offsets[:num_narration_scenes - 1])
+        for s_idx, (cue_name, s_off) in enumerate(zip(scene_sfx_cues, scene_starts)):
+            if not cue_name or cue_name in ("whoosh", "chime"):
+                continue
+            s_path = _pick_sfx_by_name(cue_name)
+            if not s_path:
+                continue
+            if cue_name not in named_loaded:
+                audio_inputs.append(s_path)
+                named_loaded[cue_name] = next_idx
+                next_idx += 1
+            s_idx_in = named_loaded[cue_name]
+            vol = {"boom": 0.28, "tick": 0.18, "alert": 0.22}.get(cue_name, 0.20)
+            d_ms = max(int(s_off * 1000), 0)
+            lbl = f"[sfx_{s_idx}_{cue_name}]"
+            parts.append(f"[{s_idx_in}:a]adelay={d_ms}|{d_ms},volume={vol},aformat=channel_layouts=stereo{lbl}")
+            mix_labels.append(lbl)
 
     parts.append(f"{''.join(mix_labels)}amix=inputs={len(mix_labels)}:duration=first:dropout_transition=0[aout]")
     fc = ";".join(parts)

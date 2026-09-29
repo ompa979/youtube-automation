@@ -39,6 +39,13 @@ from .gemini_router import GeminiRouter, CallType
 # POLISH is the third pass — hook + pacing review after fact-check
 from .quality import validate_script
 from .subject_area import classify_subject_area
+from .seo import (
+    get_cluster_for_topic,
+    generate_seo_title, pick_title_mode, extract_problem_hook, TitleMode,
+    generate_v3_description, generate_v3_tags,
+    validate_keyword_density, auto_repair_narration, auto_repair_screen_text,
+    calculate_seo_score, calculate_retention_score, calculate_final_publish_score,
+)
 
 
 # Backwards-compat shim so any external code that does
@@ -95,6 +102,9 @@ class Scene:
     card_points: list[str] = field(default_factory=list)
     action_type: str = "explanation"
     action_payload: str = ""
+    motion_type: str = ""
+    camera_motion: str = ""
+    sfx_cue: str = ""
 
 
 @dataclass
@@ -105,6 +115,7 @@ class Script:
     tags: list[str]
     scenes: list[Scene]
     pinned_comment: str = ""
+    seo_metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -450,6 +461,43 @@ def _to_script(data: dict) -> Script:
 
         action_payload = _first_text(raw, "action_payload", "payload", "cue", "detail")
 
+        motion_type = _first_text(raw, "motion_type", "motion", "animation")
+        camera_motion = _first_text(raw, "camera_motion", "camera", "cam_motion")
+        sfx_cue = _first_text(raw, "sfx_cue", "sfx", "sound_cue")
+
+        if not motion_type:
+            motion_type = {
+                "pattern_interrupt": "slam_impact",
+                "challenge": "split_doors",
+                "countdown": "countdown_321",
+                "reveal": "winner_reveal",
+                "mechanism": "formula_build",
+                "trap": "contrast_split",
+                "loop": "comment_quiz",
+            }.get(action_type, "slam_impact")
+
+        if not camera_motion:
+            camera_motion = {
+                "pattern_interrupt": "shake_and_push",
+                "challenge": "snap_zoom",
+                "countdown": "push_fast",
+                "reveal": "snap_zoom",
+                "mechanism": "pan_subtle",
+                "trap": "pan_subtle",
+                "loop": "push_in",
+            }.get(action_type, "push_in")
+
+        if not sfx_cue:
+            sfx_cue = {
+                "pattern_interrupt": "boom",
+                "challenge": "whoosh",
+                "countdown": "tick",
+                "reveal": "chime",
+                "mechanism": "whoosh",
+                "trap": "alert",
+                "loop": "whoosh",
+            }.get(action_type, "whoosh")
+
         scenes.append(Scene(
             index=i,
             narration=narration,
@@ -459,6 +507,9 @@ def _to_script(data: dict) -> Script:
             card_points=card_points,
             action_type=action_type,
             action_payload=action_payload,
+            motion_type=motion_type,
+            camera_motion=camera_motion,
+            sfx_cue=sfx_cue,
         ))
 
     return Script(
@@ -1033,11 +1084,73 @@ def _qa_all(script: Script, topic: str, language: str):
 
 
 def _seo_and_finalize(script: Script, topic: str, niche_key: str | None, settings) -> Script:
-    script.title, script.description, script.tags = seo_optimize_all(
+    cluster = get_cluster_for_topic(topic)
+    if cluster:
+        mode = pick_title_mode(topic, cluster)
+        problem_hook = extract_problem_hook(topic) if mode.value == "problem_first" else ""
+        script.title = generate_seo_title(cluster, mode, problem_hook)
+        script.description = generate_v3_description(cluster)
+        script.tags = generate_v3_tags(cluster)
+        print(f"[seo_v3] cluster matched: {cluster.primary_query!r}, mode={mode.value}")
+
+    gemini_title, gemini_desc, gemini_tags = seo_optimize_all(
         script.title, script.description, script.tags, topic, niche_key or "", settings.gemini_api_key
     )
+    if cluster:
+        from .seo.keyword_guard import _contains_query
+        if _contains_query(gemini_title, cluster.primary_query):
+            script.title = gemini_title
+        if _contains_query(gemini_desc[:200], cluster.primary_query):
+            script.description = gemini_desc
+        if gemini_tags and len(gemini_tags) <= 8:
+            script.tags = gemini_tags
+    else:
+        script.title, script.description, script.tags = gemini_title, gemini_desc, gemini_tags
+
     script.description = _ensure_hashtags(script.description, topic, niche_key)
-    # SEO rewrite could re-introduce a known error or drop the CTA/exam — re-guard.
+
+    if cluster:
+        narration_all = " ".join(s.narration for s in script.scenes)
+        screen_texts = [s.on_screen_text for s in script.scenes]
+        guard = validate_keyword_density(
+            cluster.primary_query,
+            script.title,
+            script.description,
+            narration_all,
+            screen_texts,
+        )
+        if not guard.ok:
+            print(f"[seo_v3] keyword guard missing: {guard.missing_surfaces}")
+            if "narration" in guard.missing_surfaces:
+                script.scenes[0].narration = auto_repair_narration(
+                    script.scenes[0].narration, cluster.primary_query
+                )
+                script.scenes[0].tts_text = auto_repair_narration(
+                    script.scenes[0].tts_text, cluster.primary_query
+                )
+            if "on_screen_text" in guard.missing_surfaces:
+                repaired = auto_repair_screen_text(screen_texts, cluster.primary_query)
+                for i, text in enumerate(repaired):
+                    script.scenes[i].on_screen_text = text
+        else:
+            print("[seo_v3] keyword guard PASS")
+
+        narration_all = " ".join(s.narration for s in script.scenes)
+        screen_texts = [s.on_screen_text for s in script.scenes]
+        seo_s = calculate_seo_score(
+            cluster, script.title, script.description, narration_all, screen_texts, script.tags
+        )
+        ret_s = calculate_retention_score(script.scenes)
+        pub_s = calculate_final_publish_score(seo_s.total, ret_s.total)
+        print(f"[seo_score] SEO={seo_s.total}/100 | Retention={ret_s.total}/100 | Final={pub_s.final}/100")
+        script.seo_metadata = {
+            "primary_query": cluster.primary_query,
+            "seo_score": seo_s.total,
+            "retention_score": ret_s.total,
+            "final_score": pub_s.final,
+            "publish_ready": pub_s.publish_ready,
+        }
+
     bad = _known_fact_issues(script)
     if bad:
         raise ScriptRejected("SEO rewrite introduced factual error(s): " + "; ".join(bad))

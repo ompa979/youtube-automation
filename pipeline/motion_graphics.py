@@ -313,3 +313,28 @@ def build_motion_graphics_filter(
         parts.append(action_hud)
 
     return ",".join(parts)
+
+def ensure_procedural_sfx(sfx_dir: Path) -> None:
+    """Synthesize procedural sound effects if missing via ffmpeg lavfi."""
+    sfx_dir.mkdir(parents=True, exist_ok=True)
+    cues = {
+        "boom.wav": ["-f", "lavfi", "-i", "sine=f=60:b=4:d=0.8,afade=t=out:st=0.1:d=0.7"],
+        "tick.wav": ["-f", "lavfi", "-i", "sine=f=1200:d=0.08,afade=t=out:st=0.01:d=0.07"],
+        "chime.wav": ["-f", "lavfi", "-i", "sine=f=880:d=0.4,afade=t=out:st=0.05:d=0.35"],
+        "whoosh.wav": ["-f", "lavfi", "-i", "anoisesrc=d=0.5:c=pink,lowpass=f=1200,afade=t=in:st=0:d=0.15,afade=t=out:st=0.15:d=0.35"],
+        "alert.wav": ["-f", "lavfi", "-i", "sine=f=800:d=0.25,afade=t=out:st=0.05:d=0.20"],
+    }
+    import subprocess
+    for fname, args in cues.items():
+        dst = sfx_dir / fname
+        if not dst.exists():
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", *args, "-c:a", "pcm_s16le", str(dst)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except Exception:
+                pass
+

@@ -306,6 +306,9 @@ def _run_one(
     scene_card_points: list[list[str]] = [r["card_points"] for r in ordered]
     scene_action_types: list[str] = [getattr(scene, "action_type", "explanation") for scene in script.scenes]
     scene_action_payloads: list[str] = [getattr(scene, "action_payload", "") for scene in script.scenes]
+    scene_motion_types: list[str] = [getattr(scene, "motion_type", "") for scene in script.scenes]
+    scene_camera_motions: list[str] = [getattr(scene, "camera_motion", "") for scene in script.scenes]
+    scene_sfx_cues: list[str] = [getattr(scene, "sfx_cue", "") for scene in script.scenes]
 
     # Write script metadata (overwritten each video — latest always wins)
     metadata_path = OUT_DIR / "script.json"
@@ -325,6 +328,9 @@ def _run_one(
         scene_card_points=scene_card_points,
         scene_action_types=scene_action_types,
         scene_action_payloads=scene_action_payloads,
+        scene_motion_types=scene_motion_types,
+        scene_camera_motions=scene_camera_motions,
+        scene_sfx_cues=scene_sfx_cues,
     )
     print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
 
@@ -364,6 +370,18 @@ def _run_one(
             state["project"] = idx + 1
             _save_state(state)
             print(f"[✓] Uploaded with YT_CREDS_{cred.index}: {result['url']}")
+            try:
+                from .seo import TopicMemory
+                tm = TopicMemory()
+                meta = getattr(script, "seo_metadata", {}) or {}
+                tm.record_completed_video(
+                    topic=topic,
+                    youtube_id=result.get("id", result.get("url", "")),
+                    seo_score=meta.get("seo_score", 0),
+                    retention_score=meta.get("retention_score", 0),
+                )
+            except Exception as exc:
+                print(f"[!] TopicMemory recording failed (non-fatal): {exc}")
             return True
         except Exception as exc:
             last_error = exc

@@ -96,4 +96,18 @@ def validate_script(script: Any, language: str) -> QAResult:
     if language != "en":
         issues.append(f"V5 requires language=en; received {language!r}")
 
+    # Retention architecture check
+    try:
+        from .seo import calculate_retention_score
+        action_types = [getattr(s, "action_type", "") for s in script.scenes]
+        if any(action_types):
+            ret = calculate_retention_score(script.scenes)
+            if ret.total < 40:
+                issues.append(
+                    f"low retention score ({ret.total}/100) — "
+                    "add a challenge or reveal scene to improve engagement"
+                )
+    except Exception:
+        pass
+
     return QAResult(ok=not issues, issues=issues)

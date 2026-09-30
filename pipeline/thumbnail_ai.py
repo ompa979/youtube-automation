@@ -32,23 +32,35 @@ CLOUDFLARE_THUMBNAIL_MODEL = os.getenv(
 ).strip()
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+_INITIAL_CLOUDFLARE_ACCOUNT_ID = CLOUDFLARE_ACCOUNT_ID
+_INITIAL_CLOUDFLARE_API_TOKEN = CLOUDFLARE_API_TOKEN
 THUMBNAIL_AI_URL = os.getenv("THUMBNAIL_AI_URL", "").strip()
 THUMBNAIL_AI_TOKEN = os.getenv("THUMBNAIL_AI_TOKEN", "").strip()
 THUMBNAIL_AI_TIMEOUT = max(15, int(os.getenv("THUMBNAIL_AI_TIMEOUT", "180")))
 CLOUDFLARE_IMAGE_STEPS = min(8, max(1, int(os.getenv("CLOUDFLARE_IMAGE_STEPS", "4"))))
 
 
+def _effective_cloudflare_credentials() -> tuple[str, str]:
+    # Environment variables are the normal production source (GitHub Actions
+    # secrets). If a test/runtime override changes either module global after
+    # import, honor that override so provider disabling and endpoint tests are
+    # deterministic even when CI itself has Cloudflare secrets configured.
+    if CLOUDFLARE_ACCOUNT_ID != _INITIAL_CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN != _INITIAL_CLOUDFLARE_API_TOKEN:
+        return CLOUDFLARE_ACCOUNT_ID.strip(), CLOUDFLARE_API_TOKEN.strip()
+    return (os.getenv("CLOUDFLARE_ACCOUNT_ID", CLOUDFLARE_ACCOUNT_ID).strip(),
+            os.getenv("CLOUDFLARE_API_TOKEN", CLOUDFLARE_API_TOKEN).strip())
+
+
 def cloudflare_configured() -> bool:
-    account = os.getenv("CLOUDFLARE_ACCOUNT_ID", CLOUDFLARE_ACCOUNT_ID).strip()
-    token = os.getenv("CLOUDFLARE_API_TOKEN", CLOUDFLARE_API_TOKEN).strip()
+    account, token = _effective_cloudflare_credentials()
     return bool(account and token)
 
 
 def cloudflare_endpoint(account_id: str | None = None, model: str | None = None) -> str:
-    account_default = os.getenv("CLOUDFLARE_ACCOUNT_ID", CLOUDFLARE_ACCOUNT_ID)
-    model_default = os.getenv("CLOUDFLARE_IMAGE_MODEL", CLOUDFLARE_MODEL)
-    account = (account_id or account_default).strip()
-    model_name = (model or model_default).strip()
+    account_default, _ = _effective_cloudflare_credentials()
+    model_default = CLOUDFLARE_MODEL
+    account = (account_id if account_id is not None else account_default).strip()
+    model_name = (model if model is not None else model_default).strip()
     if not account:
         raise ValueError("CLOUDFLARE_ACCOUNT_ID is required")
     if not model_name:
@@ -127,7 +139,7 @@ def generate_cloudflare_background(
     """Generate with the requested Cloudflare model, handling model-specific REST schemas."""
     model_name = (model or os.getenv("CLOUDFLARE_IMAGE_MODEL", CLOUDFLARE_MODEL)).strip()
     endpoint = cloudflare_endpoint(model=model_name)
-    token = os.getenv("CLOUDFLARE_API_TOKEN", CLOUDFLARE_API_TOKEN).strip()
+    _, token = _effective_cloudflare_credentials()
     timeout = max(15, int(os.getenv("CLOUDFLARE_IMAGE_TIMEOUT", str(THUMBNAIL_AI_TIMEOUT))))
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json,image/*"}
 

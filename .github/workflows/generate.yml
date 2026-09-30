@@ -41,8 +41,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install FFmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v3
+      - name: Verify FFmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            echo "[ffmpeg] not present on runner; installing from Ubuntu packages"
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          echo "[ffmpeg] $(command -v ffmpeg)"
+          ffmpeg -hide_banner -version | head -n 3
+          echo "[ffmpeg] filters:"
+          ffmpeg -hide_banner -filters 2>/dev/null | grep -E '\b(drawtext|drawbox|ass)\b' || true
 
       - name: Install dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt && python -m pip install pytest==8.4.2

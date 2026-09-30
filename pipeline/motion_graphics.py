@@ -46,7 +46,7 @@ def mg_progress_bar(duration: float, accent: str) -> str:
     # NOTE: must use `iw` (input frame width), not `w` — a drawbox w=
     # expression cannot reference the option `w` it is itself defining
     # (self-referential eval error); `iw` is the correct constant here.
-    w_expr = f"iw*min(t/{max(duration,0.01):.3f}\\,1)"
+    w_expr = rf"iw*min(t/{max(duration,0.01):.3f}\,1)"
     return (
         f"drawbox=x=0:y={_BAR_Y}:w={w_expr}:h={_BAR_H}:"
         f"color={color}@0.90:thickness=fill"
@@ -92,7 +92,7 @@ def mg_hook_sweep(accent: str) -> str:
     """
     color = _hex_to_ffmpeg(accent)
     # grows from 0 to 8px wide in 0.25s, then holds
-    w_expr = f"min(t/0.25\\,1)*8"
+    w_expr = r"min(t/0.25\,1)*8"
     return (
         f"drawbox=x=0:y=0:w={w_expr}:h={H}:"
         f"color={color}@0.75:thickness=fill"
@@ -512,7 +512,7 @@ def _v8_difference_hud(payload: str, accent: str) -> str:
     # Final scene is an IMAGE comparison. Keep overlays minimal so the generated
     # side-by-side artwork remains the dominant teaching element.
     return (
-        "drawbox=x=36:y=h*0.11:w=w-72:h=h*0.70:color=black@0.10:t=3,"
+        "drawbox=x=36:y=h*0.11:w=iw-72:h=ih*0.70:color=black@0.10:t=3,"
         "drawtext=font='Inter':text='KEY DIFFERENCE':fontcolor=0xFFE45B:fontsize=24:borderw=2:bordercolor=black@0.76:x=54:y=h*0.12"
     )
 

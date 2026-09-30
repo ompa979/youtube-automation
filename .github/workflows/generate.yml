@@ -32,6 +32,13 @@ jobs:
       YT_CREDS_6: ${{ secrets.YT_CREDS_6 }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID_2: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_2 }}
+      CLOUDFLARE_API_TOKEN_2: ${{ secrets.CLOUDFLARE_API_TOKEN_2 }}
+      CLOUDFLARE_ACCOUNT_ID_3: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_3 }}
+      CLOUDFLARE_API_TOKEN_3: ${{ secrets.CLOUDFLARE_API_TOKEN_3 }}
+      CLOUDFLARE_ACCOUNT_ID_4: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_4 }}
+      CLOUDFLARE_API_TOKEN_4: ${{ secrets.CLOUDFLARE_API_TOKEN_4 }}
+      CLOUDFLARE_MAX_ACCOUNTS: "4"
       CLOUDFLARE_IMAGE_MODEL: "@cf/black-forest-labs/flux-1-schnell"
       CLOUDFLARE_SCENE_MODEL: "@cf/black-forest-labs/flux-1-schnell"
       CLOUDFLARE_THUMBNAIL_MODEL: "@cf/black-forest-labs/flux-2-klein-4b"

@@ -1,25 +1,12 @@
 {
   "version": 22,
-  "last_updated": "2026-09-30T16:54:00Z",
+  "last_updated": "2026-09-30T12:00:00Z",
   "strategy": {
     "channel_positioning": "ExamCrackerAI — high-utility exam concepts turned into visually memorable 20-35 second explainers, with search-led packaging and original premium thumbnail art.",
-    "selection": "Exam-only + viral-content gate. Select topics that combine strong search intent with a curiosity gap, contrast/common-mistake angle, concrete mechanism, visual payoff, and an exam-useful takeaway. Reject plain definitions, broad overviews, generic facts, and low-curiosity titles.",
-    "script": "45-65 spoken words target with a complete curiosity loop: surprising hook → specific setup → mechanism → one concrete example → exam trap/payoff. No fake urgency, generic A/B games, countdown filler, or empty CTA narration.",
+    "selection": "Exam-only. Rank candidate topics by YouTube search intent, autocomplete evidence, SEO cluster fit, exam relevance, teachability, concrete example potential, visual mechanism, freshness, and trend signal; reject generic lifestyle/psychology content.",
+    "script": "62-80 words target, 90 hard cap. One complete idea: specific hook → context → mechanism → one worked example → exam clue → concise difference card. No A/B games, countdowns, fake urgency, generic CTA narration, or filler.",
     "thumbnail": "AI hero art first (Cloudflare FLUX; FLUX.2 klein for thumbnails), then original Pillow typography and graphic accents. 10 archetypes, three candidates, automatic visual scoring, 1280×720 output.",
-    "creative_engine": "V17 information design: AI artwork + deterministic teaching cards; strong topic-specific first frame; three visual modes (concept, worked_example, exam_card); deterministic scene-family continuity; no generic subtitle-fragment headlines.",
-    "viral_content": {
-      "enabled": true,
-      "min_score": 62,
-      "principles": [
-        "curiosity gap",
-        "contrast",
-        "common mistake",
-        "counterintuitive mechanism",
-        "visual transformation",
-        "exam payoff",
-        "concrete consequence"
-      ]
-    }
+    "creative_engine": "V17 information design: AI artwork + deterministic teaching cards; strong topic-specific first frame; three visual modes (concept, worked_example, exam_card); deterministic scene-family continuity; no generic subtitle-fragment headlines."
   },
   "niches": {
     "bank_it_officer": {
@@ -32,18 +19,18 @@
       },
       "system_prompt": "Create a high-value 25-40 second educational Short for Indian bank IT-officer aspirants. Teach one precise concept. Start with a concrete misconception, contradiction, or practical consequence. Explain the rule in plain English, show one worked example or visual mechanism, then end with a one-line exam takeaway. No A/B choices, no countdown, no fake percentages, no generic motivational filler.",
       "topics": [
-        "BCNF vs 3NF: the candidate-key trap that changes the answer",
-        "TCP 3-way handshake: why SYN comes before SYN-ACK and ACK",
-        "GROUP BY vs HAVING: the SQL filter-order trap",
-        "Correlated subquery vs JOIN: when the query logic changes",
-        "Deadlock: why all four Coffman conditions must exist together",
-        "Banker Algorithm: the safe-state shortcut exam options hide",
-        "OSI Layer 3 vs Layer 4: the routing vs delivery trap",
-        "Subnetting: find usable hosts fast without writing binary",
-        "RSA vs AES: why one encrypts keys and the other encrypts data",
-        "ACID isolation: why two users can see different transaction results",
-        "Primary vs candidate vs unique key: the NULL trap",
-        "Firewall vs IDS vs IPS: which one reacts first to the same attack"
+        "BCNF vs 3NF in DBMS: the candidate-key condition that decides the answer",
+        "TCP 3-way handshake: what SYN, SYN-ACK and ACK actually do",
+        "SQL GROUP BY vs HAVING: which rows are filtered and when",
+        "SQL correlated subquery vs JOIN: how the query logic differs",
+        "Deadlock in OS: the four Coffman conditions with a simple process example",
+        "Banker Algorithm: how to identify a safe state step by step",
+        "OSI Layer 3 vs Layer 4: routing versus end-to-end delivery",
+        "Subnetting shortcut: finding usable hosts without converting everything to binary",
+        "RSA vs AES: asymmetric versus symmetric encryption with one real use case",
+        "ACID properties in DBMS: why isolation changes transaction behavior",
+        "Primary key vs candidate key vs unique key: what NULL changes",
+        "Firewall vs IDS vs IPS: prevention versus detection in one network flow"
       ]
     },
     "bank_reasoning_quant": {
@@ -56,18 +43,18 @@
       },
       "system_prompt": "Create a high-value 20-35 second exam Short. Start from a common solving mistake, reveal the shortest reliable method, work one example completely, and finish with a memory rule. Do not manufacture statistics or say '90% get this wrong'. No A/B game, no countdown.",
       "topics": [
-        "Machine Input-Output: spot the hidden operation from position changes",
-        "Syllogism: the “only a few” trap that flips the conclusion",
-        "Blood Relations: build the family tree without the common direction mistake",
-        "Circular Seating: the inside-vs-outside direction trap",
-        "Quadratics: use root signs to eliminate wrong options fast",
-        "Inequality Reasoning: the compound-condition trap in two lines",
-        "Number Series: the second-difference clue most candidates miss",
-        "Percentage to Fraction: the shortcut that kills repeated calculation",
-        "Successive Discount: why 20% + 20% is NOT 40%",
-        "Time & Work: why the LCM shortcut works",
-        "DI: choose the denominator first or the whole answer can flip",
-        "Coding-Decoding: use the letter-shift pattern without writing the alphabet"
+        "Machine Input-Output: how shifting positions reveals the operation",
+        "Syllogism: the difference between 'only a few' and 'few' with a diagram",
+        "Blood relations: building a two-step family tree without guessing",
+        "Circular seating: the inside-facing versus outside-facing direction rule",
+        "Quadratic equations: using root signs to eliminate options quickly",
+        "Inequality reasoning: how a compound condition changes the conclusion",
+        "Number series: finding a second-order difference pattern with one example",
+        "Percentage to fraction shortcuts that reduce common bank-exam calculations",
+        "Successive discount: why two discounts cannot simply be added",
+        "Time and Work: the LCM method with a two-person example",
+        "Data Interpretation: choosing the correct denominator before calculating",
+        "Coding-Decoding: using letter-shift patterns without writing the whole alphabet"
       ]
     },
     "banking_awareness": {
@@ -80,18 +67,18 @@
       },
       "system_prompt": "Create a practical banking-awareness Short for competitive-exam aspirants. Explain one rule or distinction, why it exists, and one exam-style application. Avoid stale or unsupported absolute claims. Use exact current facts only when they are known from the supplied topic; otherwise keep the explanation conceptual.",
       "topics": [
-        "CRR vs SLR: where does the bank actually keep the reserve?",
-        "SDF vs Reverse Repo: what changes when RBI absorbs liquidity?",
-        "NEFT vs RTGS vs IMPS: which payment route fits which situation?",
-        "NPA: why the 90-day rule changes the loan classification",
-        "Priority Sector Lending: why banks must route credit into target areas",
-        "Basel III: what bank capital is really protecting you from",
-        "Payments Bank vs Small Finance Bank: the business-model trap",
-        "SARFAESI: what happens after a secured loan turns into a recovery case",
-        "NABARD vs SIDBI vs NHB: the three-way institution confusion",
-        "RBI Functions: monetary policy vs currency management in one decision",
-        "KYC vs e-KYC: what actually changes in verification?",
-        "PCA Framework: how banking restrictions escalate as risk grows"
+        "CRR vs SLR: what banks keep as reserves and where each reserve sits",
+        "SDF vs reverse repo: the operational difference in RBI liquidity management",
+        "NEFT vs RTGS vs IMPS: how the payment systems differ in purpose and timing",
+        "NPA classification: how the 90-day overdue rule works conceptually",
+        "Priority Sector Lending: what the category means and why targets exist",
+        "Basel III capital adequacy: what capital is protecting a bank against",
+        "Payments Bank vs Small Finance Bank: how the business models differ",
+        "SARFAESI Act: what the recovery process is designed to do",
+        "NABARD vs SIDBI vs NHB: the development-finance role of each institution",
+        "RBI functions: monetary policy versus currency management",
+        "KYC vs e-KYC: what changes in the customer-verification process",
+        "PCA framework: how supervisory restrictions can escalate as bank risk rises"
       ]
     },
     "rbi_economy": {
@@ -104,16 +91,16 @@
       },
       "system_prompt": "Create a high-clarity RBI Grade B economy Short. Start with a real conceptual confusion, explain the mechanism using one concrete example, and end with a one-line recall rule. Do not use unsupported 'always asked' or '90%' claims. Current policy facts must be phrased only when they are confidently supported.",
       "topics": [
-        "GDP vs GNP vs NNP: the factor-income difference that changes the answer",
-        "Demand-Pull vs Cost-Push Inflation: what an oil shock actually does",
-        "Fiscal vs Revenue vs Primary Deficit: the interest-payment trap",
-        "M1 vs M2 vs M3: why term deposits widen the money-supply measure",
-        "Current vs Capital Account: where a foreign investment entry actually goes",
-        "FRBM Escape Clauses: why a deficit target is not always rigid",
-        "MPC Voting: how six members can change the policy-rate decision",
-        "RBI vs SEBI vs IRDAI: the regulator-matching trap",
-        "Monetary Policy Transmission: how one rate move reaches a borrower",
-        "Financial Inclusion: why a basic bank account changes access to the system"
+        "GDP vs GNP vs NNP: how factor income changes the national-income measure",
+        "Demand-pull vs cost-push inflation: how an oil-price shock changes the story",
+        "Fiscal deficit vs revenue deficit vs primary deficit: where interest payments enter",
+        "Money supply M1 M2 M3: why term deposits appear in broader money",
+        "Current account vs capital account: where trade and investment flows belong",
+        "FRBM fiscal rules: why deficit targets have escape clauses",
+        "MPC voting: how six members determine the policy-rate decision",
+        "RBI vs SEBI vs IRDAI: matching regulators to the markets they supervise",
+        "Monetary policy transmission: how a policy-rate move reaches borrowers",
+        "Financial inclusion: what a basic bank account is designed to achieve"
       ]
     },
     "bank_english": {
@@ -126,15 +113,15 @@
       },
       "system_prompt": "Create a concise bank-exam English Short that teaches one rule through one example. Show the incorrect form, fix it, and explain the grammatical reason in plain English. No empty motivational lines and no fake frequency claims.",
       "topics": [
-        "“Each of”: the singular-verb trap bank exams love to test",
-        "“One of” + Verb: the grammar trap that flips the answer",
-        "Para Jumbles: find the opener before you read every sentence",
-        "Cloze Tests: why context beats translation when options look similar",
-        "RC Inference: the 3-step elimination trick for near-identical options",
-        "Dangling Modifier: the sentence-improvement trap in 5 seconds",
-        "Prepositions: the collocation trap translation makes you miss",
-        "Word Rearrangement: lock subject-verb-object first",
-        "Synonyms & Antonyms: use the root-word shortcut when you do not know the word"
+        "Subject-verb agreement: why 'each of' takes a singular verb",
+        "Error spotting: the 'one of' construction and its verb form",
+        "Para jumbles: finding the sentence that must open the paragraph",
+        "Cloze tests: using context before grammar to eliminate options",
+        "Reading comprehension: the three-step elimination process for inference questions",
+        "Sentence improvement: spotting a dangling modifier in one example",
+        "Fill in the blanks: choosing prepositions by collocation, not translation",
+        "Word rearrangement: using subject-verb-object anchors to restore a sentence",
+        "Synonyms and antonyms: using word roots to narrow unfamiliar vocabulary"
       ]
     },
     "ssc_general": {
@@ -147,14 +134,14 @@
       },
       "system_prompt": "Create a compact SSC exam concept Short. Teach one fact, rule, or calculation method with a concrete example. Keep the language direct and useful. No fake rank claims, no generic motivation, no A/B game.",
       "topics": [
-        "Fundamental Rights vs DPSP: the exam trap in one visual",
-        "Monsoon Winds: why the direction reverses — the map trap",
-        "Modern History: trigger vs cause — the mistake that changes the answer",
-        "Percentage Change: the faster method when the base changes",
-        "Ratio & Proportion: scale the mixture without rebuilding it",
-        "Relative Speed: why opposite directions change the formula",
-        "Profit & Loss: marked price → discount → selling price in one chain",
-        "Static GK: location vs river vs state — the 3-way confusion"
+        "Indian Constitution: Fundamental Rights versus Directive Principles in one visual",
+        "Indian geography: why monsoon winds reverse direction seasonally",
+        "Modern history: the immediate trigger versus background cause in a major event",
+        "Percentage change: the fastest safe method for SSC arithmetic",
+        "Ratio and proportion: scaling a mixture without rebuilding the whole equation",
+        "Time, speed and distance: why relative speed changes the formula",
+        "Profit and loss: marked price, discount and selling price in one chain",
+        "Static GK: how to separate location, river and state facts without confusion"
       ]
     }
   }

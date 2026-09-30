@@ -103,7 +103,10 @@ def _load_settings() -> Settings:
         pixabay_api_key=os.getenv("PIXABAY_API_KEY"),
         pollinations_api_key=os.getenv("POLLINATIONS_API_KEY") or os.getenv("POLLINATION_KEY"),
         youtube_projects=creds,
-        upload_enabled=_truthy(os.getenv("UPLOAD_ENABLED"), True),
+        upload_enabled=(
+            _truthy(os.getenv("UPLOAD_ENABLED"), True)
+            and not _truthy(os.getenv("DRY_RUN"), False)
+        ),
         niches_enabled=_csv_env("NICHES_ENABLED", sorted(ALLOWED_EXAM_NICHES)),
         languages_enabled=_csv_env("LANGUAGES_ENABLED", ["en"]),
     )
@@ -186,9 +189,11 @@ def _run_one(
     niche, niche_cfg, language, topic = _choose(plan, settings, state)
     print(f"\n[pipeline] ── video {video_index} ── niche={niche} language={language} topic={topic}")
 
-    # Mark topic as in-progress so a crash is retryable
+    # Mark topic as in-progress so a live crash is retryable.
+    # Dry runs are intentionally side-effect free and do not persist state.
     state["last_failed_topic"] = topic
-    _save_state(state)
+    if not dry_run:
+        _save_state(state)
 
     script = None
     topics = niche_cfg.get("topics", [topic])
@@ -206,7 +211,8 @@ def _run_one(
                 current_topic = topics[state["topic"] % len(topics)]
                 print(f"[pipeline] Trying next candidate topic in queue: {current_topic!r}")
             else:
-                _save_state(state)
+                if not dry_run:
+                    _save_state(state)
                 raise
 
     # V17 creative director: deterministic post-processing, no extra Gemini call.
@@ -339,8 +345,9 @@ def _run_one(
     state["last_failed_topic"] = None
 
     if dry_run:
-        print("[i] Dry run — skipping upload.")
-        _save_state(state)
+        print("[dry-run] Render complete — upload and YouTube mutations skipped.")
+        print(f"[dry-run] Video: {video_path}")
+        print(f"[dry-run] Thumbnail: {OUT_DIR / 'thumbnail.jpg'}")
         return True
 
     if not settings.upload_enabled:
@@ -352,47 +359,44 @@ def _run_one(
         raise RuntimeError("Upload requested but no YT_CREDS_N secrets are configured.")
 
     start = state["project"] % len(settings.youtube_projects)
-    last_error: Exception | None = None
-
-    for offset in range(len(settings.youtube_projects)):
-        idx = (start + offset) % len(settings.youtube_projects)
-        cred = settings.youtube_projects[idx]
+    ordered_projects = (
+        settings.youtube_projects[start:] + settings.youtube_projects[:start]
+    )
+    try:
+        result = upload_video(
+            video_path,
+            script,
+            ordered_projects,
+            scene_durations=durations,
+        )
+        used_name = result["project"]
+        used_idx = next((i for i, cred in enumerate(settings.youtube_projects) if cred.name == used_name), start)
+        state["project"] = (used_idx + 1) % len(settings.youtube_projects)
+        state.setdefault("completed_topics", []).append(topic)
+        state["recent_topics"] = (state.get("recent_topics", []) + [topic])[-12:]
+        _save_state(state)
+        print(f"[✓] Uploaded with {used_name}: {result['url']}")
         try:
-            result = upload_video(
-                video_path,
-                script,
-                [cred],
-                scene_durations=durations,
+            from .seo import TopicMemory
+            tm = TopicMemory()
+            meta = getattr(script, "seo_metadata", {}) or {}
+            tm.record_completed_video(
+                topic=topic,
+                youtube_id=result.get("id", result.get("video_id", result.get("url", ""))),
+                seo_score=meta.get("seo_score", 0),
+                retention_score=meta.get("retention_score", 0),
             )
-            state["project"] = idx + 1
-            state.setdefault("completed_topics", []).append(topic)
-            state["recent_topics"] = (state.get("recent_topics", []) + [topic])[-12:]
-            _save_state(state)
-            print(f"[✓] Uploaded with YT_CREDS_{cred.index}: {result['url']}")
-            try:
-                from .seo import TopicMemory
-                tm = TopicMemory()
-                meta = getattr(script, "seo_metadata", {}) or {}
-                tm.record_completed_video(
-                    topic=topic,
-                    youtube_id=result.get("id", result.get("url", "")),
-                    seo_score=meta.get("seo_score", 0),
-                    retention_score=meta.get("retention_score", 0),
-                )
-            except Exception as exc:
-                print(f"[!] TopicMemory recording failed (non-fatal): {exc}")
-            return True
         except Exception as exc:
-            last_error = exc
-            print(f"[!] YT_CREDS_{cred.index} failed: {exc}")
-
-    raise RuntimeError(f"All YouTube credentials failed: {last_error}")
+            print(f"[!] TopicMemory recording failed (non-fatal): {exc}")
+        return True
+    except Exception as exc:
+        raise RuntimeError(f"All YouTube credentials failed: {exc}") from exc
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true",
-                        help="render videos but never upload")
+                        help="render videos and thumbnails but never upload or mutate YouTube")
     parser.add_argument("--count", type=int, default=int(os.getenv("UPLOAD_COUNT", "3")),
                         help="number of videos to generate and upload (default: 15)")
     parser.add_argument("--interval", type=int, default=UPLOAD_INTERVAL_SECONDS,
@@ -407,11 +411,14 @@ def main() -> int:
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is required")
 
+    dry_run = args.dry_run or _truthy(os.getenv("DRY_RUN"), False)
     total = args.count
     interval = args.interval
     succeeded = 0
     failed = 0
 
+    mode = "DRY RUN" if dry_run else "LIVE"
+    print(f"[scheduler] Mode: {mode}")
     print(f"[scheduler] Starting: {total} videos, {interval // 60} min apart")
 
     for i in range(1, total + 1):
@@ -419,13 +426,15 @@ def main() -> int:
         print(f"\n[scheduler] ── [{i}/{total}] starting at {time.strftime('%H:%M:%S')} IST ──")
 
         try:
-            _run_one(plan, settings, state, dry_run=args.dry_run, video_index=i)
+            _run_one(plan, settings, state, dry_run=dry_run, video_index=i)
             succeeded += 1
         except Exception as exc:
             failed += 1
             print(f"[!] Video {i} failed: {exc}")
-            # Save state so the next video picks up where rotation left off
-            _save_state(state)
+            # Save state for live runs so the next run picks up where rotation left off.
+            # Dry runs are intentionally side-effect free.
+            if not dry_run:
+                _save_state(state)
 
         if i < total:
             elapsed = time.monotonic() - t_start

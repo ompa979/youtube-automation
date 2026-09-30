@@ -136,6 +136,18 @@ def _post_pinned_comment(yt, video_id: str, text: str) -> str:
         return "FAILED" 
 
 
+def _ordered_projects(projects: list[YouTubeCredentials]) -> tuple[list[YouTubeCredentials], object]:
+    """Return quota-eligible projects in the caller's preferred order."""
+    if not projects:
+        return [], None
+    names = [p.name for p in projects]
+    chosen_name, state = pick_project(names)
+    if chosen_name is None:
+        return [], state
+    start = next(i for i, p in enumerate(projects) if p.name == chosen_name)
+    return projects[start:] + projects[:start], state
+
+
 def upload_video(
     video_path: Path,
     script: Script,
@@ -144,17 +156,21 @@ def upload_video(
     category_id: str = "27",
     scene_durations: list[float] | None = None,
 ) -> dict:
-    names = [p.name for p in projects]
-    chosen_name, state = pick_project(names)
-    if chosen_name is None:
-        raise RuntimeError(
-            "All YouTube projects have exhausted their daily quota "
-            "(10,000 units each; 1,600 per upload = 6 uploads/day each)."
-        )
+    """Upload with automatic per-channel fallback.
 
-    chosen = next(p for p in projects if p.name == chosen_name)
-    creds = _creds_from_payload(chosen.payload)
-    yt = build("youtube", "v3", credentials=creds, cache_discovery=False)
+    Each YouTube OAuth credential represents an independent channel/account.
+    The upload itself is the failover boundary: if one credential fails before a
+    video ID is created (including uploadLimitExceeded, quota, auth, or transport
+    errors), the next quota-eligible credential is tried. Once a video ID is
+    created, thumbnail/comment operations stay on that same channel and remain
+    non-fatal.
+    """
+    ordered, state = _ordered_projects(projects)
+    if not ordered:
+        raise RuntimeError(
+            "All YouTube projects are unavailable or exhausted: "
+            "no quota-eligible credential remains."
+        )
 
     body = {
         "snippet": {
@@ -169,50 +185,56 @@ def upload_video(
         },
     }
 
-    media = MediaFileUpload(
-        str(video_path),
-        mimetype="video/mp4",
-        resumable=True,
-        chunksize=4 * 1024 * 1024,
-    )
+    failures: list[str] = []
+    for chosen in ordered:
+        creds = _creds_from_payload(chosen.payload)
+        try:
+            print(f"[upload] trying {chosen.name} (channel credential fallback)")
+            yt = build("youtube", "v3", credentials=creds, cache_discovery=False)
+            media = MediaFileUpload(
+                str(video_path),
+                mimetype="video/mp4",
+                resumable=True,
+                chunksize=4 * 1024 * 1024,
+            )
+            request = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+            response = None
+            while response is None:
+                _, response = request.next_chunk()
 
-    request = yt.videos().insert(part="snippet,status", body=body, media_body=media)
-    response = None
-    while response is None:
-        _, response = request.next_chunk()
+            video_id = response["id"]
+            record_upload(chosen.name, state)
+            url = f"https://youtu.be/{video_id}"
+            print(f"[upload] video live: {url} via {chosen.name}")
 
-    video_id = response["id"]
-    record_upload(chosen.name, state)
-    url = f"https://youtu.be/{video_id}"
-    print(f"[upload] video live: {url}")
+            # Once YouTube returned a video ID, do not switch channels: the video
+            # already exists on this channel. Metadata/thumbnail/comment failures
+            # remain non-fatal.
+            time.sleep(6)
+            thumb_path = OUT_DIR / "thumbnail.jpg"
+            _set_thumbnail(yt, video_id, thumb_path)
 
-    # Pause so YouTube registers the video server-side before we attach
-    # thumbnail/metadata. 3s -> 6s: thumbnails.set was occasionally hitting a
-    # transient 403 in this window (now also retried in _set_thumbnail itself).
-    time.sleep(6)
+            can_post_comment = any("force-ssl" in s for s in (creds.scopes or []))
+            comment_text = (script.pinned_comment or "").strip()
+            comment_status = "SKIPPED (AUTH_SCOPE)"
+            if can_post_comment:
+                if comment_text:
+                    comment_status = _post_pinned_comment(yt, video_id, comment_text)
+                elif scene_durations:
+                    comment_status = _post_pinned_comment(yt, video_id, _build_timestamp_comment(script, scene_durations))
+            else:
+                print("[upload] Pinned comment skipped: OAuth credentials only have 'youtube.upload' scope. (Re-authorize token with force-ssl scope if you want automated comments).")
 
-    # Optimization #1: Set thumbnail
-    thumb_path = OUT_DIR / "thumbnail.jpg"
-    _set_thumbnail(yt, video_id, thumb_path)
+            print(f"[upload summary] UPLOAD: SUCCESS | VIDEO: {url} | CHANNEL_CRED: {chosen.name} | COMMENT: {comment_status}")
+            return {
+                "video_id": video_id,
+                "url": url,
+                "project": chosen.name,
+            }
+        except Exception as exc:
+            msg = str(exc).replace("\n", " ")[:1000]
+            failures.append(f"{chosen.name}: {msg}")
+            print(f"[!] {chosen.name} upload failed — trying next channel credential: {msg}")
+            continue
 
-    # v18: first comment = the engagement CTA (audit: 0 comments on 50 videos).
-    # Check if force-ssl scope was authorized before attempting comment insert
-    can_post_comment = any("force-ssl" in s for s in (creds.scopes or []))
-    comment_text = (script.pinned_comment or "").strip()
-    comment_status = "SKIPPED (AUTH_SCOPE)"
-
-    if can_post_comment:
-        if comment_text:
-            comment_status = _post_pinned_comment(yt, video_id, comment_text)
-        elif scene_durations:
-            comment_status = _post_pinned_comment(yt, video_id, _build_timestamp_comment(script, scene_durations))
-    else:
-        print("[upload] Pinned comment skipped: OAuth credentials only have 'youtube.upload' scope. (Re-authorize token with force-ssl scope if you want automated comments).")
-
-    print(f"[upload summary] UPLOAD: SUCCESS | VIDEO: {url} | COMMENT: {comment_status}")
-
-    return {
-        "video_id": video_id,
-        "url": url,
-        "project": chosen.name,
-    }
+    raise RuntimeError("All YouTube credentials failed: " + " | ".join(failures))

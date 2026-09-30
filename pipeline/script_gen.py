@@ -216,44 +216,56 @@ TOPIC: {topic}
 {topic_lock}
 {card_rules}
 
-🔥 VIRAL CONTENT V3 (MANDATORY):
-Do NOT create a passive lecture, generic definition, or "study card".
-The Short must earn attention with a curiosity gap and pay it off with a clear mechanism.
-Use tension from the IDEA itself — not shouting, fake urgency, countdown filler, or a forced A/B game.
-
-VIRAL ANGLE: choose the strongest angle that is naturally true for the topic: common mistake, head-to-head contrast, counterintuitive why-loop, time-saving shortcut, or visual transformation.
+🔥 "SEXY SHORTS ENGINE V2" INTERACTIVE CHALLENGE ARCHITECTURE (MANDATORY):
+Do NOT create a passive lecture or study card ("Here is an educational fact. Please watch me explain it.").
+Make the viewer actively PLAY A GAME in the video!
 
 Target: EXACTLY 6 fast scenes (45-65 total spoken words across the entire Short, roughly 18-28 seconds total).
 Each scene must perform an exact psychological function:
 
-Scene 0 (0-2s) — CURIOSITY HOOK:
-- Open with the surprising consequence, contradiction, or mistake.
+Scene 0 (0-2s) — PATTERN INTERRUPT:
+- Spoken line MUST start with an explosive pattern interrupt: "STOP. 🚨", "WAIT.", "You are about to make a huge mistake.", or an aggressive contradiction.
 - `action_type`: "pattern_interrupt"
-- `action_payload`: one short concept cue
-- `on_screen_text`: 1-3 words, topic-specific
-- `card_points`: [one memorable claim]
+- `action_payload`: "STOP. 🚨"
+- `on_screen_text`: "STOP 🚨"
+- `card_points`: ["TRAP DETECTED"]
+- `image_prompt`: action visual: [object] + [action] + [contrast]
 
-Scene 1 (2-5s) — SETUP / PREDICTION:
-- Give the minimum context needed to make the viewer predict the result.
-- Ask a real question only when the concept naturally supports it.
+Scene 1 (2-5s) — THE CHALLENGE / QUESTION:
+- Force the viewer to guess: "Which one does X? A or B?", "Where does this belong?"
 - `action_type`: "challenge"
+- `action_payload`: "A) [Option 1]  vs  B) [Option 2]"
+- `on_screen_text`: "A OR B?"
+- `card_points`: ["A) [Option 1]  |  B) [Option 2]"]
 
-Scene 2 (5-8s) — TENSION / MISCONCEPTION:
-- Expose the tempting wrong intuition or the exact point where candidates get confused.
+Scene 2 (5-7s) — COUNTDOWN & TENSION:
+- Build tension: "3... 2... 1... Think fast!", "Don't answer yet!"
 - `action_type`: "countdown"
+- `action_payload`: "3... 2... 1..."
+- `on_screen_text`: "3... 2... 1..."
+- `card_points`: ["THINK FAST"]
 
-Scene 3 (8-12s) — REVEAL:
-- Reveal the correct rule/result clearly.
+Scene 3 (7-11s) — THE REVEAL & REJECTION:
+- Reveal the answer AND reject the wrong answer: "[Correct]! [Wrong] is completely wrong. But why?"
 - `action_type`: "reveal"
+- `action_payload`: "[Wrong] ❌  |  [Correct] ✅"
+- `on_screen_text`: "REVEAL!"
+- `card_points`: ["[Wrong] ❌  |  [Correct] ✅"]
 
-Scene 4 (12-17s) — MECHANISM + EXAMPLE:
-- Show the physical/logical transformation or one compact worked example.
+Scene 4 (11-16s) — THE MECHANISM / EQUATION:
+- Show the visual equation or mechanism: "Here is why: X does this, but Y does that."
 - `action_type`: "mechanism"
+- `action_payload`: "[INPUT 1] + [INPUT 2] → [RESULT]"
+- `on_screen_text`: "THE TRICK"
+- `card_points`: ["[INPUT 1] + [INPUT 2] → [RESULT]"]
 
-Scene 5 (17-22s) — EXAM PAYOFF + LOOP:
-- Give the exam trap, decision rule, or one-line memory anchor.
-- End with a natural curiosity bridge back to the opening idea; no filler CTA.
+Scene 5 (16-21s) — EXAM TRAP & SEAMLESS LOOP:
+- The exam trap + comment CTA: "The trap? Exams test if you confuse X with Y. Did you guess A or B? Comment below, because..."
 - `action_type`: "trap_loop"
+- `action_payload`: "A OR B?"
+- `on_screen_text`: "DID YOU GET IT?"
+- `card_points`: ["COMMENT: A OR B?"]
+- The last words must seamlessly lead back into Scene 0 ("STOP.")!
 
 VISUAL RULES:
 - The image is NOT decoration. Each scene must show a different physical/diagrammatic action tied to the concept: move, split, compare, reject, reveal, build, or transform.
@@ -268,8 +280,7 @@ Return EXACTLY this JSON shape (no markdown):
   "title": "clear title, under 80 chars, accurate, no fake clickbait",
   "hook": "the first spoken line",
   "description": "2-3 useful sentences with 3 relevant hashtags",
-  "pinned_comment": "one short, topic-specific question that invites a useful comment reply",
-  "viral_angle": "one of: common_mistake | contrast | why_loop | shortcut | visual_transformation",
+  "pinned_comment": "one short question that invites a comment reply (e.g. 'Did you guess A or B? Comment below!')",
   "tags": ["8-12 lowercase tags"],
   "scenes": [
     {{
@@ -1621,17 +1632,6 @@ def _v6_length_issue(script: Script) -> str | None:
 
 def _v6_qa_all(script: Script, topic: str, language: str):
     qa = validate_script(script, language)
-    # V6 uses a 100-word hard cap. The shared legacy validator still carries
-    # an 80-word soft cap, which used to reject valid 81-100 word scripts
-    # even though V6 explicitly allows them. Remove only that legacy wording
-    # here; the V6 hard-cap check below remains authoritative.
-    v6_words = sum(len(re.findall(r"\b[\w'-]+\b", s.narration)) for s in script.scenes)
-    if 80 < v6_words <= 100:
-        qa.issues = [
-            issue for issue in qa.issues
-            if not re.fullmatch(r"too long: \d+ words; remove repetition", issue)
-        ]
-        qa.ok = not qa.issues
     extra: list[str] = []
     if len(script.scenes) != 6:
         extra.append("V6 requires exactly six teaching scenes")

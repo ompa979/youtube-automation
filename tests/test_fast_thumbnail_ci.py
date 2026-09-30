@@ -92,3 +92,4 @@ def test_scene_provider_uses_primary_credentials_only(monkeypatch):
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID_2", "acct2")
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN_2", "tok2")
     assert visuals._cloudflare_scene_enabled() is False
+

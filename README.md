@@ -87,6 +87,8 @@ For each project:
 5. `python scripts/setup_oauth.py client_secrets.json`
 6. Copy the base64 blob into `wrangler secret put YT_CREDS_1`
 
+For multi-channel upload fallback, add additional OAuth blobs as `YT_CREDS_2` … `YT_CREDS_19`; see `YOUTUBE_CHANNEL_FALLBACK.md`.
+
 The Durable Object auto-rotates: it picks the first project that still has quota left today.
 
 ---
@@ -298,3 +300,13 @@ V10 is image-first: five different creative concepts are generated, the actual a
 The pipeline normalizes generated scene art locally to 1080×1920 and composes thumbnails locally at 1280×720. If Cloudflare image generation is unavailable, the video still falls back to Pexels (when configured) and then a procedural backdrop rather than trying Gemini image generation.
 
 Shorts-native thumbnail specification is documented in THUMBNAIL_SHORTS_NATIVE_25_POINT_PLAN.md.
+
+## Safe dry run
+
+Use GitHub Actions → **Run workflow** → enable **Dry run** to generate the full Short and Shorts-native thumbnail without uploading to YouTube. Dry runs also skip the YouTube credential check and upload, and the workflow stores `/tmp/out` artifacts for 7 days. Scheduled runs remain live.
+
+Local usage:
+```bash
+python -m pipeline.generate --count 1 --dry-run
+```
+Or set `DRY_RUN=true`.

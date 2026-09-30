@@ -12,66 +12,62 @@
     "items": []
   },
   "latest_selection": {
-    "ts": 1790787577.9773808,
+    "ts": 1790782367.5179179,
     "selected": {
-      "topic": "TCP handshake: how SYN and ACK move",
-      "niche": "bank_it_officer",
+      "topic": "NPA classification: overdue rule",
+      "niche": "banking_awareness",
       "trend_score": 50.0,
-      "seo_score": 95.4,
-      "search_intent": 7.0,
-      "exam_fit": 20.0,
-      "specificity": 13.2,
-      "teachability": 7.0,
+      "seo_score": 100.0,
+      "search_intent": 11.2,
+      "exam_fit": 21.0,
+      "specificity": 7.3,
+      "teachability": 9.0,
       "visual": 6.6,
-      "viral_fit": 62.0,
-      "value_density": 9.5,
+      "value_density": 11.5,
       "seo_fit": 10.0,
       "freshness": 11.0,
       "trend": 50.0,
       "risk_penalty": 0.0,
       "duplicate_penalty": 0.0,
-      "total": 76.86,
+      "total": 73.64,
       "reasons": [
+        "search intent=2",
         "exam fit from enabled exam niche",
-        "query-sized specificity",
         "clear teachable mechanism",
-        "utility terms=1",
-        "viral-content fit=62.0",
+        "utility terms=2",
         "visual mechanism terms=1",
-        "SEO primary=TCP handshake",
+        "SEO primary=NPA classification",
         "trend momentum signal=50.0",
-        "SEO evidence score=95.4"
+        "SEO evidence score=100.0"
       ]
     },
     "board": [
       {
-        "topic": "TCP handshake: how SYN and ACK move",
-        "niche": "bank_it_officer",
+        "topic": "NPA classification: overdue rule",
+        "niche": "banking_awareness",
         "trend_score": 50.0,
-        "seo_score": 95.4,
-        "search_intent": 7.0,
-        "exam_fit": 20.0,
-        "specificity": 13.2,
-        "teachability": 7.0,
+        "seo_score": 100.0,
+        "search_intent": 11.2,
+        "exam_fit": 21.0,
+        "specificity": 7.3,
+        "teachability": 9.0,
         "visual": 6.6,
-        "viral_fit": 62.0,
-        "value_density": 9.5,
+        "value_density": 11.5,
         "seo_fit": 10.0,
         "freshness": 11.0,
         "trend": 50.0,
         "risk_penalty": 0.0,
         "duplicate_penalty": 0.0,
-        "total": 76.86,
+        "total": 73.64,
         "reasons": [
+          "search intent=2",
           "exam fit from enabled exam niche",
-          "query-sized specificity",
           "clear teachable mechanism",
-          "utility terms=1",
-          "viral-content fit=62.0",
+          "utility terms=2",
           "visual mechanism terms=1",
-          "SEO primary=TCP handshake",
+          "SEO primary=NPA classification",
           "trend momentum signal=50.0",
-          "SEO evidence score=95.4"
+          "SEO evidence score=100.0"
         ]
       },
       {
@@ -84,25 +80,51 @@
         "specificity": 14.5,
         "teachability": 7.0,
         "visual": 6.6,
-        "viral_fit": 61.0,
         "value_density": 9.5,
         "seo_fit": 10.0,
         "freshness": 11.0,
         "trend": 50.0,
         "risk_penalty": 0.0,
         "duplicate_penalty": 0.0,
-        "total": 79.04,
+        "total": 72.38,
         "reasons": [
           "search intent=1",
           "exam fit from enabled exam niche",
           "query-sized specificity",
           "clear teachable mechanism",
           "utility terms=1",
-          "viral-content fit below gate=61.0",
           "visual mechanism terms=1",
           "SEO primary=CRR vs SLR",
           "trend momentum signal=50.0",
           "SEO evidence score=100.0"
+        ]
+      },
+      {
+        "topic": "TCP handshake: how SYN and ACK move",
+        "niche": "bank_it_officer",
+        "trend_score": 50.0,
+        "seo_score": 95.4,
+        "search_intent": 7.0,
+        "exam_fit": 20.0,
+        "specificity": 13.2,
+        "teachability": 7.0,
+        "visual": 6.6,
+        "value_density": 9.5,
+        "seo_fit": 10.0,
+        "freshness": 11.0,
+        "trend": 50.0,
+        "risk_penalty": 0.0,
+        "duplicate_penalty": 0.0,
+        "total": 70.08,
+        "reasons": [
+          "exam fit from enabled exam niche",
+          "query-sized specificity",
+          "clear teachable mechanism",
+          "utility terms=1",
+          "visual mechanism terms=1",
+          "SEO primary=TCP handshake",
+          "trend momentum signal=50.0",
+          "SEO evidence score=95.4"
         ]
       },
       {
@@ -115,60 +137,26 @@
         "specificity": 11.9,
         "teachability": 9.0,
         "visual": 5.0,
-        "viral_fit": 69.0,
         "value_density": 9.5,
         "seo_fit": 10.0,
         "freshness": 11.0,
         "trend": 50.0,
         "risk_penalty": 0.0,
         "duplicate_penalty": 0.0,
-        "total": 78.66,
+        "total": 70.88,
         "reasons": [
           "search intent=1",
           "exam fit from enabled exam niche",
           "query-sized specificity",
           "clear teachable mechanism",
           "utility terms=1",
-          "viral-content fit=69.0",
           "SEO primary=RSA vs AES",
-          "trend momentum signal=50.0",
-          "SEO evidence score=100.0"
-        ]
-      },
-      {
-        "topic": "NPA classification: overdue rule",
-        "niche": "banking_awareness",
-        "trend_score": 50.0,
-        "seo_score": 100.0,
-        "search_intent": 11.2,
-        "exam_fit": 21.0,
-        "specificity": 7.3,
-        "teachability": 9.0,
-        "visual": 6.6,
-        "viral_fit": 37.0,
-        "value_density": 11.5,
-        "seo_fit": 10.0,
-        "freshness": 11.0,
-        "trend": 50.0,
-        "risk_penalty": 0.0,
-        "duplicate_penalty": 0.0,
-        "total": 77.41,
-        "reasons": [
-          "search intent=2",
-          "exam fit from enabled exam niche",
-          "clear teachable mechanism",
-          "utility terms=2",
-          "viral-content fit below gate=37.0",
-          "visual mechanism terms=1",
-          "SEO primary=NPA classification",
           "trend momentum signal=50.0",
           "SEO evidence score=100.0"
         ]
       }
     ],
     "exam_only": true,
-    "viral_content_only": true,
-    "min_viral_score": 62.0,
     "allowed_niches": [
       "bank_english",
       "bank_it_officer",
@@ -284,58 +272,6 @@
   },
   "yt:acad5c51bfca7d313a07": {
     "ts": 1790768503.4448466,
-    "items": []
-  },
-  "yt:0d798e12156c7ed9748b": {
-    "ts": 1790787431.7501125,
-    "items": []
-  },
-  "yt:1ab4efa2537be9f701db": {
-    "ts": 1790787431.7548437,
-    "items": []
-  },
-  "yt:95fc8818c366656ebeae": {
-    "ts": 1790787436.7629654,
-    "items": []
-  },
-  "yt:824fa08ba27288d487be": {
-    "ts": 1790787436.7646353,
-    "items": []
-  },
-  "yt:c5f5bfaadd30c37b80ef": {
-    "ts": 1790787441.772075,
-    "items": []
-  },
-  "yt:befe12868a94bd198180": {
-    "ts": 1790787441.77397,
-    "items": []
-  },
-  "yt:88fa3f3abb5a470d169d": {
-    "ts": 1790787446.7806256,
-    "items": []
-  },
-  "yt:f544c9159f3f71610982": {
-    "ts": 1790787446.7837389,
-    "items": []
-  },
-  "yt:24a4b56d7b71298e7f29": {
-    "ts": 1790787451.7864094,
-    "items": []
-  },
-  "yt:6dccae9a9937e334ca0b": {
-    "ts": 1790787451.7883215,
-    "items": []
-  },
-  "yt:f29c6dd79ace365141f8": {
-    "ts": 1790787456.795579,
-    "items": []
-  },
-  "yt:39478950162bce813add": {
-    "ts": 1790787456.802869,
-    "items": []
-  },
-  "yt:3c66e3b5b1d7cf1838df": {
-    "ts": 1790787461.8095238,
     "items": []
   }
 }

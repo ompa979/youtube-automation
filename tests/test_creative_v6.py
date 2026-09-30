@@ -207,14 +207,6 @@ class TestCreativeV6(unittest.TestCase):
         self.assertGreater(source.rfind('if __name__ == "__main__"'), source.find("# Runtime overrides used by main/_run_one"))
 
 
-    def test_20_v6_qa_all_allows_81_to_100_words(self):
-        s = make_script()
-        extra = " This line adds useful context without changing the concept."
-        while sum(len(scene.narration.split()) for scene in s.scenes) < 90:
-            s.scenes[3].narration += extra
-        result = sg._v6_qa_all(s, "TCP 3-way handshake", "en")
-        self.assertTrue(result.ok, result.issues)
-
     def test_21_v6_allows_realistic_100_word_cap(self):
         s = make_script()
         # Expand to a realistic ~90-word teaching script without changing structure.

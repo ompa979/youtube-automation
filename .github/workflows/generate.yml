@@ -15,6 +15,11 @@ on:
         options:
           - fast
           - full
+      dry_run:
+        description: Dry run — render and thumbnail only, NEVER upload to YouTube
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "*/30 * * * *"
 
@@ -30,6 +35,19 @@ jobs:
       YT_CREDS_4: ${{ secrets.YT_CREDS_4 }}
       YT_CREDS_5: ${{ secrets.YT_CREDS_5 }}
       YT_CREDS_6: ${{ secrets.YT_CREDS_6 }}
+      YT_CREDS_7: ${{ secrets.YT_CREDS_7 }}
+      YT_CREDS_8: ${{ secrets.YT_CREDS_8 }}
+      YT_CREDS_9: ${{ secrets.YT_CREDS_9 }}
+      YT_CREDS_10: ${{ secrets.YT_CREDS_10 }}
+      YT_CREDS_11: ${{ secrets.YT_CREDS_11 }}
+      YT_CREDS_12: ${{ secrets.YT_CREDS_12 }}
+      YT_CREDS_13: ${{ secrets.YT_CREDS_13 }}
+      YT_CREDS_14: ${{ secrets.YT_CREDS_14 }}
+      YT_CREDS_15: ${{ secrets.YT_CREDS_15 }}
+      YT_CREDS_16: ${{ secrets.YT_CREDS_16 }}
+      YT_CREDS_17: ${{ secrets.YT_CREDS_17 }}
+      YT_CREDS_18: ${{ secrets.YT_CREDS_18 }}
+      YT_CREDS_19: ${{ secrets.YT_CREDS_19 }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID_2: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_2 }}
@@ -54,6 +72,8 @@ jobs:
       NICHES_ENABLED: "bank_it_officer,banking_awareness,bank_reasoning_quant,rbi_economy,ssc_general"
       COUNT: ${{ github.event.inputs.count || '1' }}
       TEST_MODE: ${{ github.event.inputs.test_mode || 'fast' }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+      UPLOAD_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '0' || '1' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,11 +110,12 @@ jobs:
         run: python -m pytest -q
 
       - name: Verify YouTube credentials are wired
+        if: env.DRY_RUN != 'true'
         shell: bash
         run: |
           set -euo pipefail
           found=0
-          for i in 1 2 3 4 5 6; do
+          for i in $(seq 1 19); do
             var="YT_CREDS_${i}"
             if [ -n "${!var:-}" ]; then
               echo "[youtube] ${var}=configured"
@@ -105,9 +126,30 @@ jobs:
           done
           if [ "$found" -eq 0 ]; then
             echo "[youtube] ERROR: no YT_CREDS_N repository secrets are available to this workflow."
-            echo "[youtube] Add YT_CREDS_1 (and optionally YT_CREDS_2..YT_CREDS_6) under Settings > Secrets and variables > Actions."
+            echo "[youtube] Add YT_CREDS_1 (and optionally YT_CREDS_2..YT_CREDS_19) under Settings > Secrets and variables > Actions."
             exit 1
           fi
 
       - name: Generate
-        run: python -m pipeline.generate --count "$COUNT"
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "[workflow] DRY RUN enabled — uploads are disabled."
+            python -m pipeline.generate --count "$COUNT" --dry-run
+          else
+            python -m pipeline.generate --count "$COUNT"
+          fi
+
+      - name: Upload dry-run artifacts
+        if: always() && env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: examcracker-dry-run-${{ github.run_number }}
+          path: |
+            /tmp/out/*.mp4
+            /tmp/out/*.jpg
+            /tmp/out/*.json
+            /tmp/out/thumbnail_variants/**
+          if-no-files-found: warn
+          retention-days: 7

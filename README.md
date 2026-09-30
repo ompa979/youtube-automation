@@ -87,7 +87,7 @@ For each project:
 5. `python scripts/setup_oauth.py client_secrets.json`
 6. Copy the base64 blob into `wrangler secret put YT_CREDS_1`
 
-For multi-channel upload fallback, add additional OAuth blobs as `YT_CREDS_2` … `YT_CREDS_19`; see `YOUTUBE_CHANNEL_FALLBACK.md`.
+Default routing: `YT_CREDS_1` = normal/exam channel, `YT_CREDS_2` = viral channel. Optional explicit fallback pools can be selected with `YOUTUBE_CREDENTIAL_INDICES`; see `YOUTUBE_CHANNEL_FALLBACK.md`.
 
 The Durable Object auto-rotates: it picks the first project that still has quota left today.
 

@@ -99,10 +99,39 @@ def test_scene_failover_moves_from_account_1_to_account_2(monkeypatch, tmp_path)
         assert img.size == (1080, 1920)
 
 
-def test_workflow_exposes_viral_mode_and_credential_group():
+def test_workflow_maps_exam_to_creds_1_and_viral_to_creds_2():
     src = (ROOT / ".github" / "workflows" / "generate.yml").read_text(encoding="utf-8")
     assert "content_mode:" in src
     assert "viral" in src
-    assert "credential_group:" in src
-    assert "YOUTUBE_CREDENTIAL_PREFIX" in src
-    assert "VIRAL_YT_CREDS_1" in src
+    assert 'YOUTUBE_CREDENTIAL_PREFIX: "YT_CREDS"' in src
+    assert "YOUTUBE_CREDENTIAL_INDICES" in src
+    assert "inputs.content_mode == 'viral' && '2' || '1'" in src
+    assert "VIRAL_YT_CREDS_1" not in src
+
+
+def test_viral_settings_use_yt_creds_2(monkeypatch):
+    from pipeline.generate import _load_settings
+    import base64, json
+    payload = {"token":"t","refresh_token":"r","client_id":"id","client_secret":"secret"}
+    blob = base64.b64encode(json.dumps(payload).encode()).decode()
+    monkeypatch.setenv("CONTENT_MODE", "viral")
+    monkeypatch.setenv("YOUTUBE_CREDENTIAL_PREFIX", "YT_CREDS")
+    monkeypatch.delenv("YOUTUBE_CREDENTIAL_INDICES", raising=False)
+    monkeypatch.delenv("YT_CREDS_1", raising=False)
+    monkeypatch.setenv("YT_CREDS_2", blob)
+    settings = _load_settings()
+    assert [x.index for x in settings.youtube_projects] == [2]
+
+
+def test_exam_settings_use_yt_creds_1(monkeypatch):
+    from pipeline.generate import _load_settings
+    import base64, json
+    payload = {"token":"t","refresh_token":"r","client_id":"id","client_secret":"secret"}
+    blob = base64.b64encode(json.dumps(payload).encode()).decode()
+    monkeypatch.setenv("CONTENT_MODE", "exam")
+    monkeypatch.setenv("YOUTUBE_CREDENTIAL_PREFIX", "YT_CREDS")
+    monkeypatch.delenv("YOUTUBE_CREDENTIAL_INDICES", raising=False)
+    monkeypatch.setenv("YT_CREDS_1", blob)
+    monkeypatch.delenv("YT_CREDS_2", raising=False)
+    settings = _load_settings()
+    assert [x.index for x in settings.youtube_projects] == [1]

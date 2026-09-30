@@ -1,10 +1,10 @@
 # YouTube Channel Fallback
 
-The production uploader supports multiple YouTube OAuth credentials. Each `YT_CREDS_N` secret represents a channel/account authorized by its own OAuth token.
+The production uploader supports multiple YouTube OAuth credentials. Each `YT_CREDS_N` secret represents a channel/account authorized by its own OAuth token. In the default setup, `YT_CREDS_1` is the normal/exam channel and `YT_CREDS_2` is the viral channel.
 
 ## GitHub Actions
 
-The workflow exposes `YT_CREDS_1` through `YT_CREDS_19`. Configure only the credentials you actually have. The upload path starts from the last successful credential and rotates through the remaining configured credentials.
+The workflow exposes the shared `YT_CREDS_N` namespace. By default, normal/exam mode uses `YT_CREDS_1` and viral mode uses `YT_CREDS_2`. For an explicit fallback pool, set `YOUTUBE_CREDENTIAL_INDICES="2,3"` (or another comma-separated list).
 
 ## Fallback behavior
 

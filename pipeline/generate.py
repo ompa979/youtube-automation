@@ -85,16 +85,29 @@ def _decode_credential(raw: str) -> dict[str, Any]:
 
 def _load_settings() -> Settings:
     content_mode = os.getenv("CONTENT_MODE", "exam").strip().lower() or "exam"
+    # Keep one shared secret namespace, but select the channel pool explicitly.
+    # By default normal/exam content uses YT_CREDS_1 and viral content uses YT_CREDS_2.
+    # Set YOUTUBE_CREDENTIAL_INDICES="1,2,3" to opt into an explicit fallback pool.
     credential_prefix = os.getenv("YOUTUBE_CREDENTIAL_PREFIX", "YT_CREDS").strip() or "YT_CREDS"
+    default_index = "2" if content_mode == "viral" else "1"
+    indices_raw = os.getenv("YOUTUBE_CREDENTIAL_INDICES", default_index).strip() or default_index
+    try:
+        indices = [int(x.strip()) for x in indices_raw.split(",") if x.strip()]
+    except ValueError as exc:
+        raise ValueError(f"Invalid YOUTUBE_CREDENTIAL_INDICES={indices_raw!r}; use comma-separated integers") from exc
+    invalid = [i for i in indices if i < 1 or i > 19]
+    if invalid:
+        raise ValueError(f"YOUTUBE_CREDENTIAL_INDICES contains invalid values: {invalid}")
+
     creds: list[YouTubeCredentials] = []
-    for i in range(1, 20):
+    for i in indices:
         raw = os.getenv(f"{credential_prefix}_{i}")
         if not raw:
             continue
         try:
             creds.append(YouTubeCredentials(i, _decode_credential(raw)))
         except Exception as exc:
-            print(f"[!] Ignoring invalid YT_CREDS_{i}: {exc}")
+            print(f"[!] Ignoring invalid {credential_prefix}_{i}: {exc}")
 
     return Settings(
         gemini_api_key=os.getenv("GEMINI_API_KEY"),

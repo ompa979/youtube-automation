@@ -14,7 +14,8 @@
 | Secret | Value |
 |--------|-------|
 | `GEMINI_API_KEY` | Your Google AI Studio key (free at aistudio.google.com) |
-| `YT_CREDS_1` | Your YouTube OAuth JSON (base64-encoded) |
+| `YT_CREDS_1` | Normal/exam YouTube OAuth JSON (base64-encoded) |
+| `YT_CREDS_2` | Viral YouTube OAuth JSON (base64-encoded) |
 
 ### Optional but recommended (free-tier voice upgrade)
 | Secret | Value |

@@ -40,6 +40,7 @@ class Settings:
     pollinations_api_key: str | None = None  # retained for legacy compatibility; image generation no longer uses it
     youtube_projects: list[YouTubeCredentials] = field(default_factory=list)
     upload_enabled: bool = True
+    content_mode: str = "exam"
     niches_enabled: list[str] = field(default_factory=lambda: ["facts"])
     languages_enabled: list[str] = field(default_factory=lambda: ["en"])
 

@@ -20,7 +20,7 @@ from PIL import Image
 
 from .config import WORK_DIR
 from .subject_area import classify_subject_area, SUBJECT_AREA_IMAGE_SUFFIX
-from .thumbnail_ai import cloudflare_configured, generate_cloudflare_background
+from .thumbnail_ai import cloudflare_configured, cloudflare_credential_pool, generate_cloudflare_background
 
 POLLINATIONS = "https://image.pollinations.ai/prompt/{prompt}"  # legacy constant; not used by the active image path
 
@@ -31,6 +31,7 @@ POLLINATIONS = "https://image.pollinations.ai/prompt/{prompt}"  # legacy constan
 # ─────────────────────────────────────────────────────────────────────────────
 PROVIDER_STATE: dict[str, str] = {
     "cloudflare_image": "available",
+    "cloudflare_scene_slot": "1",
     "gemini_image": "available",  # retained for future image-provider re-enable; disabled by default
     "pollinations": "disabled",    # retired from primary image generation
     "pexels": "available",         # stock fallback
@@ -42,6 +43,7 @@ def reset_provider_state() -> None:
     global PROVIDER_STATE
     PROVIDER_STATE = {
         "cloudflare_image": "available",
+        "cloudflare_scene_slot": "1",
         "gemini_image": "available",
         "pollinations": "disabled",
         "pexels": "available",
@@ -674,17 +676,16 @@ def _apply_dark_scrim(path: Path, width: int = 1080, height: int = 1920) -> bool
 
 
 def _cloudflare_scene_enabled() -> bool:
-    """Return True only when the primary Cloudflare scene credentials are configured.
+    """Require a configured primary scene account before enabling scene failover.
 
-    Numbered Cloudflare failover accounts are intentionally thumbnail-only; they
-    must not silently enable scene generation when the primary scene credentials
-    are missing.
+    Account 2-4 are failover capacity after primary quota/transport errors; they
+    do not silently turn on the scene pipeline when the primary account is absent.
     """
     enabled = os.getenv("CLOUDFLARE_SCENE_IMAGES_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
     provider_ok = os.getenv("IMAGE_PROVIDER", "cloudflare").strip().lower() == "cloudflare"
     primary_account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
     primary_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
-    return bool(provider_ok and enabled and primary_account and primary_token)
+    return bool(provider_ok and enabled and primary_account and primary_token and cloudflare_credential_pool())
 
 
 def _fetch_cloudflare_scene_image(
@@ -694,7 +695,7 @@ def _fetch_cloudflare_scene_image(
     width: int = 768,
     height: int = 1365,
 ) -> bool:
-    """Generate a vertical scene image through the active Cloudflare model."""
+    """Generate a vertical scene image with Cloudflare account failover."""
     if PROVIDER_STATE.get("cloudflare_image") != "available" or not _cloudflare_scene_enabled():
         return False
 
@@ -705,18 +706,35 @@ def _fetch_cloudflare_scene_image(
     if "9:16" not in scene_prompt.lower() and "vertical" not in scene_prompt.lower():
         scene_prompt += ", vertical 9:16 composition"
 
-    try:
-        image = _generate_cloudflare_image_with_dimensions(scene_prompt, seed, width=width, height=height, steps=4)
-        temp = out_path.with_suffix(".cloudflare.jpg")
-        image.save(temp, "JPEG", quality=94)
-        if _valid_image(temp) and _normalize_image(temp, 1080, 1920):
-            temp.replace(out_path)
-            model = os.getenv("CLOUDFLARE_IMAGE_MODEL", "").split("/")[-1]
-            print(f"[visuals] Cloudflare {model} generated scene -> {out_path.name}")
-            return True
-    except Exception as exc:
-        print(f"[visuals] Cloudflare scene generation failed: {exc}")
-        PROVIDER_STATE["cloudflare_image"] = "disabled"
+    pool = cloudflare_credential_pool()
+    if not pool:
+        return False
+    preferred = str(PROVIDER_STATE.get("cloudflare_scene_slot", "1"))
+    ordered = sorted(pool, key=lambda item: (0 if item[0] == preferred else 1, int(item[0]) if item[0].isdigit() else 99))
+    last_error: Exception | None = None
+    for slot, account_id, api_token in ordered:
+        try:
+            image = _generate_cloudflare_image_with_dimensions(
+                scene_prompt, seed, width=width, height=height, steps=4,
+                account_id=account_id, api_token=api_token,
+            )
+            temp = out_path.with_suffix(".cloudflare.jpg")
+            image.save(temp, "JPEG", quality=94)
+            if _valid_image(temp) and _normalize_image(temp, 1080, 1920):
+                temp.replace(out_path)
+                model = os.getenv("CLOUDFLARE_SCENE_MODEL", os.getenv("CLOUDFLARE_IMAGE_MODEL", "")).split("/")[-1]
+                PROVIDER_STATE["cloudflare_scene_slot"] = str(slot)
+                print(f"[visuals] Cloudflare account={slot} {model} generated scene -> {out_path.name}")
+                return True
+            raise RuntimeError("Cloudflare returned an unusable scene image")
+        except Exception as exc:
+            last_error = exc
+            safe_error = str(exc).replace(api_token, "***") if api_token else str(exc)
+            print(f"[visuals] Cloudflare scene account={slot} failed: {safe_error[:900]}")
+            continue
+
+    print(f"[visuals] all Cloudflare scene accounts exhausted: {str(last_error)[:900] if last_error else 'no credentials'}")
+    PROVIDER_STATE["cloudflare_image"] = "disabled"
     return False
 
 def _generate_cloudflare_image_with_dimensions(
@@ -725,11 +743,17 @@ def _generate_cloudflare_image_with_dimensions(
     width: int | None,
     height: int | None,
     steps: int = 4,
+    account_id: str | None = None,
+    api_token: str | None = None,
 ) -> Image.Image:
-    """Call the shared Cloudflare adapter using the configured model transport."""
+    """Call the shared Cloudflare adapter using explicit account credentials."""
     target_w = int(width or 1024)
     target_h = int(height or 1024)
-    return generate_cloudflare_background(prompt, seed, width=target_w, height=target_h, model=os.getenv("CLOUDFLARE_SCENE_MODEL", os.getenv("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")))
+    return generate_cloudflare_background(
+        prompt, seed, width=target_w, height=target_h,
+        model=os.getenv("CLOUDFLARE_SCENE_MODEL", os.getenv("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")),
+        account_id=account_id, api_token=api_token,
+    )
 
 
 def fetch_scene_image(

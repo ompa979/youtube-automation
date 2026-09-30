@@ -1,0 +1,198 @@
+{
+  "version": 1,
+  "mode": "viral",
+  "last_updated": "2026-09-30",
+  "strategy": {
+    "positioning": "Broad-audience Shorts built around curiosity, human consequence, visual transformations and concise stories.",
+    "selection": "Prefer ideas with an immediate curiosity gap, broad human relevance, strong visual potential, concrete mechanism and clean factual framing. Reject generic motivation, unsupported clickbait and vague listicles.",
+    "script": "18-28 second stories. Hook in the first 1.2 seconds, tension or contradiction, one visual mechanism, payoff, and optional loop. Avoid lectures, filler introductions, generic CTA narration and fake statistics.",
+    "visuals": "Premium cinematic AI art or topic-specific stock, animated motion graphics, depth, transformations and a clear hero object. No generic gradients or unrelated imagery.",
+    "thumbnail": "Short 2-5 word curiosity headline, one dominant visual metaphor, large 9:16 typography, strong negative space, no quiz UI or generic labels."
+  },
+  "niches": {
+    "psychology_human_behavior": {
+      "display_name": "Psychology & Human Behaviour",
+      "content_mode": "viral",
+      "card_tag": "HUMAN BEHAVIOUR",
+      "visual_style": "ai_cinematic",
+      "weight": 3,
+      "voice": {"en": "en-IN"},
+      "system_prompt": "Create a broad-audience Short about psychology or human behaviour. Use cautious, evidence-aware wording: explain one everyday mechanism without diagnosing people or inventing study statistics. Make the behaviour visible through a simple visual metaphor or mini experiment.",
+      "topics": [
+        "Why unfinished tasks stay in your mind longer",
+        "Why negative comments can stick more than compliments",
+        "Why having too many choices can make decisions harder",
+        "Why deadlines can suddenly make you act faster",
+        "Why we copy the behaviour of people around us",
+        "Why embarrassing memories replay when you are trying to sleep",
+        "Why your environment can change a habit before motivation does",
+        "Why the first impression is so hard to update",
+        "Why small rewards can make boring tasks easier to start",
+        "Why your brain notices a missing pattern before you notice the details",
+        "Why people remember stories better than isolated facts",
+        "Why switching tasks feels easier than it really is"
+      ]
+    },
+    "money_personal_finance": {
+      "display_name": "Money & Personal Finance",
+      "content_mode": "viral",
+      "card_tag": "MONEY",
+      "visual_style": "cinematic_hud",
+      "weight": 3,
+      "voice": {"en": "en-IN"},
+      "system_prompt": "Create an educational money Short using conceptual examples, not personalized financial advice. Avoid guarantees, specific investment recommendations and fabricated numbers. Focus on mechanisms people can understand visually.",
+      "topics": [
+        "Why your first savings milestone often feels slower than the next one",
+        "Why compound growth looks boring before it suddenly accelerates",
+        "Why lifestyle inflation can quietly cancel a salary increase",
+        "Why an emergency fund changes how risky a surprise expense feels",
+        "Why paying interest can make a small purchase much larger",
+        "Why a discount is not the same as saving money",
+        "Why monthly cash flow matters more than a single salary number",
+        "Why small recurring expenses are easy to underestimate",
+        "Why the same money can feel different when it has a clear purpose",
+        "Why time can matter more than the starting amount in compounding",
+        "Why fees can matter even when each fee looks tiny",
+        "Why a budget fails when it ignores real behaviour"
+      ]
+    },
+    "ai_future_tech": {
+      "display_name": "AI & Future Technology",
+      "content_mode": "viral",
+      "card_tag": "AI EXPLAINED",
+      "visual_style": "cinematic_hud",
+      "weight": 3,
+      "voice": {"en": "en-IN"},
+      "system_prompt": "Explain one AI or technology concept simply and accurately. Avoid hype, fabricated model claims and promises about jobs or future events. Prefer a visual mechanism: tokens, context, retrieval, image generation, inference, training or human-AI workflow.",
+      "topics": [
+        "Why AI models sometimes invent an answer that sounds convincing",
+        "Why longer context does not always mean better answers",
+        "What a token actually is inside an AI model",
+        "Why retrieval can help an AI answer with the right documents",
+        "Why image generators turn noise into an image step by step",
+        "Why training and inference are two very different workloads",
+        "Why AI can recognize patterns without understanding them like a human",
+        "Why changing a model's temperature can change its style of output",
+        "Why a phone camera can use AI before you even press the shutter",
+        "Why multimodal AI is different from a text-only chatbot",
+        "Why small prompts can produce very different AI images",
+        "Why AI assistants can be fast and still need verification"
+      ]
+    },
+    "career_work": {
+      "display_name": "Career & Work",
+      "content_mode": "viral",
+      "card_tag": "CAREER",
+      "visual_style": "mixed_stock_ai",
+      "weight": 2,
+      "voice": {"en": "en-IN"},
+      "system_prompt": "Create practical career and work Shorts without promising outcomes. Focus on concrete behaviours: communication, prioritization, interviews, portfolios, meetings, learning and focus. Show a before/after or mistake/correction.",
+      "topics": [
+        "Why being busy can look productive while producing less useful work",
+        "Why a stronger resume bullet describes impact instead of only tasks",
+        "Why one deep skill plus one complementary skill can be easier to explain",
+        "Why interview answers improve when the example comes before the theory",
+        "Why a portfolio can make an invisible skill easier to evaluate",
+        "Why unclear priorities create more stress than a long task list",
+        "Why small weekly improvements compound into visible career progress",
+        "Why saying no can protect the work people actually notice",
+        "Why meetings drift when nobody defines the decision first",
+        "Why learning by building can expose gaps faster than passive watching",
+        "Why switching tools is not the same as improving your workflow",
+        "Why the best career stories usually contain a problem and a change"
+      ]
+    },
+    "motivation_discipline": {
+      "display_name": "Motivation & Discipline",
+      "content_mode": "viral",
+      "card_tag": "MINDSET",
+      "visual_style": "ai_cinematic",
+      "weight": 2,
+      "voice": {"en": "en-IN"},
+      "system_prompt": "Avoid empty motivational slogans. Turn mindset ideas into a mechanism, behaviour change or mini story. Do not claim that one technique guarantees success. Make the viewer visualize the difference between intention and action.",
+      "topics": [
+        "Why motivation disappears but a simple system can keep moving",
+        "Why making the first step smaller can beat waiting to feel ready",
+        "Why your environment can make discipline easier or harder",
+        "Why starting badly can be better than planning perfectly",
+        "Why visible progress can change how hard a task feels",
+        "Why friction can quietly decide whether a habit happens",
+        "Why a fixed trigger can make a routine easier to remember",
+        "Why rest can improve consistency instead of destroying it",
+        "Why perfectionism can look like productivity while delaying the work",
+        "Why reducing choices can make it easier to start",
+        "Why the identity you repeat can shape the behaviour you repeat",
+        "Why waiting for inspiration often produces less work than starting first"
+      ]
+    },
+    "science_everyday": {
+      "display_name": "Science in Everyday Life",
+      "content_mode": "viral",
+      "card_tag": "SCIENCE",
+      "visual_style": "educational_ai",
+      "weight": 3,
+      "voice": {"en": "en-IN"},
+      "system_prompt": "Explain one everyday science mechanism with a strong visual. Prefer simple language and accurate causal explanations. Do not exaggerate or invent measurements. The payoff should explain something viewers have actually seen.",
+      "topics": [
+        "Why metal feels colder than wood at the same temperature",
+        "Why ice floats even though solid materials are usually denser",
+        "Why the sky can turn red near sunset",
+        "Why onions can make your eyes water",
+        "Why bubbles show rainbow colours",
+        "Why popcorn suddenly expands when heated",
+        "Why static electricity can make your hair stand up",
+        "Why a pressure cooker changes cooking speed",
+        "Why airplane windows have more than one layer",
+        "Why a spinning top stays upright longer than you expect",
+        "Why wet clothes cool your skin as they dry",
+        "Why a straw can seem broken when it sits in a glass of water"
+      ]
+    },
+    "history_stories": {
+      "display_name": "History Stories",
+      "content_mode": "viral",
+      "card_tag": "HISTORY",
+      "visual_style": "ai_cinematic",
+      "weight": 2,
+      "voice": {"en": "en-IN"},
+      "system_prompt": "Tell a compact history story using only defensible, well-known facts. Avoid sensational conspiracy framing. Use a single surprising object, decision or consequence as the visual anchor.",
+      "topics": [
+        "Why the printing press changed who could access ideas",
+        "How paper transformed the way information could travel",
+        "Why the Silk Road was more than one road",
+        "Why ancient Roman concrete lasted in some harsh environments",
+        "How the concept of zero changed calculation",
+        "Why calendars were redesigned when measurements of the year improved",
+        "How a tiny navigation mistake could change a voyage",
+        "Why maps became powerful tools as well as geographic objects",
+        "How a new transport system changed the speed of trade",
+        "Why old cities often grew around water and trade routes",
+        "How written records changed the way governments stored information",
+        "Why a historical technology can look simple but change an entire workflow"
+      ]
+    },
+    "social_behaviour": {
+      "display_name": "Social Behaviour",
+      "content_mode": "viral",
+      "card_tag": "SOCIAL SCIENCE",
+      "visual_style": "mixed_stock_ai",
+      "weight": 2,
+      "voice": {"en": "en-IN"},
+      "system_prompt": "Explain one social or communication behaviour using cautious wording and a concrete example. Avoid diagnosing individuals or treating a single psychology study as universal truth.",
+      "topics": [
+        "Why people may follow a crowd even when they have doubts",
+        "Why giving a small favour can make future cooperation easier",
+        "Why names can make a conversation feel more personal",
+        "Why silence can change how a negotiation feels",
+        "Why the first message in a group can shape the discussion",
+        "Why social proof can affect what people notice first",
+        "Why a clear question often gets a better answer than a vague one",
+        "Why people can remember how a conversation felt more than the exact words",
+        "Why an audience can react differently when the same idea is shown visually",
+        "Why repeated exposure can make an unfamiliar idea feel easier to recognize",
+        "Why timing can change how advice is received",
+        "Why a small change in wording can change the response you get"
+      ]
+    }
+  }
+}

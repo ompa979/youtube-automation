@@ -40,6 +40,7 @@ from .gemini_router import GeminiRouter, CallType
 from .quality import validate_script
 from .engagement_v2 import enforce_v2_contract, build_click_title, build_comment_cta
 from .subject_area import classify_subject_area
+from .viral_content import viral_angle
 from .seo import (
     get_cluster_for_topic,
     generate_seo_title, pick_title_mode, extract_problem_hook, TitleMode,
@@ -130,6 +131,7 @@ class Script:
     creative_version: str = "v16"
     creative_badge: str = ""
     visual_family: str = ""
+    content_mode: str = "exam"
 
     def to_dict(self) -> dict:
         return {
@@ -145,6 +147,87 @@ class Script:
         }
 
 
+
+def _build_viral_prompt(
+    topic: str,
+    niche_cfg: dict,
+    language: str,
+    repair: str | None = None,
+) -> str:
+    angle = viral_angle(topic)
+    repair_text = f"\nREPAIR REQUEST:\n{repair}\n" if repair else ""
+    system = niche_cfg.get("system_prompt", "")
+    return f"""
+{system}
+
+You are the creative director for a broad-audience YouTube Shorts channel.
+The objective is not generic motivation or a lecture. Build one memorable micro-story
+that creates an immediate curiosity gap, shows a concrete mechanism, and pays it off.
+
+TOPIC: {topic}
+CREATIVE ANGLE: {angle}
+
+Viewer-facing language:
+- Simple, natural Indian English.
+- No Hinglish, Devanagari, forced slang or fake internet speak.
+- Do not diagnose people or make medical/legal/financial promises.
+- Do not invent percentages, study results, quotes or guarantees.
+
+MANDATORY 6-SCENE STORY:
+1. pattern_interrupt (0-1.5s): one startling concrete statement, contradiction or visual event.
+2. tension (1.5-4.5s): reveal the consequence or mystery. Make the viewer want the reason.
+3. mechanism (4.5-9s): show the hidden process with a visual transformation.
+4. transformation (9-14s): before→after, input→result, mistake→correction, or cause→effect.
+5. payoff (14-21s): the surprising rule/fact/lesson in one memorable sentence.
+6. loop (21-27s): close the story, optionally echo the opening image or question without a generic subscribe CTA.
+
+DO NOT:
+- turn this into an A/B quiz or countdown;
+- say "stop scrolling", "you won't believe", "secret hack", "guaranteed", or "90% of people";
+- start with "Today we are going to";
+- use generic motivational filler such as "never give up" without a concrete mechanism;
+- use unrelated stock imagery;
+- put long sentences or paragraphs on screen.
+
+VISUAL RULES:
+- Each scene needs a distinct visual event: move, transform, split, reveal, build, zoom, contrast or consequence.
+- Image prompts must depict the exact topic, not a generic classroom, vault, server room, money pile or gradient.
+- Prefer one unmistakable hero object, human reaction, physical metaphor, or process diagram.
+- Leave deliberate negative space for typography.
+- No words, letters, numbers, logos or watermarks inside generated images.
+
+ON-SCREEN COPY:
+- 2-5 words for the main cue.
+- One punchy memory anchor only, max 6 words.
+- The first frame must make sense without audio.
+
+Return EXACTLY this JSON shape (no markdown):
+{{
+  "title": "accurate, curiosity-first title under 85 characters",
+  "hook": "the first spoken line",
+  "description": "2 concise sentences + 3 relevant hashtags",
+  "pinned_comment": "one natural reaction/question prompt",
+  "tags": ["8-12 lowercase tags"],
+  "scenes": [
+    {{
+      "action_type": "pattern_interrupt | tension | mechanism | transformation | payoff | loop",
+      "action_payload": "short visual cue",
+      "narration": "natural spoken line",
+      "tts_text": "same line, punctuated for TTS",
+      "image_prompt": "specific cinematic action visual, vertical 9:16, no text",
+      "on_screen_text": "2-5 word cue",
+      "card_points": ["one memory anchor, max 6 words"],
+      "motion_type": "slam_impact | snap_zoom | formula_build | transformation | winner_reveal | loop_back",
+      "camera_motion": "shake_and_push | snap_zoom | push_fast | pan_subtle | static | push_in",
+      "sfx_cue": "boom | whoosh | chime | alert | tick"
+    }}
+  ]
+}}
+
+Exactly 6 scenes. Target 60-85 spoken words. Hard cap 100.
+{repair_text}
+""".strip()
+
 def _build_prompt(
     topic: str,
     niche_cfg: dict,
@@ -152,6 +235,8 @@ def _build_prompt(
     repair: str | None = None,
     hook_style: str | None = None,
 ) -> str:
+    if niche_cfg.get("content_mode") == "viral":
+        return _build_viral_prompt(topic, niche_cfg, language, repair=repair)
     hook_style = hook_style or _pick_hook_style(topic)
     hook_instruction = _HOOK_STYLES[hook_style]
 
@@ -465,7 +550,8 @@ def _to_script(data: dict) -> Script:
 
         action_type = _first_text(raw, "action_type", "type", "purpose", "scene_type").lower()
         if not action_type or action_type not in (
-            "pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap", "loop", "trap_loop"
+            "pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap", "loop", "trap_loop",
+            "tension", "transformation", "payoff"
         ):
             if i == 0:
                 action_type = "pattern_interrupt"
@@ -658,20 +744,22 @@ def _build_content_aware_pinned_comment(topic: str, script: "Script") -> str:
 
 
 def _ensure_cta(script: "Script", topic: str) -> None:
-    """Guarantee the last scene asks for a comment, the description carries the
-    CTA, and a content-aware pinned_comment exists."""
+    """Add a natural comment prompt without bloating the spoken script."""
+    cta = build_comment_cta(script)
+    if getattr(script, "content_mode", "exam") == "viral":
+        # Viral mode keeps the spoken ending clean; the interaction lives in the
+        # pinned comment/description and the visual loop.
+        script.pinned_comment = cta
+        if not _has_cta(script.description):
+            script.description = script.description.rstrip() + "\n\n" + cta
+        return
     last = script.scenes[-1]
     if not _has_cta(last.narration):
-        cta = build_comment_cta(script)
         last.narration = last.narration.rstrip() + " " + cta
         last.tts_text = last.tts_text.rstrip() + " " + cta
         print(f"[cta] LLM omitted comment CTA — appended content-aware challenge: {cta!r}")
-
-    # V2: pin the same challenge the viewer just saw. This prevents generic
-    # topic-based comments (for example, a bank-charge question on a money-supply Short).
-    script.pinned_comment = build_comment_cta(script)
+    script.pinned_comment = cta
     print(f"[cta] pinned exact challenge: {script.pinned_comment[:90]}...")
-
     if not _has_cta(script.description):
         script.description = script.description.rstrip() + "\n\n" + script.pinned_comment
 
@@ -1063,7 +1151,7 @@ def _extract_scene_list(payload: object) -> list | None:
     return None
 
 
-def _repair_script_shape(parsed: dict, router: GeminiRouter, topic: str) -> dict:
+def _repair_script_shape(parsed: dict, router: GeminiRouter, topic: str, content_mode: str = "exam") -> dict:
     """Repair unconstrained JSON that does not satisfy the six-scene teaching contract.
 
     The recovery path is intentionally two-stage: unwrap harmless Gemini response wrappers,
@@ -1079,8 +1167,13 @@ def _repair_script_shape(parsed: dict, router: GeminiRouter, topic: str) -> dict
         print("[qa] script shape wrapper normalized: found exactly 6 nested scenes")
         return normalized
     print(f"[qa] script shape repair required: got {count} scenes; normalizing to exactly 6")
+    role_text = (
+        "1. pattern_interrupt\n2. tension\n3. mechanism\n4. transformation\n5. payoff\n6. loop"
+        if content_mode == "viral" else
+        "1. hook\n2. context\n3. mechanism\n4. example\n5. exam_takeaway\n6. difference_card"
+    )
     repair_prompt = f"""
-You are a strict JSON repairer for an educational YouTube Shorts pipeline.
+You are a strict JSON repairer for a YouTube Shorts pipeline.
 TOPIC: {topic}
 
 The following JSON is structurally valid but violates the required six-scene teaching contract.
@@ -1088,12 +1181,7 @@ Return ONLY corrected JSON. Preserve original facts and wording wherever possibl
 Never turn the content into a quiz, A/B challenge, countdown, or generic CTA.
 
 REQUIRED SCENES IN THIS EXACT ORDER:
-1. hook
-2. context
-3. mechanism
-4. example
-5. exam_takeaway
-6. difference_card
+{role_text}
 
 Each scene must contain:
 action_type, action_payload, narration, tts_text, image_prompt, on_screen_text,
@@ -1101,7 +1189,7 @@ card_points, motion_type, camera_motion, sfx_cue.
 
 If there are more than six scenes, merge redundant material without losing the mechanism or example.
 If there are fewer than six, split or rephrase existing material only; do not add unsupported facts.
-Keep total narration concise (50-90 words).
+Keep total narration concise (60-85 words for viral mode, 50-90 words otherwise).
 
 SOURCE JSON:
 {json.dumps(parsed, ensure_ascii=False)}
@@ -1124,7 +1212,7 @@ SOURCE JSON:
 Return ONLY one JSON object with exactly 6 scenes for this educational YouTube Short.
 TOPIC: {topic}
 
-Use this exact scene order: hook, context, mechanism, example, exam_takeaway, difference_card.
+Use this exact scene order: {role_text}.
 Each scene must contain: action_type, action_payload, narration, tts_text, image_prompt,
 on_screen_text, card_points, motion_type, camera_motion, sfx_cue.
 Keep the total narration 50-90 words. Preserve facts from the source and do not invent facts.
@@ -1146,7 +1234,7 @@ SOURCE:
     return retry
 
 
-def _safe_to_script(parsed: dict, router: GeminiRouter, topic: str) -> Script:
+def _safe_to_script(parsed: dict, router: GeminiRouter, topic: str, content_mode: str = "exam") -> Script:
     """Convert JSON to Script, repairing scene-shape errors once before failing."""
     try:
         return _to_script(parsed)
@@ -1154,7 +1242,7 @@ def _safe_to_script(parsed: dict, router: GeminiRouter, topic: str) -> Script:
         msg = str(exc).lower()
         if "scene" not in msg and "narration" not in msg:
             raise
-        repaired = _repair_script_shape(parsed, router, topic)
+        repaired = _repair_script_shape(parsed, router, topic, content_mode=content_mode)
         return _to_script(repaired)
 
 
@@ -1210,8 +1298,10 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
             raise RuntimeError(f"Gemini returned invalid JSON and repair failed: {repair_exc}") from parse_exc
 
     # ── QA + topic drift + length + known-error guard ────────────────────────
-    script = _safe_to_script(parsed, router, topic)
-    qa = _qa_all(script, topic, language)
+    content_mode = str(niche_cfg.get("content_mode", getattr(settings, "content_mode", "exam")) or "exam")
+    script = _safe_to_script(parsed, router, topic, content_mode=content_mode)
+    script.content_mode = content_mode
+    qa = _qa_all(script, topic, language, content_mode)
 
     # ── Pass 2: cross-model fact-check (BLOCKING) ────────────────────────────
     print("[pipeline] Pass 2 — cross-model fact-check (thinking=high)")
@@ -1249,8 +1339,9 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
         try:
             print("[pipeline] Script repair via router (schema-constrained)")
             raw2 = router.generate(repair_prompt, call_type=CallType.SCRIPT_GEN, use_schema=False)
-            repaired = _safe_to_script(_parse_json(raw2), router, topic)
-            qa2 = _qa_all(repaired, topic, language)
+            repaired = _safe_to_script(_parse_json(raw2), router, topic, content_mode=content_mode)
+            repaired.content_mode = content_mode
+            qa2 = _qa_all(repaired, topic, language, content_mode)
             if qa2.ok:
                 fc2 = fact_check_script(
                     repaired, topic, settings.gemini_api_key, drafter_model=_DRAFTER_MODEL
@@ -1263,7 +1354,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
                 repaired = polish_script(repaired, topic, settings.gemini_api_key)
                 # Final post-polish QA so the polish step cannot reintroduce a banned
                 # phrase or push the script back over the word cap.
-                qa3 = _qa_all(repaired, topic, language)
+                qa3 = _qa_all(repaired, topic, language, content_mode)
                 if qa3.ok:
                     final_fc = fact_check_script(
                         repaired, topic, settings.gemini_api_key, drafter_model=_DRAFTER_MODEL
@@ -1290,8 +1381,8 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
     )
 
 
-def _qa_all(script: Script, topic: str, language: str):
-    qa = validate_script(script, language)
+def _qa_all(script: Script, topic: str, language: str, content_mode: str = "exam"):
+    qa = validate_script(script, language, content_mode=content_mode)
     extra: list[str] = []
     for check in (_topic_issue(topic, script), _length_issue(script)):
         if check:
@@ -1395,6 +1486,8 @@ _V6_RISK_PHRASES = (
 
 def _v6_prompt(topic: str, niche_cfg: dict, language: str, repair: str | None = None, hook_style: str | None = None, **_) -> str:
     repair_text = f"\nREPAIR REQUEST:\n{repair}\n" if repair else ""
+    if niche_cfg.get("content_mode") == "viral":
+        return _build_viral_prompt(topic, niche_cfg, language, repair=repair)
     hook_style = hook_style or _pick_hook_style(topic)
     hook_instruction = _HOOK_STYLES[hook_style]
     return f"""

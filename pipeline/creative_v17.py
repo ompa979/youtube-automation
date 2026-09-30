@@ -30,6 +30,11 @@ ROLE_MODE = {
     "example": "worked_example",
     "exam_takeaway": "exam_card",
     "difference_card": "exam_card",
+    "pattern_interrupt": "concept",
+    "tension": "concept",
+    "transformation": "worked_example",
+    "payoff": "exam_card",
+    "loop": "concept",
 }
 
 
@@ -124,12 +129,39 @@ class V17Meta:
     visual_family: str
 
 
+def _viral_suffix(topic: str) -> str:
+    low = (topic or "").lower()
+    mapping = [
+        (r"unfinished|task", "WHY IT STICKS"),
+        (r"negative|compliment", "WHY IT LINGERS"),
+        (r"choice|decisions", "TOO MANY CHOICES"),
+        (r"deadline", "WHY DEADLINES WORK"),
+        (r"compound", "WHY IT ACCELERATES"),
+        (r"lifestyle inflation|salary", "WHERE THE EXTRA GOES"),
+        (r"ai|model|token|context", "THE HIDDEN MECHANISM"),
+        (r"motivation|discipline|habit", "WHY SYSTEMS WIN"),
+        (r"metal|wood|ice|sky|bubble|onion|popcorn|static", "THE SCIENCE BEHIND IT"),
+        (r"printing|paper|silk road|roman|zero|calendar|map", "THE CHANGE IT CREATED"),
+    ]
+    for pattern, value in mapping:
+        if re.search(pattern, low):
+            return value
+    if ":" in topic:
+        tail = _clean(topic.split(":", 1)[1])
+        return " ".join(_words(tail)[:6]).upper() or "THE HIDDEN MECHANISM"
+    return "THE HIDDEN MECHANISM"
+
+
 def apply_v17_creative_contract(script, topic: str, niche_cfg: dict | None = None) -> V17Meta:
     """Mutate a Script into the deterministic V17 information-design contract."""
     niche_cfg = niche_cfg or {}
     core = _topic_core(topic)
-    suffix = _suffix(topic)
-    badge = _clean(niche_cfg.get("card_tag", "EXAMCRACKER AI")).upper()
+    if niche_cfg.get("content_mode") == "viral":
+        suffix = _viral_suffix(topic)
+        badge = _clean(niche_cfg.get("card_tag", "VIRAL SHORTS")).upper()
+    else:
+        suffix = _suffix(topic)
+        badge = _clean(niche_cfg.get("card_tag", "EXAMCRACKER AI")).upper()
 
     # Strong first frame: a meaningful concept headline + a mechanism promise.
     hero_headline = _safe_short(core.upper(), max_words=7, max_chars=38)
@@ -148,7 +180,17 @@ def apply_v17_creative_contract(script, topic: str, niche_cfg: dict | None = Non
 
         current = _safe_short(getattr(scene, "on_screen_text", ""), max_words=7, max_chars=60)
         if not _is_valid_headline(current):
-            if role == "hook":
+            if niche_cfg.get("content_mode") == "viral":
+                viral_defaults = {
+                    "pattern_interrupt": hero_headline,
+                    "tension": "HERE'S WHAT HAPPENS",
+                    "mechanism": suffix,
+                    "transformation": "WATCH IT CHANGE",
+                    "payoff": "NOW IT MAKES SENSE",
+                    "loop": "REMEMBER THIS",
+                }
+                current = viral_defaults.get(role, hero_headline)
+            elif role == "hook":
                 current = hero_headline
             elif role == "context":
                 current = "WHAT CHANGES FIRST" if "vs" in topic.lower() else f"{core.upper()} — CORE PARTS"

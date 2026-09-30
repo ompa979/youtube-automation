@@ -35,7 +35,7 @@ def _word_count(text: str) -> int:
     return len(re.findall(r"\b[\w'-]+\b", text.lower()))
 
 
-def validate_script(script: Any, language: str) -> QAResult:
+def validate_script(script: Any, language: str, content_mode: str = "exam") -> QAResult:
     issues: list[str] = []
     scenes = list(getattr(script, "scenes", []) or [])
     spoken = " ".join(s.narration for s in scenes).strip()
@@ -45,14 +45,20 @@ def validate_script(script: Any, language: str) -> QAResult:
     if not script.title.strip(): issues.append("missing title")
     if not script.hook.strip(): issues.append("missing hook")
     if len(scenes) != 6: issues.append(f"expected exactly 6 scenes, got {len(scenes)}")
-    if words < MIN_WORDS: issues.append(f"too short: {words} words; needs a complete explanation")
-    if words > MAX_WORDS: issues.append(f"too long: {words} words; remove repetition")
+    min_words = 60 if content_mode == "viral" else MIN_WORDS
+    max_words = 100 if content_mode == "viral" else MAX_WORDS
+    if words < min_words: issues.append(f"too short: {words} words; needs a complete idea")
+    if words > max_words: issues.append(f"too long: {words} words; remove repetition")
     if language != "en": issues.append(f"V6 requires language=en, got {language!r}")
     if any("\u0900" <= ch <= "\u097F" for ch in all_text): issues.append("Devanagari/Hindi text detected")
     if FORBIDDEN_GAME_LANGUAGE.search(all_text): issues.append("A/B/countdown/game-show language detected")
     if SENSATIONAL_UNVERIFIED.search(all_text): issues.append("unsupported sensational wording detected")
 
-    expected = ["hook", "context", "mechanism", "example", "exam_takeaway", "difference_card"]
+    expected = [
+        "pattern_interrupt", "tension", "mechanism", "transformation", "payoff", "loop"
+    ] if content_mode == "viral" else [
+        "hook", "context", "mechanism", "example", "exam_takeaway", "difference_card"
+    ]
     actual = [getattr(s, "action_type", "") for s in scenes]
     if actual != expected: issues.append(f"scene roles must be {expected}, got {actual}")
 
@@ -63,7 +69,7 @@ def validate_script(script: Any, language: str) -> QAResult:
         if len(scene.card_points) > 1: issues.append(f"scene {i}: too many memory anchors")
         lower = scene.narration.lower()
         if any(f in lower for f in GENERIC_FILLERS): issues.append(f"scene {i}: generic filler")
-        if scene.action_type in ("mechanism", "example") and len(scene.narration.split()) < 8:
+        if scene.action_type in (("mechanism", "transformation") if content_mode == "viral" else ("mechanism", "example")) and len(scene.narration.split()) < 8:
             issues.append(f"scene {i}: teaching scene is too thin")
 
     return QAResult(ok=not issues, issues=issues)

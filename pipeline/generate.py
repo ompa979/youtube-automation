@@ -84,9 +84,11 @@ def _decode_credential(raw: str) -> dict[str, Any]:
 
 
 def _load_settings() -> Settings:
+    content_mode = os.getenv("CONTENT_MODE", "exam").strip().lower() or "exam"
+    credential_prefix = os.getenv("YOUTUBE_CREDENTIAL_PREFIX", "YT_CREDS").strip() or "YT_CREDS"
     creds: list[YouTubeCredentials] = []
     for i in range(1, 20):
-        raw = os.getenv(f"YT_CREDS_{i}")
+        raw = os.getenv(f"{credential_prefix}_{i}")
         if not raw:
             continue
         try:
@@ -107,22 +109,29 @@ def _load_settings() -> Settings:
             _truthy(os.getenv("UPLOAD_ENABLED"), True)
             and not _truthy(os.getenv("DRY_RUN"), False)
         ),
-        niches_enabled=_csv_env("NICHES_ENABLED", sorted(ALLOWED_EXAM_NICHES)),
+        content_mode=content_mode,
+        niches_enabled=_csv_env("NICHES_ENABLED", sorted(ALLOWED_EXAM_NICHES) if content_mode != "viral" else [
+            "psychology_human_behavior", "money_personal_finance", "ai_future_tech", "career_work",
+            "motivation_discipline", "science_everyday", "history_stories", "social_behaviour"
+        ]),
         languages_enabled=_csv_env("LANGUAGES_ENABLED", ["en"]),
     )
 
 
 def _load_plan() -> dict[str, Any]:
-    if not CONTENT_PLAN_PATH.exists():
-        raise FileNotFoundError(f"Missing content plan: {CONTENT_PLAN_PATH}")
-    data = json.loads(CONTENT_PLAN_PATH.read_text(encoding="utf-8"))
+    content_mode = os.getenv("CONTENT_MODE", "exam").strip().lower() or "exam"
+    plan_path = (ROOT / "viral_content_plan.json") if content_mode == "viral" else CONTENT_PLAN_PATH
+    if not plan_path.exists():
+        raise FileNotFoundError(f"Missing content plan: {plan_path}")
+    data = json.loads(plan_path.read_text(encoding="utf-8"))
     return data.get("niches", data)
 
 
 def _load_state() -> dict[str, Any]:
     if not STATE_PATH.exists():
         return {"niche": 0, "language": 0, "topic": 0, "project": 0,
-                "last_successful_topic": None, "last_failed_topic": None}
+                "last_successful_topic": None, "last_failed_topic": None,
+                "last_niche": None, "recent_topics": [], "completed_topics": [], "topic_cursors": {}}
     try:
         data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
         return {
@@ -132,10 +141,15 @@ def _load_state() -> dict[str, Any]:
             "project": int(data.get("project", 0)),
             "last_successful_topic": data.get("last_successful_topic"),
             "last_failed_topic": data.get("last_failed_topic"),
+            "last_niche": data.get("last_niche"),
+            "recent_topics": list(data.get("recent_topics") or [])[-12:],
+            "completed_topics": list(data.get("completed_topics") or []),
+            "topic_cursors": dict(data.get("topic_cursors") or {}),
         }
     except Exception:
         return {"niche": 0, "language": 0, "topic": 0, "project": 0,
-                "last_successful_topic": None, "last_failed_topic": None}
+                "last_successful_topic": None, "last_failed_topic": None,
+                "last_niche": None, "recent_topics": [], "completed_topics": [], "topic_cursors": {}}
 
 
 def _save_state(state: dict[str, Any]) -> None:
@@ -150,7 +164,11 @@ def _slug(text: str, max_len: int = 60) -> str:
 
 def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, Any]):
     available_niches=[n for n in settings.niches_enabled if n in plan and plan[n].get("topics")]
-    if EXAM_ONLY:
+    if settings.content_mode == "viral":
+        # Viral mode is deliberately independent from the exam lane.
+        os.environ["EXAM_ONLY"] = "false"
+        os.environ["VIRAL_CONTENT_ONLY"] = "true"
+    if EXAM_ONLY and settings.content_mode != "viral":
         filtered=[n for n in available_niches if n in ALLOWED_EXAM_NICHES]
         if filtered:
             available_niches=filtered
@@ -162,8 +180,9 @@ def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, Any]):
     try:
         niche,cfg,language,topic,score,board=choose_best_topic(plan,available_niches,state)
         state["last_niche"]=niche
-        print(f"[topic-v8] 🔥 TREND SCORE={score.trend_score:.0f}/100 | 🔎 SEO SCORE={score.seo_score:.0f}/100 | 🎯 EXAM FIT={score.exam_fit:.0f}/100 | 💡 VALUE={score.value_density:.0f}/100 | 🎨 VISUAL={score.visual:.0f}/100")
-        print(f"[topic-v8] DISCOVERY ORDER: TREND → SEO → EXAM FIT → VALUE → VISUAL")
+        fit_label = "BROAD FIT" if settings.content_mode == "viral" else "EXAM FIT"
+        print(f"[topic-v8] 🔥 TREND SCORE={score.trend_score:.0f}/100 | 🔎 SEO SCORE={score.seo_score:.0f}/100 | 🎯 {fit_label}={score.exam_fit:.0f}/100 | 💡 VALUE={score.value_density:.0f}/100 | 🎨 VISUAL={score.visual:.0f}/100 | 🚀 VIRAL={score.viral_fit:.0f}/100")
+        print(f"[topic-v8] DISCOVERY ORDER: BROAD APPEAL → CURIOSITY → VISUAL → TREND → SEO" if settings.content_mode == "viral" else "[topic-v8] DISCOVERY ORDER: TREND → SEO → EXAM FIT → VALUE → VISUAL")
         print(f"[topic-v8] selected={topic!r} niche={niche} total={score.total:.1f}")
         for item in board[:5]: print(f"[topic-v8]  trend={item.trend_score:.0f} seo={item.seo_score:.0f} exam={item.exam_fit:.0f} value={item.value_density:.0f} visual={item.visual:.0f} | {item.topic}")
         return niche,cfg,language,topic
@@ -201,6 +220,7 @@ def _run_one(
     for attempt in range(3):
         try:
             script = generate_script(current_topic, niche_cfg, language, settings, niche_key=niche)
+            script.content_mode = settings.content_mode
             topic = current_topic
             break
         except ScriptRejected as exc:

@@ -20,6 +20,22 @@ on:
         required: false
         default: false
         type: boolean
+      content_mode:
+        description: Content mode
+        required: false
+        default: exam
+        type: choice
+        options:
+          - exam
+          - viral
+      credential_group:
+        description: YouTube credential group
+        required: false
+        default: main
+        type: choice
+        options:
+          - main
+          - viral
   schedule:
     - cron: "*/30 * * * *"
 
@@ -48,6 +64,25 @@ jobs:
       YT_CREDS_17: ${{ secrets.YT_CREDS_17 }}
       YT_CREDS_18: ${{ secrets.YT_CREDS_18 }}
       YT_CREDS_19: ${{ secrets.YT_CREDS_19 }}
+      VIRAL_YT_CREDS_1: ${{ secrets.VIRAL_YT_CREDS_1 }}
+      VIRAL_YT_CREDS_2: ${{ secrets.VIRAL_YT_CREDS_2 }}
+      VIRAL_YT_CREDS_3: ${{ secrets.VIRAL_YT_CREDS_3 }}
+      VIRAL_YT_CREDS_4: ${{ secrets.VIRAL_YT_CREDS_4 }}
+      VIRAL_YT_CREDS_5: ${{ secrets.VIRAL_YT_CREDS_5 }}
+      VIRAL_YT_CREDS_6: ${{ secrets.VIRAL_YT_CREDS_6 }}
+      VIRAL_YT_CREDS_7: ${{ secrets.VIRAL_YT_CREDS_7 }}
+      VIRAL_YT_CREDS_8: ${{ secrets.VIRAL_YT_CREDS_8 }}
+      VIRAL_YT_CREDS_9: ${{ secrets.VIRAL_YT_CREDS_9 }}
+      VIRAL_YT_CREDS_10: ${{ secrets.VIRAL_YT_CREDS_10 }}
+      VIRAL_YT_CREDS_11: ${{ secrets.VIRAL_YT_CREDS_11 }}
+      VIRAL_YT_CREDS_12: ${{ secrets.VIRAL_YT_CREDS_12 }}
+      VIRAL_YT_CREDS_13: ${{ secrets.VIRAL_YT_CREDS_13 }}
+      VIRAL_YT_CREDS_14: ${{ secrets.VIRAL_YT_CREDS_14 }}
+      VIRAL_YT_CREDS_15: ${{ secrets.VIRAL_YT_CREDS_15 }}
+      VIRAL_YT_CREDS_16: ${{ secrets.VIRAL_YT_CREDS_16 }}
+      VIRAL_YT_CREDS_17: ${{ secrets.VIRAL_YT_CREDS_17 }}
+      VIRAL_YT_CREDS_18: ${{ secrets.VIRAL_YT_CREDS_18 }}
+      VIRAL_YT_CREDS_19: ${{ secrets.VIRAL_YT_CREDS_19 }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID_2: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_2 }}
@@ -62,14 +97,18 @@ jobs:
       CLOUDFLARE_THUMBNAIL_MODEL: "@cf/black-forest-labs/flux-2-klein-4b"
       CLOUDFLARE_IMAGE_STEPS: "4"
       THUMBNAIL_VARIANTS: "5"
-      EXAM_ONLY: "true"
+      NICHES_ENABLED: "" # mode-specific niche plan is selected by Python when empty
+      CONTENT_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.content_mode || 'exam' }}
+      YOUTUBE_CREDENTIAL_PREFIX: ${{ github.event_name == 'workflow_dispatch' && inputs.credential_group == 'viral' && 'VIRAL_YT_CREDS' || 'YT_CREDS' }}
+      EXAM_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.content_mode == 'viral' && 'false' || 'true' }}
+      VIRAL_CONTENT_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.content_mode == 'viral' && 'true' || 'false' }}
+      MIN_VIRAL_SCORE: "62"
       TOPIC_USE_TRENDS: "true"
       TOPIC_USE_AUTOCOMPLETE: "true"
       VOICE_LUFS: "-14"
       VOICE_TRUE_PEAK: "-1.5"
       TTS_PROVIDER: "edge"
       TTS_VOICE: "en-IN-PrabhatNeural"
-      NICHES_ENABLED: "bank_it_officer,banking_awareness,bank_reasoning_quant,rbi_economy,ssc_general"
       COUNT: ${{ github.event.inputs.count || '1' }}
       TEST_MODE: ${{ github.event.inputs.test_mode || 'fast' }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
@@ -115,8 +154,9 @@ jobs:
         run: |
           set -euo pipefail
           found=0
+          prefix="${YOUTUBE_CREDENTIAL_PREFIX:-YT_CREDS}"
           for i in $(seq 1 19); do
-            var="YT_CREDS_${i}"
+            var="${prefix}_${i}"
             if [ -n "${!var:-}" ]; then
               echo "[youtube] ${var}=configured"
               found=$((found+1))

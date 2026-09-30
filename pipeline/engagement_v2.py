@@ -873,7 +873,16 @@ def _v7_question(script: "Script") -> str:
 
 
 def build_comment_cta(script: "Script") -> str:
-    """Turn the final memory rule into a useful pinned comment, not a quiz CTA."""
+    """Build a natural pinned-comment prompt for exam or viral mode."""
+    if getattr(script, "content_mode", "exam") == "viral":
+        scenes = getattr(script, "scenes", []) or []
+        memory = _clean_text(getattr(scenes[-1], "narration", "")) if scenes else ""
+        memory = _v7_clean(memory).rstrip(".?! ")
+        if len(memory) > 110:
+            memory = memory[:110].rsplit(" ", 1)[0]
+        if memory:
+            return f"What part surprised you most about this? {memory}."
+        return "What surprised you most about this?"
     scenes = getattr(script, "scenes", []) or []
     memory = _clean_text(getattr(scenes[-1], "narration", "")) if scenes else ""
     memory = _v7_clean(memory).rstrip(".?! ")
@@ -885,7 +894,12 @@ def build_comment_cta(script: "Script") -> str:
 
 
 def build_thumbnail_text(script: "Script") -> str:
-    """Return a bold value-led thumbnail phrase; never a quiz option prompt."""
+    """Return a bold value-led thumbnail phrase for the active content mode."""
+    if getattr(script, "content_mode", "exam") == "viral":
+        text = _clean_text(getattr(script, "hero_headline", "")) or _clean_text(getattr(script, "thumbnail_text", ""))
+        if not text and getattr(script, "scenes", None):
+            text = _clean_text(getattr(script.scenes[0], "on_screen_text", ""))
+        return _v7_clean(text).upper()[:42] or _clean_text(getattr(script, "title", ""))[:42].upper()
     text = _clean_text(getattr(script, "thumbnail_text", ""))
     cleaned = _v7_clean(text).upper()
     if 2 <= len(cleaned.split()) <= 7:
@@ -898,7 +912,18 @@ def build_thumbnail_text(script: "Script") -> str:
 
 
 def build_click_title(topic: str, base_title: str, script: "Script") -> str:
-    """Search-first title: exact concept + useful outcome, no game-show gimmicks."""
+    """Search-first title for exam mode; curiosity-first title for viral mode."""
+    if getattr(script, "content_mode", "exam") == "viral":
+        headline = _clean_text(getattr(script, "hero_headline", ""))
+        subline = _clean_text(getattr(script, "hero_subline", ""))
+        if headline and subline:
+            candidate = f"{headline}: {subline}"
+        elif headline:
+            candidate = headline
+        else:
+            candidate = _clean_text(base_title or topic)
+        candidate = re.sub(r"\s+", " ", candidate).strip(" -:|")
+        return candidate[:85].rstrip(" -:|,;")
     concept = _clean_text(topic)
     if ":" in concept:
         concept = concept.split(":", 1)[0].strip()
@@ -927,8 +952,29 @@ def build_click_title(topic: str, base_title: str, script: "Script") -> str:
 
 
 def enforce_v2_contract(script: "Script") -> None:
-    """Normalize to six teaching beats without overwriting good copy."""
+    """Normalize the script to the active six-beat contract."""
     if not getattr(script, "scenes", None):
+        return
+    if getattr(script, "content_mode", "exam") == "viral":
+        viral_roles = ("pattern_interrupt", "tension", "mechanism", "transformation", "payoff", "loop")
+        defaults = {
+            "pattern_interrupt": "THIS IS THE SURPRISE",
+            "tension": "HERE'S WHAT HAPPENS",
+            "mechanism": "THE HIDDEN STEP",
+            "transformation": "WATCH IT CHANGE",
+            "payoff": "NOW IT MAKES SENSE",
+            "loop": "REMEMBER THIS",
+        }
+        for i, scene in enumerate(script.scenes[:6]):
+            role = viral_roles[i]
+            scene.action_type = role
+            scene.narration = _v7_clean(getattr(scene, "narration", ""))
+            scene.tts_text = _v7_clean(getattr(scene, "tts_text", "")) or scene.narration
+            scene.on_screen_text = _v7_clean(getattr(scene, "on_screen_text", ""))[:60] or defaults[role]
+            scene.action_payload = _v7_clean(getattr(scene, "action_payload", ""))[:180]
+            scene.card_points = [_v7_clean(scene.card_points[0])[:68]] if getattr(scene, "card_points", None) else []
+        if not getattr(script, "thumbnail_text", ""):
+            script.thumbnail_text = _clean_text(getattr(script, "hero_headline", ""))[:52].upper() or build_thumbnail_text(script)
         return
     for i, scene in enumerate(script.scenes[:6]):
         role = V2_ACTION_SEQUENCE[i]
@@ -959,6 +1005,27 @@ _V7_THUMB_ARCHETYPES = (
 
 
 def _v7_visual_prompt(topic: str, headline: str, archetype: str, subline: str) -> str:
+    if os.getenv("CONTENT_MODE", "exam").strip().lower() == "viral":
+        viral_styles = {
+            "editorial_hero": "one unforgettable hero subject or human reaction frozen at the surprising moment",
+            "cinematic_split": "two states of the same idea contrasted through lighting, scale and physical composition",
+            "concept_macro": "extreme-detail close-up of the exact object or mechanism behind the idea",
+            "human_reaction": "expressive Indian creator reacting to the exact concept object, premium cinematic portrait lighting",
+            "transformation": "a dramatic before-to-after transformation with the change frozen in motion",
+            "exploded_view": "a premium exploded mechanism revealing what is happening inside the idea",
+            "spotlight_subject": "one iconic subject under a sharp editorial spotlight with strong silhouette",
+            "dynamic_arrow": "the real-world concept visibly moving from one state to another",
+            "cutaway_3d": "cinematic cutaway revealing the hidden mechanism inside the subject",
+            "warning_diagonal": "one unmistakable mistake/correction visual with strong diagonal energy",
+        }
+        style = viral_styles.get(archetype, viral_styles["editorial_hero"])
+        return (
+            "Create a premium, creator-grade viral YouTube Shorts thumbnail hero image, not a lesson slide. "
+            f"Topic: {topic}. Main idea: {headline}. Context: {subline}. Visual concept: {style}. "
+            "Portrait 9:16. Designed for a tiny mobile feed: one unforgettable focal subject, immediate visual storytelling, bold silhouette, "
+            "rich depth, premium advertising/editorial finish, dramatic but tasteful lighting, strong negative space on the LEFT for typography, "
+            "hero subject on the RIGHT 55-65%. NO WORDS, NO LETTERS, NO NUMBERS, NO UI, NO LOGOS, NO WATERMARKS, NO COLLAGE."
+        )
     styles = {
         "editorial_hero": "one unforgettable hero subject, large in frame, expressive action, crisp silhouette, shallow depth of field",
         "cinematic_split": "two real concept elements interacting in one composition, strong directional separation, no text",
@@ -1498,6 +1565,65 @@ def _v11_thumbnail_copy(topic: str, question: str, subline: str) -> tuple[str, s
     return candidate, sub
 
 
+def _viral_thumbnail_copy(topic: str, question: str, subline: str) -> tuple[str, str]:
+    """Broad-audience Shorts copy: 2-4 word hook + a concrete mechanism cue."""
+    low = _clean_text(topic or question).lower()
+    mappings = (
+        (r"brain|psychology|behavio[u]?r|decision|attention|habit", "YOUR BRAIN DOES THIS", "THE HIDDEN MECHANISM"),
+        (r"money|salary|saving|invest|wealth|inflation|interest|finance", "MONEY CHANGES HERE", "THE PART YOU MISS"),
+        (r"ai|artificial intelligence|robot|future|technology|tech", "AI CHANGES THIS", "WHAT HAPPENS NEXT"),
+        (r"career|job|work|workplace|resume|interview", "CAREER TRAP", "THE PATTERN TO AVOID"),
+        (r"motivation|discipline|productivity|procrastination|focus", "MOTIVATION ISN'T ENOUGH", "BUILD THE SYSTEM"),
+        (r"science|physics|chemistry|biology|space|planet|experiment", "SCIENCE HIDES THIS", "SEE THE MECHANISM"),
+        (r"history|empire|war|story|event|invention", "HISTORY FLIPPED", "THE PART PEOPLE MISS"),
+        (r"social|relationship|people|friends|communication", "PEOPLE DO THIS", "WHY IT HAPPENS"),
+    )
+    for pattern, head, sub in mappings:
+        if re.search(pattern, low, re.I):
+            return head, sub
+    candidate = _v11_compact_words(question or topic, 4, 30)
+    candidate = re.sub(r"\?$", "", candidate).strip()
+    if _V11_BAD_HEADLINE.search(candidate) or len(candidate.split()) < 2:
+        candidate = _v11_compact_words(topic, 4, 30) or "THE HIDDEN REASON"
+    sub = _v11_symbolic_copy(subline, 30) or "THE HIDDEN MECHANISM"
+    return candidate.upper(), sub.upper()
+
+
+def _viral_thumbnail_prompt(topic: str, headline: str, subline: str, variant: int) -> str:
+    core = _v11_core_topic(topic, headline)
+    visual_map = (
+        (r"brain|psychology|behavio[u]?r|decision|attention|habit", "a cinematic human face in profile with a glowing brain pathway changing direction, one highlighted neural route, subtle emotional expression"),
+        (r"money|salary|saving|invest|wealth|inflation|interest|finance", "premium money-growth metaphor with coins and a luminous upward curve, one decisive turning point, realistic materials"),
+        (r"ai|artificial intelligence|robot|future|technology|tech", "sleek futuristic AI interface interacting with a human hand and a physical object, clear cause-and-effect transformation"),
+        (r"career|job|work|workplace|resume|interview", "confident professional at a forked career path with one route brightly illuminated, cinematic city or office depth"),
+        (r"motivation|discipline|productivity|procrastination|focus", "human silhouette moving from chaos into a precise routine, clock, checklist-like objects without visible text, strong transformation"),
+        (r"science|physics|chemistry|biology|space|planet|experiment", "striking macro scientific phenomenon with particles, energy or biological structures visibly changing state"),
+        (r"history|empire|war|story|event|invention", "cinematic historical object or scene at a decisive moment, authentic materials, dramatic depth and light"),
+        (r"social|relationship|people|friends|communication", "two realistic people with a visible emotional signal or social interaction, one subtle cause-to-effect visual cue"),
+    )
+    scene = "one unmistakable physical metaphor for the exact idea"
+    for pattern, value in visual_map:
+        if re.search(pattern, core, re.I):
+            scene = value
+            break
+    layouts = (
+        "hero on the RIGHT 60%, quiet dark negative space on the LEFT for huge typography",
+        "hero on the RIGHT 65%, strong diagonal depth and a clean left gradient",
+        "dominant subject on the RIGHT with one supporting object near center, LEFT remains quiet",
+        "tight cinematic hero on the RIGHT, shallow depth of field, negative space on LEFT",
+        "two visual states on the RIGHT separated by a clear physical transformation, LEFT remains simple",
+    )
+    return (
+        "Create original premium Shorts thumbnail HERO ARTWORK for a broad-audience viral creator channel. "
+        f"Exact topic: {core}. Hook: {headline}. Clarifier: {subline}. "
+        f"Visual concept: {scene}. Composition: {layouts[variant % len(layouts)]}. "
+        "The artwork must be instantly understandable without text. Use one dominant subject, strong silhouette, cinematic commercial lighting, "
+        "layered depth, realistic materials, dramatic perspective, high contrast, rich but controlled color, subtle motion cues and a polished creator-thumbnail finish. "
+        "Avoid classrooms, stock-photo aesthetics, generic motivational posters, UI dashboards, infographic panels, random neon wallpaper, collages, tiny details and decorative icons. "
+        "NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO BORDERS, NO TYPOGRAPHY. Portrait 9:16."
+    )
+
+
 def _v11_visual_prompt(topic: str, headline: str, subline: str, variant: int) -> str:
     """Ask the image model for a single editorial hero, not a poster."""
     core = _v11_core_topic(topic, headline)
@@ -1573,7 +1699,7 @@ def _v11_render(background: Image.Image, out: Path, headline: str, subline: str,
     accent2 = _V6_ACCENTS[(variant + 1) % len(_V6_ACCENTS)] + (255,)
 
     # Tiny, unobtrusive exam tag — no boxed UI.
-    tag = _clean_text(label).upper()[:18]
+    tag = ('VIRAL SHORTS' if os.getenv('CONTENT_MODE','exam').strip().lower() == 'viral' else _clean_text(label).upper()[:18])
     if tag:
         tag_font = _v6_thumb_font(20, heavy=True)
         draw.text((tx, 38), tag, font=tag_font, fill=(255, 255, 255, 230), stroke_width=2, stroke_fill=(0, 0, 0, 170))
@@ -1804,6 +1930,28 @@ def _v12_procedural_hero(topic: str, variant: int) -> Image.Image:
             draw.ellipse((1260, y, 1740, y+135), fill=(62,153,239,220), outline=(218,244,255,190), width=14)
             draw.rounded_rectangle((1260, y+70, 1740, y+235), 26, fill=(23,54,90,235), outline=(220,245,255,120), width=10)
         draw.polygon([(1790, 1440),(2010,1440),(1920,1810),(1860,1810)], fill=(255,190,70,210))
+    elif re.search(r'brain|psychology|behavio[u]?r|attention|habit|decision', core):
+        outline=(105,220,255,220); glow=(255,92,165,170)
+        draw.ellipse((1190,1180,1920,2520), fill=(42,35,72,220), outline=outline, width=22)
+        for x,y in ((1350,1450),(1650,1480),(1430,1830),(1730,1980),(1320,2200),(1660,2320)):
+            node(x,y,58,glow)
+        for a,b in [((1350,1450),(1650,1480)),((1650,1480),(1430,1830)),((1430,1830),(1730,1980)),((1430,1830),(1320,2200)),((1730,1980),(1660,2320))]:
+            draw.line((*a,*b), fill=(118,226,255,190), width=18)
+    elif re.search(r'ai|artificial intelligence|robot|future|technology|tech', core):
+        draw.rounded_rectangle((1190,1240,1910,2510), 80, fill=(23,34,62,238), outline=(95,210,255,230), width=22)
+        draw.rectangle((1320,1450,1780,1950), fill=(10,18,34,255), outline=(92,220,255,210), width=15)
+        for yy in (2040,2160,2280): draw.line((1320,yy,1770,yy), fill=(255,190,70,220), width=18)
+        draw.polygon([(1820,1500),(2020,1650),(1820,1790)], fill=(92,220,190,215))
+    elif re.search(r'money|salary|saving|invest|wealth|inflation|finance', core):
+        for i,(x,y,r,c) in enumerate(((1320,2260,120,(255,194,64,235)),(1550,2000,150,(255,206,86,245)),(1750,1660,180,(92,225,180,235)))):
+            draw.ellipse((x-r,y-r,x+r,y+r), fill=c, outline=(255,250,220,180), width=12)
+        draw.line((1190,2460,1920,1220), fill=(104,227,255,210), width=28)
+        draw.polygon([(1920,1220),(1800,1300),(1865,1360)], fill=(104,227,255,230))
+    elif re.search(r'motivation|discipline|productivity|procrastination|focus|career|job|work', core):
+        draw.rounded_rectangle((1220,1320,1830,2460), 80, fill=(25,36,61,230), outline=(115,218,255,220), width=20)
+        for yy,alpha in ((1530,220),(1790,185),(2050,150)):
+            draw.rounded_rectangle((1310,yy,1750,yy+120), 36, fill=(88,205,185,alpha))
+        draw.polygon([(1650,1340),(2010,1080),(1930,1370),(1830,1310)], fill=(255,192,72,220))
     else:
         for r, fill in ((520,(35,125,255,55)), (360,(45,190,240,75)), (210,(255,190,70,145))):
             draw.ellipse((cx-r, cy-r, cx+r, cy+r), fill=fill, outline=(230,245,255,140), width=10)
@@ -1923,7 +2071,8 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
                             subline: str = '', visual_prompt: str = '') -> Path:
     """V12: Shorts-native 9:16 thumbnail only; all video-generation logic is untouched."""
     count = max(5, int(variants or os.getenv('THUMBNAIL_VARIANTS','5')))
-    headline, secondary = _v11_thumbnail_copy(topic, question, subline)
+    viral_mode = os.getenv('CONTENT_MODE', 'exam').strip().lower() == 'viral'
+    headline, secondary = (_viral_thumbnail_copy(topic, question, subline) if viral_mode else _v11_thumbnail_copy(topic, question, subline))
     variant_dir = out_path.parent/'thumbnail_variants'; variant_dir.mkdir(parents=True, exist_ok=True)
     seed_base = int(hashlib.sha1(f'v12|{topic}|{headline}|{secondary}|{label}'.encode('utf-8')).hexdigest()[:10],16)
     try:
@@ -1933,7 +2082,8 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
         clean = _v12_procedural_hero(topic or label, 0)
     candidates=[]
     for i in range(count):
-        prompt = _v11_visual_prompt(topic or label, headline, secondary, i)
+        prompt = (_viral_thumbnail_prompt(topic or label, headline, secondary, i)
+                  if viral_mode else _v11_visual_prompt(topic or label, headline, secondary, i))
         if visual_prompt and len(_clean_text(visual_prompt)) > 45:
             prompt += f' Exact visual cue from the content brief: {_clean_text(visual_prompt)[:450]}.'
         seed = seed_base + i*7919
@@ -1959,7 +2109,7 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
     best, best_meta, best_score = ranked[0]
     Image.open(best).convert('RGB').save(out_path,'JPEG',quality=94,optimize=True,progressive=True)
     manifest={
-        'engine':'v12_shorts_native',
+        'engine':('v12_shorts_native_viral' if viral_mode else 'v12_shorts_native'),
         'thumbnail_patch':'v17_hit_rate_v2_thumbnail_only',
         'hit_rate_program':'25-point-thumbnail-hit-rate-program',
         'headline':headline,'subline':secondary,'selected':best.name,

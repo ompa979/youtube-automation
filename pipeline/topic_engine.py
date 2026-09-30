@@ -22,6 +22,7 @@ import requests
 
 from .seo.keyword_clusters import get_cluster_for_topic
 from .trending import _patch_urllib3_method_whitelist
+from .viral_content import viral_fit
 
 CACHE_PATH = Path(os.getenv("TOPIC_INTELLIGENCE_CACHE", ".topic_intelligence.json"))
 CACHE_TTL_SECONDS = int(os.getenv("TOPIC_INTELLIGENCE_TTL", str(6 * 60 * 60)))
@@ -60,6 +61,8 @@ EXAM_TERMS = (
 
 
 EXAM_ONLY = os.getenv("EXAM_ONLY", "true").strip().lower() in {"1", "true", "yes", "on"}
+VIRAL_CONTENT_ONLY = os.getenv("VIRAL_CONTENT_ONLY", "false").strip().lower() in {"1", "true", "yes", "on"}
+MIN_VIRAL_SCORE = float(os.getenv("MIN_VIRAL_SCORE", "62"))
 ALLOWED_EXAM_NICHES = {
     "bank_it_officer", "bank_reasoning_quant", "banking_awareness",
     "rbi_economy", "bank_english", "ssc_general",
@@ -90,6 +93,7 @@ class TopicScore:
     specificity: float
     teachability: float
     visual: float
+    viral_fit: float
     value_density: float
     seo_fit: float
     freshness: float
@@ -353,13 +357,177 @@ def score_topic(
     return TopicScore(
         topic=topic, niche=niche, trend_score=round(trend_score, 2), seo_score=round(seo_score, 2),
         search_intent=round(search, 2), exam_fit=round(exam_fit, 2), specificity=round(specificity, 2),
-        teachability=round(teachability, 2), visual=round(visual, 2), value_density=round(value_density, 2),
+        teachability=round(teachability, 2), visual=round(visual, 2), viral_fit=round(viral_fit(topic), 2), value_density=round(value_density, 2),
         seo_fit=round(seo_fit, 2), freshness=round(freshness, 2), trend=round(trend_score, 2),
         risk_penalty=round(risk_penalty, 2), duplicate_penalty=round(duplicate_penalty, 2), total=total, reasons=reasons,
     )
 
 
+
+def _score_viral_topic(
+    topic: str,
+    niche: str,
+    completed_topics: set[str] | None = None,
+    recent_topics: list[str] | None = None,
+    trend: float = 50.0,
+    query_signal: float | None = None,
+) -> TopicScore:
+    text = _norm(topic)
+    tokens = _tokens(topic)
+    completed_topics = {x.lower() for x in (completed_topics or set())}
+    recent_topics = [x.lower() for x in (recent_topics or [])]
+    reasons: list[str] = []
+
+    intent_hits = sum(term in text for term in SEARCH_INTENT_TERMS)
+    query_signal = _candidate_query_signal(topic) if query_signal is None else query_signal
+    search = min(20.0, 7.0 + intent_hits * 2.0 + query_signal * 0.8)
+    if intent_hits:
+        reasons.append(f"curiosity/search terms={intent_hits}")
+
+    specificity = 8.0 + min(10.0, max(0, len(tokens) - 3) * 1.0)
+    if len(tokens) <= 4:
+        specificity -= 1.0
+    if len(tokens) > 18:
+        specificity -= 4.0
+
+    teach_hits = sum(term in text for term in MECHANISM_TERMS)
+    teachability = 6.0 + min(9.0, teach_hits * 1.8)
+    if teach_hits:
+        reasons.append("clear mechanism")
+
+    value_hits = sum(term in text for term in VALUE_TERMS)
+    value_density = 6.0 + min(10.0, value_hits * 1.5)
+    if any(x in text for x in ("why", "how", "because", "works", "changes")):
+        value_density += 2.0
+
+    visual_hits = sum(term in text for term in VISUAL_TERMS)
+    visual = 6.0 + min(12.0, visual_hits * 1.7)
+    if visual_hits:
+        reasons.append(f"visual terms={visual_hits}")
+
+    cluster = get_cluster_for_topic(topic)
+    seo_fit = 4.0
+    if cluster:
+        overlap = len(set(_tokens(cluster.primary_query)) & set(tokens)) / max(1, len(_tokens(cluster.primary_query)))
+        seo_fit += min(6.0, overlap * 6.0)
+        reasons.append(f"SEO primary={cluster.primary_query}")
+
+    freshness = 10.0
+    low = text
+    if low in completed_topics:
+        freshness = 0.0
+        reasons.append("already published")
+    elif any(low == r or low in r or r in low for r in recent_topics):
+        freshness = 2.0
+        reasons.append("recently used")
+    else:
+        freshness += 1.0
+
+    viral_score = viral_fit(topic)
+    trend_score = min(100.0, max(0.0, float(trend)))
+    seo_score = min(100.0, max(0.0, seo_fit * 8.0 + search * 2.2 + query_signal * 1.5))
+    risk_terms = [term for term in RISK_TERMS if term in text]
+    risk_penalty = min(18.0, len(risk_terms) * 5.0) if risk_terms else 0.0
+    duplicate_penalty = 10.0 if any(low == r for r in recent_topics[:5]) else 0.0
+
+    # In viral mode, broad-audience/appeal replaces exam fit.
+    broad_fit = min(20.0, 10.0 + viral_score * 0.10 + min(4.0, search * 0.15))
+    total = (
+        viral_score * 0.28 +
+        visual / 18.0 * 100.0 * 0.16 +
+        broad_fit / 20.0 * 100.0 * 0.15 +
+        trend_score * 0.10 +
+        seo_score * 0.10 +
+        value_density / 20.0 * 100.0 * 0.10 +
+        teachability / 15.0 * 100.0 * 0.06 +
+        freshness / 11.0 * 100.0 * 0.03 +
+        specificity / 20.0 * 100.0 * 0.02 -
+        risk_penalty - duplicate_penalty
+    )
+    total = round(max(0.0, min(100.0, total)), 2)
+    reasons.append(f"viral fit={viral_score:.1f}")
+    reasons.append(f"broad fit={broad_fit:.1f}")
+    return TopicScore(
+        topic=topic, niche=niche,
+        trend_score=round(trend_score, 2), seo_score=round(seo_score, 2),
+        search_intent=round(search, 2), exam_fit=round(broad_fit, 2),
+        specificity=round(specificity, 2), teachability=round(teachability, 2),
+        visual=round(visual, 2), viral_fit=round(viral_score, 2),
+        value_density=round(value_density, 2), seo_fit=round(seo_fit, 2),
+        freshness=round(freshness, 2), trend=round(trend_score, 2),
+        risk_penalty=round(risk_penalty, 2), duplicate_penalty=round(duplicate_penalty, 2),
+        total=total, reasons=reasons,
+    )
+
+
+def _choose_best_viral_topic(plan: dict[str, Any], enabled_niches: list[str], state: dict[str, Any]) -> tuple[str, dict[str, Any], str, str, TopicScore, list[TopicScore]]:
+    recent_topics = list(state.get("recent_topics") or [])
+    completed = set(state.get("completed_topics") or [])
+    candidates: list[tuple[str, dict[str, Any], str]] = []
+    for niche in enabled_niches:
+        cfg = plan.get(niche, {})
+        if not cfg.get("topics") or cfg.get("content_mode") != "viral":
+            continue
+        cursor = int(state.get("topic_cursors", {}).get(niche, 0))
+        topics = cfg["topics"]
+        weight = max(1, int(cfg.get("weight", 1)))
+        sample_count = min(4, max(2, 3 + (weight // 5)))
+        for offset in range(min(sample_count, len(topics))):
+            candidates.append((niche, cfg, topics[(cursor + offset) % len(topics)]))
+    if not candidates:
+        raise RuntimeError("Viral content mode found no enabled viral niches with topics")
+
+    rough = [_score_viral_topic(topic, niche, completed, recent_topics, trend=50.0, query_signal=0.0) for niche, _, topic in candidates]
+    meta = {topic: (niche, cfg, topic) for niche, cfg, topic in candidates}
+    rough.sort(key=lambda x: x.total, reverse=True)
+    top_topics = [x.topic for x in rough[:20]]
+    trend_values = _trend_scores(top_topics)
+    usable = [float(v) for v in trend_values.values() if float(v) > 0]
+    trend_live = bool(usable)
+    if usable and len(usable) > 1:
+        lo, hi = min(usable), max(usable)
+        if hi > lo:
+            for topic in list(trend_values):
+                raw = float(trend_values.get(topic, 0.0))
+                trend_values[topic] = 20.0 + 80.0 * ((raw - lo) / (hi - lo)) if raw > 0 else 15.0
+    elif not usable:
+        trend_values = {topic: 50.0 for topic in top_topics}
+        print("[topic-v8] VIRAL TREND FALLBACK=50/100 (live trend signal unavailable)")
+
+    scored: list[TopicScore] = []
+    for item in rough:
+        if item.topic in top_topics:
+            qs = _candidate_query_signal(item.topic)
+            scored.append(_score_viral_topic(item.topic, item.niche, completed, recent_topics, trend_values.get(item.topic, 50.0), query_signal=qs))
+        else:
+            scored.append(item)
+    scored.sort(key=lambda x: (x.total, x.viral_fit, x.visual, x.freshness), reverse=True)
+
+    viable = [x for x in scored if x.viral_fit >= MIN_VIRAL_SCORE and x.teachability >= 7.0 and x.visual >= 6.0 and x.value_density >= 8.0]
+    if not viable:
+        raise RuntimeError(f"No viral candidate met gate >= {MIN_VIRAL_SCORE:.0f}")
+    scored = viable + [x for x in scored if x not in viable]
+    top = scored[0]
+    last_niche = state.get("last_niche")
+    for candidate in scored[1:5]:
+        if last_niche and candidate.niche != last_niche and candidate.total >= top.total - 4:
+            top = candidate
+            break
+    niche, cfg, topic = meta[top.topic]
+    language = next(iter(cfg.get("voice", {"en": "en-IN"})))
+    print(f"[topic-v8] VIRAL CONTENT FIT={top.viral_fit:.1f}/100 | BROAD FIT={top.exam_fit:.1f}/100 | TOTAL={top.total:.1f} | {topic}")
+    cache = _load_cache()
+    cache["latest_selection"] = {
+        "ts": time.time(), "content_mode": "viral", "selected": top.as_dict(),
+        "board": [x.as_dict() for x in scored[:10]], "min_viral_score": MIN_VIRAL_SCORE,
+        "allowed_niches": sorted(enabled_niches), "trend_live": trend_live,
+    }
+    _save_cache(cache)
+    return niche, cfg, language, topic, top, scored[:10]
+
 def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: dict[str, Any]) -> tuple[str, dict[str, Any], str, str, TopicScore, list[TopicScore]]:
+    if os.getenv("CONTENT_MODE", "exam").strip().lower() == "viral":
+        return _choose_best_viral_topic(plan, enabled_niches, state)
     recent_topics = list(state.get("recent_topics") or [])
     completed = set(state.get("completed_topics") or [])
     candidates: list[tuple[str, dict[str, Any], str]] = []

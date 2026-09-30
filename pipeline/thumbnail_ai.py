@@ -39,6 +39,7 @@ THUMBNAIL_AI_TOKEN = os.getenv("THUMBNAIL_AI_TOKEN", "").strip()
 THUMBNAIL_AI_TIMEOUT = max(15, int(os.getenv("THUMBNAIL_AI_TIMEOUT", "180")))
 CLOUDFLARE_IMAGE_STEPS = min(8, max(1, int(os.getenv("CLOUDFLARE_IMAGE_STEPS", "4"))))
 CLOUDFLARE_MAX_ACCOUNTS = max(1, min(8, int(os.getenv("CLOUDFLARE_MAX_ACCOUNTS", "4"))))
+_PREFERRED_THUMBNAIL_ACCOUNT = "1"
 
 
 def cloudflare_credential_pool() -> list[tuple[str, str, str]]:
@@ -50,8 +51,8 @@ def cloudflare_credential_pool() -> list[tuple[str, str, str]]:
     override is authoritative for the whole pool so CI secrets cannot silently
     leak into missing-credentials tests.
 
-    This function is intentionally used only by the thumbnail adapter so scene
-    generation behaviour remains unchanged.
+    This shared pool is used by both thumbnail and scene adapters. It keeps
+    the same deterministic numbering and respects explicit test-time overrides.
     """
     pairs: list[tuple[str, str, str]] = []
     primary_account, primary_token = _effective_cloudflare_credentials()
@@ -241,11 +242,14 @@ def generate_generic_background(prompt: str, seed: int) -> Image.Image:
 
 def generate_background(prompt: str, seed: int) -> tuple[Image.Image | None, str]:
     """Generate a thumbnail hero with account failover, then local/generic fallback."""
+    global _PREFERRED_THUMBNAIL_ACCOUNT
     primary = os.getenv("CLOUDFLARE_THUMBNAIL_MODEL", CLOUDFLARE_THUMBNAIL_MODEL).strip()
     fallback_model = os.getenv("CLOUDFLARE_SCENE_MODEL", "@cf/black-forest-labs/flux-1-schnell").strip()
     last_error: Exception | None = None
 
-    for slot, account_id, api_token in cloudflare_credential_pool():
+    pool = cloudflare_credential_pool()
+    ordered_pool = sorted(pool, key=lambda item: (0 if item[0] == _PREFERRED_THUMBNAIL_ACCOUNT else 1, int(item[0]) if item[0].isdigit() else 99))
+    for slot, account_id, api_token in ordered_pool:
         for model_name, provider_name, dims in (
             (primary, "cloudflare", (1152, 768)),
             (fallback_model, "cloudflare-flux1-fallback", (768, 1365)),
@@ -257,6 +261,7 @@ def generate_background(prompt: str, seed: int) -> tuple[Image.Image | None, str
                     prompt, seed, width=dims[0], height=dims[1], model=model_name,
                     account_id=account_id, api_token=api_token,
                 )
+                _PREFERRED_THUMBNAIL_ACCOUNT = str(slot)
                 print(f"[thumbnail-ai] Cloudflare account={slot} model={model_name} OK")
                 provider = provider_name if slot == "1" else provider_name + f"-acct{slot}"
                 return image, provider

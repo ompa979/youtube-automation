@@ -1,69 +1,102 @@
-"""Virality-first content scoring for ExamCracker Shorts.
+"""Viral-first content scoring and framing for broad-audience Shorts.
 
-This module does not promise or predict virality. It filters for content
-characteristics that are useful for Shorts packaging: curiosity, contrast,
-common mistakes, surprising mechanisms, concrete consequences, and strong
-visual/exam payoff.
+This module deliberately does not predict or guarantee virality. It scores
+content characteristics that are useful for broad Shorts packaging:
+curiosity, emotional consequence, novelty, visual potential, clarity, and
+specificity. The score is an internal selection gate, not a platform forecast.
 """
 from __future__ import annotations
 
 import re
 
-COMPARISON = (" vs ", " versus ", "difference", "different")
-CURIOSITY = ("why ", "how ", "actually", "what happens", "what changes", "why does")
-TRAP = ("mistake", "trap", "wrong", "confuse", "confusion", "catch", "misread", "eliminate")
-CONSEQUENCE = (
-    "money", "payment", "bank", "reserve", "npa", "inflation", "borrower", "transaction",
-    "password", "security", "network", "query", "output", "answer", "option", "result",
+COMPARISON = (" vs ", " versus ", "difference", "different", "compare", "compared")
+CURIOSITY = (
+    "why ", "how ", "actually", "what happens", "what changes", "why does",
+    "secret", "hidden", "reason", "behind", "really"
+)
+CONTRADICTION = ("but ", "isn't", "not what", "you think", "counterintuitive", "opposite")
+EMOTION = (
+    "money", "fear", "embarrass", "mistake", "regret", "stress", "confidence",
+    "success", "failure", "lonely", "attention", "habit", "decision", "risk", "career",
 )
 VISUAL = (
-    "flow", "handshake", "layer", "table", "query", "key", "diagram", "process", "tree",
-    "graph", "route", "transaction", "formula", "ratio", "timeline", "node", "binary",
+    "brain", "phone", "money", "graph", "curve", "before", "after", "transformation",
+    "flow", "process", "machine", "robot", "screen", "timeline", "experiment", "door",
+    "clock", "signal", "network", "brain", "eye", "light", "space", "planet", "fire",
 )
-FAST = ("shortcut", "fast", "quick", "without ", "step by step", "eliminate", "save time")
-NUMBER_MARKERS = ("1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "three", "two", "one", "90-day")
-BROAD = ("overview", "introduction", "basic concepts", "functions", "meaning", "what is", "basics", "definition")
+FAST = ("shortcut", "fast", "quick", "in seconds", "without", "step by step", "easy")
+NUMBER_MARKERS = tuple(str(i) for i in range(10)) + ("one", "two", "three", "five", "ten", "first", "next")
+GENERIC = (
+    "overview", "introduction", "basic concepts", "functions", "meaning", "what is",
+    "basics", "definition", "generic tips", "success tips", "daily motivation",
+    "motivation quotes", "motivational quotes"
+)
+CLICKBAIT = (
+    "guaranteed", "get rich quick", "make you rich", "instant success", "secret hack",
+    "you won't believe", "shocking", "100%", "cure", "miracle"
+)
+
+
+def _norm(topic: str) -> str:
+    return " " + re.sub(r"\s+", " ", (topic or "").strip().lower()) + " "
 
 
 def viral_fit(topic: str) -> float:
-    """Return a 0-100 content-angle score. Higher means more Shorts-friendly."""
-    t = " " + re.sub(r"\s+", " ", (topic or "").strip().lower()) + " "
-    score = 38.0
+    """Return a 0-100 broad-audience Shorts content score."""
+    t = _norm(topic)
+    score = 20.0
 
-    if any(x in t for x in COMPARISON):
-        score += 16.0
+    broad = 10.0
+    if any(x in t for x in EMOTION):
+        broad += 8.0
     if any(x in t for x in CURIOSITY):
-        score += 15.0
-    if any(x in t for x in TRAP):
-        score += 14.0
-    if any(x in t for x in CONSEQUENCE):
+        broad += 8.0
+    if len(t.split()) <= 16:
+        broad += 4.0
+    score += broad
+
+    if any(x in t for x in CURIOSITY):
+        score += 16.0
+    if any(x in t for x in COMPARISON):
+        score += 10.0
+    if any(x in t for x in CONTRADICTION):
+        score += 9.0
+    if any(x in t for x in EMOTION):
         score += 7.0
     if any(x in t for x in VISUAL):
-        score += 9.0
+        score += 10.0
     if any(x in t for x in FAST):
-        score += 8.0
+        score += 5.0
     if any(x in t for x in NUMBER_MARKERS):
+        score += 4.0
+
+    if any(x in t for x in GENERIC):
+        score -= 12.0
+    if any(x in t for x in CLICKBAIT):
+        score -= 22.0
+
+    # Reward a concrete mechanism or consequence. Broad statements without one
+    # tend to produce weak, static Shorts.
+    mechanism_markers = ("because", "when", "before", "after", "causes", "changes", "works")
+    if any(x in t for x in mechanism_markers):
         score += 6.0
-
-    broad_hits = sum(x in t for x in BROAD)
-    score -= min(15.0, broad_hits * 5.0)
-
-    # Penalize low-curiosity titles that are merely taxonomic.
-    if not any(x in t for x in COMPARISON + CURIOSITY + TRAP + FAST):
-        score -= 8.0
+    else:
+        score -= 2.0
 
     return round(max(0.0, min(100.0, score)), 2)
 
 
 def viral_angle(topic: str) -> str:
-    """Choose a content framing hint for the script prompt."""
+    """Return a creative framing hint for the script generator."""
     t = (topic or "").lower()
-    if any(x in t for x in TRAP):
-        return "TRAP REVEAL: show the tempting wrong idea, then overturn it with the rule."
+    if any(x in t for x in CONTRADICTION):
+        return "CONTRADICTION: open with the surprising reversal, then prove it with one concrete mechanism."
     if any(x in t for x in COMPARISON):
-        return "HEAD-TO-HEAD: make the difference visible immediately; show exactly when each side wins."
+        return "HEAD-TO-HEAD: make the difference visually obvious in the first seconds, then show the consequence."
+    if any(x in t for x in EMOTION):
+        return "HUMAN CONSEQUENCE: start with the personal consequence, then explain the mechanism behind it."
     if any(x in t for x in FAST):
-        return "TIME-SAVER: show the shortest correct route and why it works."
+        return "TIME-SAVER: reveal a genuinely useful shortcut or mental model and demonstrate it once."
     if any(x in t for x in CURIOSITY):
-        return "WHY-LOOP: open with the surprising consequence, then explain the mechanism that causes it."
-    return "VISUAL MECHANISM: show one concrete transformation from input to result with an exam takeaway."
+        return "WHY-LOOP: open on the surprising result, then reveal the hidden mechanism step by step."
+    return "VISUAL TRANSFORMATION: show one clear before→after or input→result change that explains the idea."

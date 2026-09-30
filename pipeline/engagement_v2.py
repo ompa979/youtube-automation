@@ -1353,3 +1353,265 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
     (variant_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[thumbnail-v10] selected={best.name}; variants={len(ranked)}; text_zone={best_zone['text_zone']}")
     return out_path
+
+# ═════════════════════════════════════════════════════════════════════════════
+# THUMBNAIL-ONLY PATCH — V11 / creator thumbnail, no HUD/card treatment
+# ═════════════════════════════════════════════════════════════════════════════
+# This override intentionally changes ONLY the thumbnail factory.  Video scenes,
+# scripts, TTS, SEO, topic selection and rendering are untouched.
+
+_V11_BAD_HEADLINE = re.compile(
+    r"^(?:WHICH|WHAT|WHY|HOW|CAN|DOES|DID|WHERE|WHO|WHEN)\b|\?|\b(?:QUICK TEST|THINK FAST|REVEAL|THE TRICK|KEY DIFFERENCE|KEY CONCEPT|THE CONCEPT|WORKED EXAMPLE|EXAM CLUE|CAN YOU)\b",
+    re.I,
+)
+
+_V11_EXAM_PREFIX = re.compile(
+    r"^(?:IBPS|SBI|RBI|UPSC|SSC|GATE|NABARD|PFRDA|RRB)\s*(?:SO|PO|CLERK|GRADE\s*A|GRADE\s*B)?\s*(?:IT)?\s*[:|\-–—]?\s*",
+    re.I,
+)
+
+
+def _v11_core_topic(topic: str, fallback: str = "") -> str:
+    raw = _clean_text(topic or fallback)
+    raw = _V11_EXAM_PREFIX.sub("", raw).strip(" -:|")
+    if ":" in raw:
+        raw = raw.split(":", 1)[0].strip()
+    raw = re.sub(r"\b(?:explained|concept|trick|question|question\s*\&\s*answer|difference)\b", "", raw, flags=re.I)
+    raw = re.sub(r"\s{2,}", " ", raw).strip(" -:|,")
+    return raw
+
+
+def _v11_compact_words(text: str, max_words: int = 4, max_chars: int = 30) -> str:
+    words = re.findall(r"[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*", _clean_text(text))
+    if len(words) > max_words:
+        words = words[:max_words]
+    value = " ".join(words).upper()
+    return value[:max_chars].rstrip(" -:|,;")
+
+
+def _v11_thumbnail_copy(topic: str, question: str, subline: str) -> tuple[str, str]:
+    """Create short creator-style copy; never a sentence/question on the thumbnail."""
+    low = _clean_text(topic).lower()
+    mappings = (
+        (r"\bcrr\b.*\bslr\b", "CRR VS SLR", "CASH VS SECURITIES"),
+        (r"\bcrr\b", "CRR", "CASH RESERVE"),
+        (r"\bslr\b", "SLR", "LIQUID ASSETS"),
+        (r"\bsdf\b.*\breverse repo\b", "SDF VS REVERSE REPO", "LIQUIDITY DIRECTION"),
+        (r"\bifsc\b", "IFSC CODE", "11 CHARACTERS"),
+        (r"\bneft\b.*\brtgs\b.*\bimps\b", "NEFT VS RTGS", "IMPS + PAYMENT SPEED"),
+        (r"letter.*shift|coding.*decoding", "LETTER SHIFT", "THE SHIFT RULE"),
+        (r"feynman", "FEYNMAN TECHNIQUE", "LEARN BY EXPLAINING"),
+        (r"normalization|1nf.*2nf.*3nf", "NORMALIZATION", "1NF → 2NF → 3NF"),
+        (r"tcp.*udp", "TCP VS UDP", "RELIABLE VS FAST"),
+        (r"machine input.*output", "MACHINE INPUT", "FOLLOW THE PATTERN"),
+        (r"goosebumps|music.*brain", "GOOSEBUMPS", "THE BRAIN REACTION"),
+        (r"ransomware", "RANSOMWARE", "BANKING DEFENSE"),
+        (r"deadlock.*coffman", "DEADLOCK", "4 COFFMAN CONDITIONS"),
+        (r"group by.*having", "GROUP BY + HAVING", "FILTER AT THE RIGHT STAGE"),
+        (r"basel iii", "BASEL III", "CAPITAL BUFFER"),
+        (r"percentage change", "PERCENTAGE CHANGE", "FAST SAFE METHOD"),
+        (r"successive.*profit|profit.*loss", "PROFIT & LOSS", "SUCCESSIVE CHANGE"),
+        (r"banker algorithm", "BANKER'S ALGORITHM", "SAFE STATE"),
+    )
+    for pattern, head, sub in mappings:
+        if re.search(pattern, low):
+            return head, sub
+
+    candidate = _v11_compact_words(question, 4, 30)
+    if _V11_BAD_HEADLINE.search(candidate) or len(candidate.split()) < 2:
+        candidate = _v11_compact_words(_v11_core_topic(topic, question), 4, 30)
+    if not candidate:
+        candidate = "KEY CONCEPT"
+
+    sub = _v11_compact_words(subline, 4, 28)
+    if not sub or _V11_BAD_HEADLINE.search(sub):
+        tail = _clean_text(topic).split(":", 1)[1] if ":" in _clean_text(topic) else ""
+        sub = _v11_compact_words(tail, 4, 28)
+    if not sub:
+        sub = "EXAM READY"
+    return candidate, sub
+
+
+def _v11_visual_prompt(topic: str, headline: str, subline: str, variant: int) -> str:
+    """Ask the image model for a single editorial hero, not a poster."""
+    core = _v11_core_topic(topic, headline)
+    visual_by_topic = (
+        (r"crr.*slr", "a bank reserve vault on one side and government-security assets on the other, visibly separated by a decisive divide"),
+        (r"ifsc", "a bank transfer travelling through a precise international payment-routing network, one destination clearly illuminated"),
+        (r"letter|coding|decoding", "large physical letter tiles shifting through a mechanical sequence with one transformed result at the end"),
+        (r"tcp|udp|network|osi|arp", "a data packet moving through a realistic network of routers and servers, with a clear route and endpoint"),
+        (r"deadlock|banker|algorithm|database|sql|normalization", "a sophisticated computer-system mechanism with connected data blocks and one clear cause-to-result transformation"),
+        (r"physics|chemistry|biology|brain|goosebumps|science", "one striking scientific mechanism shown as a premium macro/cinematic physical process"),
+        (r"percentage|profit|loss|ratio|average|simplification|arithmetic", "a clean physical calculation metaphor using coins, blocks or measured quantities transforming from input to result"),
+        (r"history|polity|constitution|geography|economy|rbi|bank|finance", "one authentic object or environment that physically represents the exact concept, with cinematic depth"),
+    )
+    scene = "one unmistakable physical metaphor for the exact concept"
+    for pattern, value in visual_by_topic:
+        if re.search(pattern, core, re.I):
+            scene = value
+            break
+    layouts = (
+        "hero weighted to the RIGHT 58-65%, clean darker negative space on the LEFT",
+        "hero weighted to the RIGHT 62%, strong diagonal depth toward the LEFT text area",
+        "hero on the RIGHT with one secondary supporting object near center, LEFT remains visually quiet",
+        "tight cinematic hero on the RIGHT, shallow depth of field, clean LEFT atmosphere",
+        "two concept elements on the RIGHT separated by a clear physical divide, LEFT kept simple",
+    )
+    return (
+        "Create original premium YouTube thumbnail HERO ARTWORK for an Indian competitive-exam education channel. "
+        f"Exact concept: {core}. Thumbnail idea: {headline}. Clarifier: {subline}. "
+        f"Visual metaphor: {scene}. Composition: {layouts[variant % len(layouts)]}. "
+        "The image must communicate the concept before typography is added. Use one dominant subject, large readable silhouette, "
+        "strong focal lighting, cinematic perspective, realistic materials, layered depth, premium commercial photography/3D realism, "
+        "high contrast and saturated but disciplined color. Avoid generic classrooms, generic vaults, stock photos, dashboards, "
+        "flat infographic cards, UI panels, random icons, decorative neon wallpaper, collage layouts and tiny details. "
+        "NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO BORDERS, NO TYPOGRAPHY. Landscape 16:9."
+    )
+
+
+def _v11_render(background: Image.Image, out: Path, headline: str, subline: str, label: str, variant: int) -> dict:
+    """Minimal, mobile-first thumbnail: image dominates; copy is short and huge."""
+    from .thumbnail_director import detect_text_zone
+
+    bg = _fit_background(background).convert("RGB")
+    bg = ImageEnhance.Contrast(bg).enhance(1.20)
+    bg = ImageEnhance.Color(bg).enhance(1.16)
+    bg = ImageEnhance.Sharpness(bg).enhance(1.10)
+    canvas = bg.convert("RGBA")
+    zone, box, left_score, right_score = detect_text_zone(bg)
+
+    # Prefer the quiet half, but never cover the hero with a fixed black card.
+    draw = ImageDraw.Draw(canvas)
+    x1, y1, x2, y2 = box
+    if zone == "left":
+        tx, maxw = 55, 570
+        # very soft left-to-right readability gradient
+        grad = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        gd = ImageDraw.Draw(grad)
+        for x in range(0, 690):
+            t = x / 689
+            gd.line((x, 0, x, 720), fill=(0, 0, 0, int(150 * (1 - t) ** 2.0)))
+        canvas.alpha_composite(grad)
+    else:
+        tx, maxw = 675, 540
+        grad = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        gd = ImageDraw.Draw(grad)
+        for x in range(590, 1280):
+            t = (x - 590) / 689
+            gd.line((x, 0, x, 720), fill=(0, 0, 0, int(150 * t ** 2.0)))
+        canvas.alpha_composite(grad)
+
+    draw = ImageDraw.Draw(canvas)
+    accent = _V6_ACCENTS[variant % len(_V6_ACCENTS)] + (255,)
+    accent2 = _V6_ACCENTS[(variant + 1) % len(_V6_ACCENTS)] + (255,)
+
+    # Tiny, unobtrusive exam tag — no boxed UI.
+    tag = _clean_text(label).upper()[:18]
+    if tag:
+        tag_font = _v6_thumb_font(20, heavy=True)
+        draw.text((tx, 38), tag, font=tag_font, fill=(255, 255, 255, 230), stroke_width=2, stroke_fill=(0, 0, 0, 170))
+        draw.line((tx, 69, min(tx + 130, tx + maxw), 69), fill=accent, width=5)
+
+    # Main copy: 2–4 words, enormous, with only the last line accented.
+    clean_head = _v11_compact_words(headline, 4, 30) or "KEY CONCEPT"
+    hf, lines = _v8_fit_text(draw, clean_head, maxw, max_lines=2, start=108, minimum=62)
+    heights = [draw.textbbox((0, 0), line, font=hf, stroke_width=3)[3] for line in lines]
+    total = sum(heights) + 8 * max(0, len(lines) - 1)
+    y = max(120, min(230, int((720 - total) * 0.48)))
+    for idx, line in enumerate(lines):
+        fill = (255, 255, 255, 255) if idx < len(lines) - 1 else accent
+        draw.text((tx, y), line, font=hf, fill=fill, stroke_width=6, stroke_fill=(0, 0, 0, 235))
+        y += heights[idx] + 8
+
+    clean_sub = _v11_compact_words(subline, 4, 28)
+    if clean_sub:
+        sf = _v6_thumb_font(25, heavy=True)
+        # A single short clarifier, not a sentence.
+        draw.text((tx, y + 14), clean_sub, font=sf, fill=(245, 248, 252, 245), stroke_width=3, stroke_fill=(0, 0, 0, 210))
+
+    # One visual accent only; no giant question marks, fake timers or game UI.
+    if variant % 3 == 0:
+        draw.line((tx, 640, min(tx + 185, tx + maxw), 640), fill=accent2, width=5)
+    elif variant % 3 == 1:
+        draw.arc((tx + maxw - 115, 545, tx + maxw + 30, 690), 205, 320, fill=accent2, width=6)
+    else:
+        draw.ellipse((tx + maxw - 65, 595, tx + maxw - 25, 635), fill=accent2)
+
+    draw.text((tx, 675), "EXAMCRACKER", font=_v6_thumb_font(15, heavy=False), fill=(240, 244, 250, 150))
+    canvas.convert("RGB").save(out, "JPEG", quality=97, optimize=True, progressive=True)
+    return {
+        "text_zone": zone,
+        "zone_box": list(box),
+        "left_complexity": round(left_score, 2),
+        "right_complexity": round(right_score, 2),
+    }
+
+
+def _v11_thumbnail_score(path: Path, zone_meta: dict) -> float:
+    """Prefer balanced, high-contrast artwork with a genuinely quiet text side."""
+    from PIL import ImageStat
+    with Image.open(path) as im:
+        small = im.convert("RGB").resize((320, 180))
+        stat = ImageStat.Stat(small)
+        mean = sum(stat.mean) / 3.0
+        contrast = sum(stat.stddev) / 3.0
+        brightness = max(0.0, 1.0 - abs(mean - 122.0) / 122.0)
+        edges = small.convert("L").filter(ImageFilter.FIND_EDGES)
+        edge_energy = ImageStat.Stat(edges).mean[0]
+        left = ImageStat.Stat(small.crop((0, 0, 155, 180))).stddev
+        right = ImageStat.Stat(small.crop((165, 0, 320, 180))).stddev
+        balance = min(sum(left) / 3.0, sum(right) / 3.0)
+        quiet = min(zone_meta.get("left_complexity", 100), zone_meta.get("right_complexity", 100))
+        return round(contrast * 2.0 + brightness * 28.0 + edge_energy * 0.65 + balance * 0.45 + max(0.0, 72.0 - quiet) * 1.1, 2)
+
+
+def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: float, question: str, label: str,
+                            background_path: Path | None = None, topic: str = "", variants: int | None = None,
+                            subline: str = "", visual_prompt: str = "") -> Path:
+    """V11 thumbnail-only upgrade. Nothing outside thumbnail generation is changed."""
+    count = max(5, int(variants or os.getenv("THUMBNAIL_VARIANTS", "5")))
+    headline, secondary = _v11_thumbnail_copy(topic, question, subline)
+    variant_dir = out_path.parent / "thumbnail_variants"
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    seed_base = int(hashlib.sha1(f"v11|{topic}|{headline}|{secondary}|{label}".encode("utf-8")).hexdigest()[:10], 16)
+    clean = _load_clean_background(video_path, background_path, challenge_time)
+    candidates: list[tuple[Path, dict, float]] = []
+
+    for i in range(count):
+        prompt = _v11_visual_prompt(topic or label, headline, secondary, i)
+        if visual_prompt and len(_clean_text(visual_prompt)) > 45:
+            prompt += f" Exact visual cue from the content brief: {_clean_text(visual_prompt)[:450]}."
+        seed = seed_base + i * 7919
+        try:
+            ai_img = _request_ai_background(prompt, seed)
+        except Exception as exc:
+            print(f"[thumbnail-v11] AI candidate {i + 1} failed: {exc}")
+            ai_img = None
+        bg = ai_img if ai_img is not None else clean
+        path = variant_dir / f"v11_{i + 1:02d}.jpg"
+        meta = _v11_render(bg, path, headline, secondary, label, i)
+        score = _v11_thumbnail_score(path, meta)
+        candidates.append((path, meta, score))
+
+    ranked = sorted(candidates, key=lambda item: item[2], reverse=True)
+    if not ranked:
+        raise RuntimeError("V11 thumbnail engine produced no candidates")
+    best, best_meta, best_score = ranked[0]
+    Image.open(best).convert("RGB").save(out_path, "JPEG", quality=97, optimize=True, progressive=True)
+    manifest = {
+        "engine": "v10_creative_director",
+        "thumbnail_patch": "v11_thumbnail_only",
+        "headline": headline,
+        "subline": secondary,
+        "selected": best.name,
+        "variants": [p.name for p, _, _ in ranked],
+        "scores": {p.name: score for p, _, score in candidates},
+        "composition": {p.name: meta for p, meta, _ in candidates},
+        "creative_briefs": {p.name: {"thumbnail_patch": "v11_thumbnail_only", "variant": i + 1} for i, (p, _, _) in enumerate(candidates)},
+        "canvas": [THUMBNAIL_W, THUMBNAIL_H],
+        "ai_provider": os.getenv("CLOUDFLARE_THUMBNAIL_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"),
+        "copy_rule": "2-4 word creator headline + short concept clarifier",
+    }
+    (variant_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"[thumbnail-v11] selected={best.name}; score={best_score}; headline={headline!r}; subline={secondary!r}")
+    return out_path

@@ -1033,10 +1033,45 @@ Return EXACTLY this JSON and nothing else:
 _DRAFTER_MODEL = "gemini-3.5-flash-lite"
 
 
+def _extract_scene_list(payload: object) -> list | None:
+    """Find a scene list even when Gemini wraps the script in script/data/result/content.
+
+    SDK/schema fallback responses occasionally return {"script": {"scenes": [...]}} or
+    another harmless wrapper. The old repair path treated those as zero scenes and rejected
+    an otherwise usable script. Keep this extractor deliberately narrow: it only follows
+    known wrapper keys and never invents content.
+    """
+    if isinstance(payload, dict):
+        scenes = payload.get("scenes")
+        if isinstance(scenes, list):
+            return scenes
+        for key in ("script", "data", "result", "content", "output", "response", "payload"):
+            if key in payload:
+                found = _extract_scene_list(payload.get(key))
+                if found is not None:
+                    return found
+    elif isinstance(payload, list):
+        # A bare list is accepted only if it looks like scene objects.
+        if payload and all(isinstance(x, dict) for x in payload):
+            return payload
+    return None
+
+
 def _repair_script_shape(parsed: dict, router: GeminiRouter, topic: str) -> dict:
-    """Repair unconstrained JSON that does not satisfy the six-scene teaching contract."""
-    scenes = parsed.get("scenes") if isinstance(parsed, dict) else None
+    """Repair unconstrained JSON that does not satisfy the six-scene teaching contract.
+
+    The recovery path is intentionally two-stage: unwrap harmless Gemini response wrappers,
+    then ask for a strict repair. If that repair returns no scenes, make one clean generation
+    request rather than rejecting the topic solely because the SDK schema fallback produced an
+    empty wrapper.
+    """
+    scenes = _extract_scene_list(parsed)
     count = len(scenes) if isinstance(scenes, list) else 0
+    if count == 6 and scenes is not parsed.get("scenes"):
+        normalized = dict(parsed)
+        normalized["scenes"] = scenes
+        print("[qa] script shape wrapper normalized: found exactly 6 nested scenes")
+        return normalized
     print(f"[qa] script shape repair required: got {count} scenes; normalizing to exactly 6")
     repair_prompt = f"""
 You are a strict JSON repairer for an educational YouTube Shorts pipeline.
@@ -1067,12 +1102,42 @@ SOURCE JSON:
 """.strip()
     raw = router.generate(repair_prompt, call_type=CallType.JSON_REPAIR, use_schema=False)
     repaired = _parse_json(raw)
-    repaired_scenes = repaired.get("scenes") if isinstance(repaired, dict) else None
+    repaired_scenes = _extract_scene_list(repaired)
     repaired_count = len(repaired_scenes) if isinstance(repaired_scenes, list) else 0
-    if repaired_count != 6:
-        raise ValueError(f"scene-shape repair returned {repaired_count} scenes instead of 6")
-    print("[qa] scene-shape repair succeeded: exactly 6 scenes")
-    return repaired
+    if repaired_count == 6:
+        if repaired.get("scenes") is not repaired_scenes:
+            repaired = dict(repaired)
+            repaired["scenes"] = repaired_scenes
+        print("[qa] scene-shape repair succeeded: exactly 6 scenes")
+        return repaired
+
+    # A schema-fallback repair can itself return an empty wrapper. One clean,
+    # unwrapped generation is safer than burning the candidate because of shape alone.
+    print(f"[qa] shape repair returned {repaired_count} scenes; retrying clean six-scene generation")
+    recovery_prompt = f"""
+Return ONLY one JSON object with exactly 6 scenes for this educational YouTube Short.
+TOPIC: {topic}
+
+Use this exact scene order: hook, context, mechanism, example, exam_takeaway, difference_card.
+Each scene must contain: action_type, action_payload, narration, tts_text, image_prompt,
+on_screen_text, card_points, motion_type, camera_motion, sfx_cue.
+Keep the total narration 50-90 words. Preserve facts from the source and do not invent facts.
+No A/B quiz, countdown, fake statistics, or generic filler.
+
+SOURCE:
+{json.dumps(parsed, ensure_ascii=False)}
+""".strip()
+    raw_retry = router.generate(recovery_prompt, call_type=CallType.SCRIPT_GEN, use_schema=False)
+    retry = _parse_json(raw_retry)
+    retry_scenes = _extract_scene_list(retry)
+    retry_count = len(retry_scenes) if isinstance(retry_scenes, list) else 0
+    if retry_count != 6:
+        raise ValueError(f"scene-shape recovery returned {retry_count} scenes instead of 6")
+    if retry.get("scenes") is not retry_scenes:
+        retry = dict(retry)
+        retry["scenes"] = retry_scenes
+    print("[qa] clean six-scene recovery succeeded")
+    return retry
 
 
 def _safe_to_script(parsed: dict, router: GeminiRouter, topic: str) -> Script:

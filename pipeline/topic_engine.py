@@ -237,14 +237,17 @@ def score_topic(
     if query_signal > 0:
         reasons.append(f"YouTube autocomplete signal={query_signal:.1f}")
 
-    # Exam fit: enabled exam lanes get a baseline; explicit exam terms add evidence.
+    # Exam fit: in EXAM_ONLY mode, the selected niche itself is evidence.
+    # Do not artificially drop an IT/banking topic from 20 to 17 merely because
+    # its title does not spell out "IBPS" or "RBI". Explicit exam terms can only
+    # strengthen the signal.
     exam_fit = NICHE_EXAM_FIT.get(niche, 12.0)
     exam_hits = sum(term in text for term in EXAM_TERMS)
     if exam_hits:
         exam_fit = min(20.0, exam_fit + min(6.0, exam_hits * 3.0))
         reasons.append(f"exam fit evidence={exam_hits}")
-    else:
-        exam_fit = min(17.0, exam_fit)
+    elif EXAM_ONLY and niche in ALLOWED_EXAM_NICHES:
+        reasons.append("exam fit from enabled exam niche")
 
     # Specificity: short enough for a query, specific enough to make a complete Short.
     specificity = 6.0 + min(10.0, max(0, len(tokens) - 3) * 1.3)
@@ -427,7 +430,7 @@ def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: di
     scored.sort(key=lambda x: (x.trend_score, x.seo_score, x.exam_fit, x.value_density, x.visual, x.total), reverse=True)
 
     # Hard quality gates: a topic must be useful even if it is temporarily popular.
-    viable = [x for x in scored if x.exam_fit >= 12.0 and x.value_density >= 9.0 and x.teachability >= 7.0 and x.seo_fit >= 4.0]
+    viable = [x for x in scored if x.exam_fit >= 19.0 and x.value_density >= 9.0 and x.teachability >= 7.0 and x.seo_fit >= 4.0 and x.visual >= 6.0]
     if viable:
         scored = viable + [x for x in scored if x not in viable]
 

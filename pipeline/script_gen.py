@@ -1632,6 +1632,17 @@ def _v6_length_issue(script: Script) -> str | None:
 
 def _v6_qa_all(script: Script, topic: str, language: str):
     qa = validate_script(script, language)
+    # V6 uses a 100-word hard cap. The shared legacy validator still carries
+    # an 80-word soft cap, which used to reject valid 81-100 word scripts
+    # even though V6 explicitly allows them. Remove only that legacy wording
+    # here; the V6 hard-cap check below remains authoritative.
+    v6_words = sum(len(re.findall(r"\b[\w'-]+\b", s.narration)) for s in script.scenes)
+    if 80 < v6_words <= 100:
+        qa.issues = [
+            issue for issue in qa.issues
+            if not re.fullmatch(r"too long: \d+ words; remove repetition", issue)
+        ]
+        qa.ok = not qa.issues
     extra: list[str] = []
     if len(script.scenes) != 6:
         extra.append("V6 requires exactly six teaching scenes")

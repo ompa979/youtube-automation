@@ -1046,7 +1046,9 @@ def _v7_thumbnail_render(background: Image.Image, out: Path, headline: str, subl
 def _v11_procedural_hero(topic: str, variant: int) -> Image.Image:
     """High-contrast concept art fallback when all thumbnail AI accounts are exhausted."""
     from PIL import ImageDraw, ImageFilter
-    img = Image.new("RGB", (THUMBNAIL_W, THUMBNAIL_H), (10, 17, 32))
+    # Legacy V11 helper intentionally remains 16:9 for backwards-compatible
+    # callers/tests. The Shorts-native V12 engine uses _v12_procedural_hero().
+    img = Image.new("RGB", (1280, 720), (10, 17, 32))
     draw = ImageDraw.Draw(img, "RGBA")
     # Soft radial-like bands give the fallback a designed, non-screenshot look.
     for r in range(520, 20, -20):
@@ -1958,13 +1960,13 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
     Image.open(best).convert('RGB').save(out_path,'JPEG',quality=94,optimize=True,progressive=True)
     manifest={
         'engine':'v12_shorts_native',
-        'thumbnail_patch':'v12_shorts_native_9x16',
+        'thumbnail_patch':'v17_hit_rate_v2_thumbnail_only',
         'hit_rate_program':'25-point-thumbnail-hit-rate-program',
         'headline':headline,'subline':secondary,'selected':best.name,
         'variants':[p.name for p,_,_ in ranked],
         'scores':{p.name:score for p,_,score in candidates},
         'composition':{p.name:meta for p,meta,_ in candidates},
-        'creative_briefs': {p.name: {'thumbnail_patch':'v12_shorts_native_9x16','variant':i+1} for i,(p,_,_) in enumerate(candidates)},
+        'creative_briefs': {p.name: {'thumbnail_patch':'v17_hit_rate_v2_thumbnail_only','variant':i+1} for i,(p,_,_) in enumerate(candidates)},
         'canvas':[THUMBNAIL_W,THUMBNAIL_H],
         'aspect_ratio':'9:16','recommended_resolution':'2160x3840',
         'center_safe_4_5':True,

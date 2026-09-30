@@ -7,6 +7,14 @@ on:
         description: Number of Shorts to generate
         required: false
         default: "1"
+      test_mode:
+        description: Test mode (fast or full)
+        required: false
+        default: "fast"
+        type: choice
+        options:
+          - fast
+          - full
   schedule:
     - cron: "*/30 * * * *"
 
@@ -38,6 +46,7 @@ jobs:
       TTS_VOICE: "en-IN-PrabhatNeural"
       NICHES_ENABLED: "bank_it_officer,banking_awareness,bank_reasoning_quant,rbi_economy,ssc_general"
       COUNT: ${{ github.event.inputs.count || '1' }}
+      TEST_MODE: ${{ github.event.inputs.test_mode || 'fast' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,6 +55,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Verify FFmpeg
         shell: bash
@@ -64,7 +74,12 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt && python -m pip install pytest==8.4.2
 
-      - name: Sanity tests
+      - name: Fast thumbnail regression tests
+        if: env.TEST_MODE != 'full'
+        run: python -m pytest -q tests/test_fast_thumbnail_ci.py
+
+      - name: Full regression tests
+        if: env.TEST_MODE == 'full'
         run: python -m pytest -q
 
       - name: Verify YouTube credentials are wired

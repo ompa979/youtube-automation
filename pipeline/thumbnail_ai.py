@@ -61,6 +61,10 @@ def cloudflare_credential_pool() -> list[tuple[str, str, str]]:
     )
 
     if primary_overridden:
+        # Explicit runtime/module override is authoritative for the primary
+        # credential. This keeps missing-credential tests deterministic even
+        # when CI has Cloudflare secrets injected. Numbered failover accounts
+        # are still available only when the primary globals were not overridden.
         if primary_account and primary_token:
             return [("1", primary_account, primary_token)]
         return []
@@ -68,7 +72,12 @@ def cloudflare_credential_pool() -> list[tuple[str, str, str]]:
     if primary_account and primary_token:
         pairs.append(("1", primary_account, primary_token))
 
-    for idx in range(2, CLOUDFLARE_MAX_ACCOUNTS + 1):
+    try:
+        max_accounts = max(1, min(8, int(os.getenv("CLOUDFLARE_MAX_ACCOUNTS", str(CLOUDFLARE_MAX_ACCOUNTS)))))
+    except (TypeError, ValueError):
+        max_accounts = CLOUDFLARE_MAX_ACCOUNTS
+
+    for idx in range(2, max_accounts + 1):
         account = os.getenv(f"CLOUDFLARE_ACCOUNT_ID_{idx}", "").strip()
         token = os.getenv(f"CLOUDFLARE_API_TOKEN_{idx}", "").strip()
         if account and token and (account, token) not in {(a, t) for _, a, t in pairs}:

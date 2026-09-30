@@ -26,16 +26,16 @@ def test_difference_role():
 def test_difference_not_game():
     s=_script(); sg._v6_enforce_contract(s); assert "A OR B" not in s.scenes[-1].action_payload.upper(); assert s.scenes[-1].on_screen_text=="KEY DIFFERENCE"
 
-def test_thumbnail_1280x720():
+def test_thumbnail_2160x3840():
     with tempfile.TemporaryDirectory() as td:
         root=Path(td); bp=root/"bg.jpg"; Image.new("RGB",(1280,720),(60,80,110)).save(bp); out=root/"thumb.jpg"
         with patch.object(ev2,"_request_ai_background",return_value=None):
             ev2.create_custom_thumbnail(root/"video.mp4",out,0.5,"M1 VS M3","RBI GRADE B",background_path=bp,topic="M1 vs M3",variants=3,subline="TERM DEPOSITS")
-        assert Image.open(out).size==(1280,720)
+        assert Image.open(out).size==(2160,3840)
 
 def test_thumbnail_layout_prompt():
     p=ev2._v8_thumbnail_visual_prompt("CRR vs SLR","CRR OR SLR?","WHICH USES CASH?","hero_right_text_left")
-    assert "RIGHT 58 percent" in p and "Landscape 16:9" in p and "NO WORDS" in p.upper()
+    assert "RIGHT 58 percent" in p and "Portrait 9:16" in p and "NO WORDS" in p.upper()
 
 def test_topic_score_100scale():
     s=score_topic("CRR vs SLR: where each reserve is kept","banking_awareness",trend=75,query_signal=4); assert 0<=s.trend_score<=100 and 0<=s.seo_score<=100

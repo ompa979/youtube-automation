@@ -44,14 +44,30 @@ CLOUDFLARE_MAX_ACCOUNTS = max(1, min(8, int(os.getenv("CLOUDFLARE_MAX_ACCOUNTS",
 def cloudflare_credential_pool() -> list[tuple[str, str, str]]:
     """Return distinct Cloudflare account/token pairs in deterministic order.
 
-    Pair 1 is the legacy primary pair; numbered pairs 2..N are optional
-    failover accounts. This function is intentionally used only by the
-    thumbnail adapter so scene-generation behaviour remains unchanged.
+    Pair 1 is the legacy primary pair; numbered pairs 2..N are optional failover
+    accounts. Runtime environment variables are the production source. When a
+    caller deliberately overrides the primary module globals after import, that
+    override is authoritative for the whole pool so CI secrets cannot silently
+    leak into missing-credentials tests.
+
+    This function is intentionally used only by the thumbnail adapter so scene
+    generation behaviour remains unchanged.
     """
     pairs: list[tuple[str, str, str]] = []
     primary_account, primary_token = _effective_cloudflare_credentials()
+    primary_overridden = (
+        CLOUDFLARE_ACCOUNT_ID != _INITIAL_CLOUDFLARE_ACCOUNT_ID
+        or CLOUDFLARE_API_TOKEN != _INITIAL_CLOUDFLARE_API_TOKEN
+    )
+
+    if primary_overridden:
+        if primary_account and primary_token:
+            return [("1", primary_account, primary_token)]
+        return []
+
     if primary_account and primary_token:
-        pairs.append(("1", primary_account.strip(), primary_token.strip()))
+        pairs.append(("1", primary_account, primary_token))
+
     for idx in range(2, CLOUDFLARE_MAX_ACCOUNTS + 1):
         account = os.getenv(f"CLOUDFLARE_ACCOUNT_ID_{idx}", "").strip()
         token = os.getenv(f"CLOUDFLARE_API_TOKEN_{idx}", "").strip()
@@ -198,7 +214,7 @@ def generate_generic_background(prompt: str, seed: int) -> Image.Image:
     headers = {"Accept": "image/png,application/json"}
     if THUMBNAIL_AI_TOKEN:
         headers["Authorization"] = f"Bearer {THUMBNAIL_AI_TOKEN}"
-    payload = {"prompt": prompt, "width": 1152, "height": 648, "seed": int(seed)}
+    payload = {"prompt": prompt, "width": 768, "height": 1365, "seed": int(seed)}
     response = requests.post(THUMBNAIL_AI_URL, json=payload, headers=headers, timeout=THUMBNAIL_AI_TIMEOUT)
     response.raise_for_status()
     content_type = response.headers.get("content-type", "").lower()
@@ -223,7 +239,7 @@ def generate_background(prompt: str, seed: int) -> tuple[Image.Image | None, str
     for slot, account_id, api_token in cloudflare_credential_pool():
         for model_name, provider_name, dims in (
             (primary, "cloudflare", (1152, 768)),
-            (fallback_model, "cloudflare-flux1-fallback", (1280, 720)),
+            (fallback_model, "cloudflare-flux1-fallback", (768, 1365)),
         ):
             if not model_name:
                 continue

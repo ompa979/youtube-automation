@@ -674,9 +674,17 @@ def _apply_dark_scrim(path: Path, width: int = 1080, height: int = 1920) -> bool
 
 
 def _cloudflare_scene_enabled() -> bool:
-    """Return True when Cloudflare FLUX.1 Schnell is the active image provider."""
+    """Return True only when the primary Cloudflare scene credentials are configured.
+
+    Numbered Cloudflare failover accounts are intentionally thumbnail-only; they
+    must not silently enable scene generation when the primary scene credentials
+    are missing.
+    """
     enabled = os.getenv("CLOUDFLARE_SCENE_IMAGES_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
-    return bool(os.getenv("IMAGE_PROVIDER", "cloudflare").strip().lower() == "cloudflare" and enabled and cloudflare_configured())
+    provider_ok = os.getenv("IMAGE_PROVIDER", "cloudflare").strip().lower() == "cloudflare"
+    primary_account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+    primary_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+    return bool(provider_ok and enabled and primary_account and primary_token)
 
 
 def _fetch_cloudflare_scene_image(

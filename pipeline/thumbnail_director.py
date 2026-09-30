@@ -91,7 +91,7 @@ def build_brief(topic: str, headline_text: str, subline_text: str, variant: int)
         focal_subject=focal,
         action=action,
         composition=(
-            "landscape 16:9; make the hero occupy roughly 55-65 percent of the frame; "
+            "portrait 9:16; make the hero occupy roughly 55-65 percent of the frame; "
             "reserve 35-45 percent of the opposite side as visually quieter negative space; "
             "no important face, object, bright edge, or high-detail mechanism in the text zone"
         ),

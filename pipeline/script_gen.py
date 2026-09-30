@@ -1464,7 +1464,7 @@ VISUAL STORYBOARD
 THUMBNAIL
 - Return thumbnail_text (2-5 words) that creates curiosity without becoming a quiz-show slogan.
 - Return thumbnail_subline (2-6 words) that clarifies the subject.
-- Return thumbnail_visual_prompt: premium 16:9 hero artwork, one dominant subject, dramatic action, subject weighted RIGHT, clean LEFT area for later typography, expensive commercial look, photorealistic or premium 3D. No text, numbers, logos or UI.
+- Return thumbnail_visual_prompt: premium portrait 9:16 hero artwork, one dominant subject, dramatic action, subject weighted RIGHT, clean LEFT area for later typography, expensive commercial look, photorealistic or premium 3D. No text, numbers, logos or UI.
 
 SEO/PACKAGING
 - Title must lead with the actual search concept, then add a useful benefit or clear mechanism.
@@ -1482,7 +1482,7 @@ Return ONLY this JSON:
   "tags": ["6-10 precise tags"],
   "thumbnail_text": "2-5 words",
   "thumbnail_subline": "2-6 words",
-  "thumbnail_visual_prompt": "premium 16:9 hero-art description, no text",
+  "thumbnail_visual_prompt": "premium portrait 9:16 hero-art description, no text",
   "scenes": [
     {{
       "action_type": "hook | context | mechanism | example | exam_takeaway | difference_card",

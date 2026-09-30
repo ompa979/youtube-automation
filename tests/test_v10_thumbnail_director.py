@@ -27,17 +27,17 @@ class TestV10ThumbnailDirector(unittest.TestCase):
     def test_prompt_is_image_first(self):
         b = build_brief("CRR vs SLR", "CASH OR ASSETS", "BANKING", 0)
         prompt = build_prompt(b).upper()
-        for phrase in ["ONE DOMINANT SUBJECT", "NO WORDS", "NO LOGOS", "LANDSCAPE 16:9"]:
+        for phrase in ["ONE DOMINANT SUBJECT", "NO WORDS", "NO LOGOS", "PORTRAIT 9:16"]:
             self.assertIn(phrase, prompt)
         self.assertIn("DO NOT CREATE A LESSON SLIDE", prompt)
 
     def test_text_zone_chooses_quieter_side(self):
-        img = Image.new("RGB", (1280, 720), (20, 20, 20))
+        img = Image.new("RGB", (2160, 3840), (20, 20, 20))
         draw = ImageDraw.Draw(img)
-        # Busy right half; quiet left half.
-        for x in range(700, 1280, 10):
-            for y in range(0, 720, 10):
-                draw.rectangle((x, y, x + 5, y + 5), fill=(240, 40, 40))
+        # Busy right half; quiet left half, across the center-safe vertical band.
+        for x in range(1180, 2140, 22):
+            for y in range(700, 3150, 22):
+                draw.rectangle((x, y, x + 9, y + 9), fill=(240, 40, 40))
         zone, box, left, right = detect_text_zone(img)
         self.assertEqual(zone, "left")
         self.assertLess(left, right)
@@ -45,11 +45,11 @@ class TestV10ThumbnailDirector(unittest.TestCase):
     def test_v10_renderer_uses_five_candidates(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            bg = Image.new("RGB", (1280, 720), (28, 48, 72))
+            bg = Image.new("RGB", (2160, 3840), (28, 48, 72))
             # Add a deliberately busy right-side hero area.
             draw = ImageDraw.Draw(bg)
-            for x in range(700, 1280, 18):
-                draw.line((x, 100, x - 100, 650), fill=(240, 180, 40), width=10)
+            for x in range(1200, 2140, 28):
+                draw.line((x, 780, x - 160, 3050), fill=(240, 180, 40), width=18)
             bg_path = root / "bg.jpg"
             bg.save(bg_path)
             out = root / "thumbnail.jpg"
@@ -60,9 +60,9 @@ class TestV10ThumbnailDirector(unittest.TestCase):
                     variants=5, subline="PAYMENT SYSTEMS",
                 )
             self.assertTrue(got.exists())
-            self.assertEqual(Image.open(got).size, (1280, 720))
+            self.assertEqual(Image.open(got).size, (2160, 3840))
             manifest = (root / "thumbnail_variants" / "manifest.json").read_text()
-            self.assertIn('"engine": "v10_creative_director"', manifest)
+            self.assertIn('"engine": "v12_shorts_native"', manifest)
             import json
             data = json.loads(manifest)
             self.assertEqual(len(data["variants"]), 5)

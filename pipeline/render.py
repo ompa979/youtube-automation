@@ -23,7 +23,7 @@ Variety features (anti-monotone pass):
   #7  (script_gen.py) hook style rotates per topic
   #8  (script_gen.py) prompt now asks for varied pacing
   #9  Rotating outro CTA card appended as a final "scene" -> _make_outro_clip
-  #10 Thumbnail: 3+ premium 16:9 variants from an optional AI background service
+  #10 Thumbnail: 5+ premium 9:16 Shorts variants from an optional AI background service
       + deterministic Pillow composition + candidate scoring -> thumbnail.jpg
 """
 from __future__ import annotations
@@ -659,11 +659,29 @@ def extract_best_thumbnail(video_path: Path, out: Path, scene0_duration: float) 
         print("[!] no usable thumbnail candidate — falling back to fixed 0.5s grab")
         return extract_thumbnail(video_path, out, at_sec=0.5)
 
-    best_path.replace(out)
-    for tmp in tmp_paths:
-        if tmp.exists() and tmp != out:
-            tmp.unlink(missing_ok=True)
-    print(f"[render] thumbnail chosen: score={best_score:.1f} size={out.stat().st_size // 1024}KB")
+    # Even the emergency frame fallback must remain Shorts-native 9:16.
+    try:
+        from PIL import Image
+        from .engagement_v2 import THUMBNAIL_W, THUMBNAIL_H
+        with Image.open(best_path) as frame:
+            rgb = frame.convert("RGB")
+            target = THUMBNAIL_W / THUMBNAIL_H
+            current = rgb.width / rgb.height if rgb.height else target
+            if current > target:
+                new_w = int(rgb.height * target)
+                left = max((rgb.width - new_w) // 2, 0)
+                rgb = rgb.crop((left, 0, left + new_w, rgb.height))
+            else:
+                new_h = int(rgb.width / target)
+                top = max((rgb.height - new_h) // 2, 0)
+                rgb = rgb.crop((0, top, rgb.width, top + new_h))
+            rgb = rgb.resize((THUMBNAIL_W, THUMBNAIL_H), Image.Resampling.LANCZOS)
+            rgb.save(out, "JPEG", quality=94, optimize=True, progressive=True)
+    finally:
+        for tmp in tmp_paths:
+            if tmp.exists() and tmp != out:
+                tmp.unlink(missing_ok=True)
+    print(f"[render] Shorts thumbnail chosen: score={best_score:.1f} size={out.stat().st_size // 1024}KB")
     return out
 
 
@@ -1108,9 +1126,8 @@ def assemble_video(
     if not final.exists() or final.stat().st_size < 50_000:
         raise RuntimeError("Final video was not produced correctly")
 
-    # V2 packaging: build a true 16:9 custom thumbnail from the challenge beat.
-    # The previous implementation uploaded a 9:16 video frame, which is the wrong
-    # composition for conventional YouTube thumbnail surfaces.
+    # Shorts packaging: build a native 9:16 custom thumbnail from the challenge beat.
+    # YouTube currently recommends 9:16 for uploaded custom Shorts thumbnails.
     thumb = OUT_DIR / "thumbnail.jpg"
     try:
         challenge_offset = min(
@@ -1130,7 +1147,7 @@ def assemble_video(
             subline=thumbnail_subline,
             visual_prompt=thumbnail_visual_prompt,
         )
-        print(f"[render] V7 16:9 premium thumbnail created: {thumb} ({thumb.stat().st_size // 1024}KB)")
+        print(f"[render] V12 9:16 Shorts thumbnail created: {thumb} ({thumb.stat().st_size // 1024}KB)")
     except Exception as exc:
         print(f"[!] V2 thumbnail failed, falling back to best frame: {exc}")
         try:

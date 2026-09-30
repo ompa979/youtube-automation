@@ -310,7 +310,7 @@ for offset, (q, seed) in enumerate(FINAL_CASES, 96):
                     background_path=bg, topic="RBI Grade B - Test", variants=1
                 )
                 with Image.open(out) as im:
-                    self.assertEqual(im.size, (1280, 720))
+                    self.assertEqual(im.size, (2160, 3840))
                     self.assertEqual(im.format, "JPEG")
                 manifest = root / "thumbnail_variants" / "manifest.json"
                 self.assertTrue(manifest.exists())

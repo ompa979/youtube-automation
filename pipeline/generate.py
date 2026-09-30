@@ -23,7 +23,7 @@ Round 2 optimizations — legacy notes retained for compatibility. Current V7 us
   #7  Hook style rotates between misconception/consequence/curiosity (script_gen.py)
   #8  Prompt now asks for varied scene pacing instead of uniform length (script_gen.py)
   #9  No generic outro CTA card; CTA stays outside the spoken teaching arc
-  #10 Dedicated 16:9 premium AI-art thumbnails are generated independently of scene frames
+  #10 Dedicated 9:16 Shorts premium AI-art thumbnails are generated independently of scene frames
 """
 from __future__ import annotations
 

@@ -147,7 +147,7 @@ def build_click_title(topic: str, base_title: str, script: "Script") -> str:
 
 
 def build_thumbnail_text(script: "Script") -> str:
-    """Short, high-contrast question for a 16:9 thumbnail."""
+    """Short, high-contrast question for a Shorts-native 9:16 thumbnail."""
     q = _question_from_challenge(script)
     q = re.sub(r"\s+", " ", q).strip()
     # Avoid punctuation overload in the thumbnail while retaining the question mark.
@@ -213,7 +213,7 @@ def _extract_frame_16x9(video_path: Path, out_path: Path, at_sec: float) -> None
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "ffmpeg", "-y", "-ss", f"{max(0.0, at_sec):.3f}", "-i", str(video_path),
-        "-frames:v", "1", "-vf", "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720",
+        "-frames:v", "1", "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280",
         "-q:v", "2", str(out_path),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -221,8 +221,8 @@ def _extract_frame_16x9(video_path: Path, out_path: Path, at_sec: float) -> None
         raise RuntimeError(f"thumbnail frame extraction failed: {proc.stderr[-1200:]}")
 
 
-THUMBNAIL_W = 1280
-THUMBNAIL_H = 720
+THUMBNAIL_W = 2160
+THUMBNAIL_H = 3840
 THUMBNAIL_VARIANTS = max(1, int(os.getenv("THUMBNAIL_VARIANTS", "3")))
 
 # 10 reusable thumbnail archetypes. The background is AI-generated when an
@@ -283,7 +283,7 @@ def _thumbnail_visual_prompt(topic: str, question: str, archetype: str, seed: in
     return (
         f"Create a premium YouTube thumbnail background for an Indian competitive-exam education video. "
         f"Topic: {topic}. Viewer question: {question}. Visual direction: {role}. "
-        f"16:9 landscape composition, cinematic dark background, high contrast, vivid electric cyan + warm yellow + red accents, "
+        f"portrait 9:16 composition, cinematic dark background, high contrast, vivid electric cyan + warm yellow + red accents, "
         f"photorealistic or premium 3D infographic aesthetic, one dominant hero subject, dramatic rim light, deep depth, "
         f"clean negative space for typography, mobile-feed readability, no logos, no watermarks, no letters, no numbers, no written words. "
         f"Seed concept {seed}."
@@ -500,7 +500,7 @@ def create_custom_thumbnail(
     topic: str = "",
     variants: int | None = None,
 ) -> Path:
-    """Create 3+ premium 16:9 thumbnail candidates and select the best.
+    """Create 3+ premium 9:16 Shorts thumbnail candidates and select the best.
 
     When THUMBNAIL_AI_URL is set, each candidate asks a compatible image service
     (the bundled Z-Image-Turbo FastAPI server is one implementation) for a fresh
@@ -648,7 +648,7 @@ def _v6_thumb_visual_prompt(topic: str, headline: str, archetype: str, subline: 
     return (
         "Create a premium creator-style YouTube thumbnail hero image, designed as original commercial artwork rather than a video frame. "
         f"Topic: {topic}. Core curiosity: {headline}. Secondary meaning: {subline}. "
-        f"Visual concept: {style}. Landscape 16:9. The RIGHT side contains the dominant subject; the LEFT side has controlled visual simplicity for later typography. "
+        f"Visual concept: {style}. Portrait 9:16. The RIGHT side contains the dominant subject; the LEFT side has controlled visual simplicity for later typography. "
         "Use strong foreground/background separation, realistic or high-end 3D materials, dramatic but clean cinematic lighting, vivid accent color, subtle particles or atmosphere, a strong focal light, layered depth, and a single unmistakable visual metaphor. "
         "The image should feel expensive, modern, editorial and highly clickable at small size. Avoid generic educational stock imagery. "
         "NO WORDS, NO LETTERS, NO NUMBERS, NO FAKE UI, NO LOGOS, NO WATERMARKS, NO BORDER, NO COLLAGE, NO CHEAP CLIPART. "
@@ -808,7 +808,7 @@ def create_custom_thumbnail(
         seed = seed_base + i * 7919
         prompt = _clean_text(visual_prompt) if visual_prompt else _v6_thumb_visual_prompt(topic or label, headline, archetype, secondary)
         # Add the archetype-specific composition constraints even when Gemini authored the brief.
-        prompt = prompt + (" Landscape 16:9. RIGHT-side hero subject, LEFT-side clean negative space for typography. NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS.")
+        prompt = prompt + (" Portrait 9:16. RIGHT-side hero subject, LEFT-side clean negative space for typography. NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS.")
         ai_img = _request_ai_background(prompt, seed)
         bg = ai_img if ai_img is not None else clean
         candidate = variant_dir / f"v6_{i+1:02d}_{archetype}.jpg"
@@ -974,7 +974,7 @@ def _v7_visual_prompt(topic: str, headline: str, archetype: str, subline: str) -
     return (
         "Create a stunning, premium, creator-grade YouTube thumbnail HERO IMAGE that feels like top-tier social creative, not a screenshot, lesson slide, stock photo, or template. "
         f"Topic: {topic}. Main idea: {headline}. Context: {subline}. "
-        f"Art direction: {styles[archetype]}. Landscape 16:9. "
+        f"Art direction: {styles[archetype]}. Portrait 9:16. "
         "Design for a tiny mobile thumbnail first: one unforgettable focal subject, immediate visual storytelling, strong silhouette, aggressive but tasteful depth, cinematic lens perspective, believable motion, rich material detail, bright focal highlight, premium color contrast, controlled shadows, subtle glow, depth haze, and a polished advertising/editorial finish. "
         "Make the scene feel expensive and energetic: glossy or tactile materials, realistic reflections, directional light, rich environmental context, layered foreground/midground/background, and one decisive visual action that explains the idea. "
         "Place the hero subject on the RIGHT 55-65% of the canvas and keep the LEFT 35-45% visually simpler but still cinematic so later typography can sit there without covering the hero. "
@@ -1111,7 +1111,7 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
         start_index = seed_base % len(_V7_THUMB_ARCHETYPES)
         archetype = _V7_THUMB_ARCHETYPES[(start_index + i) % len(_V7_THUMB_ARCHETYPES)]
         prompt = _clean_text(visual_prompt) if visual_prompt else _v7_visual_prompt(topic or label, headline, archetype, secondary)
-        prompt += " Landscape 16:9; hero weighted to right; premium commercial thumbnail art; no text."
+        prompt += " Portrait 9:16; hero weighted to right; premium commercial thumbnail art; no text."
         try:
             ai_img = _request_ai_background(prompt, seed_base + i*7919)
         except Exception as exc:
@@ -1148,7 +1148,7 @@ def _v8_thumbnail_visual_prompt(topic: str, headline: str, subline: str, layout:
     return ("Create a premium creator-grade YouTube thumbnail hero image, not a lesson slide, not a stock photo, not an infographic and not a video frame. "
             f"Topic: {topic}. Core idea: {headline}. Supporting meaning: {subline}. Composition: {layout_map[layout]}. "
             "Use one unforgettable focal subject, one decisive physical action, strong cinematic perspective, realistic or high-end 3D materials, crisp foreground/background separation, directional key light, rim light, rich reflections, atmospheric depth, vivid but controlled color, expensive advertising finish and a memorable silhouette. "
-            "The image must explain the concept when muted and reserve the specified text-safe area. Absolutely NO words, letters, numbers, logos, watermarks, UI, infographic panels, borders or collage. Landscape 16:9, designed for 1280x720.")
+            "The image must explain the concept when muted and reserve the specified text-safe area. Absolutely NO words, letters, numbers, logos, watermarks, UI, infographic panels, borders or collage. Portrait 9:16, designed for 2160x3840.")
 
 def _v8_detect_text_side(img: Image.Image, preferred: str) -> str:
     """Choose the quieter half of the AI artwork for typography using edge density."""
@@ -1530,7 +1530,7 @@ def _v11_visual_prompt(topic: str, headline: str, subline: str, variant: int) ->
         "strong focal lighting, cinematic perspective, realistic materials, layered depth, premium commercial photography/3D realism, "
         "high contrast and saturated but disciplined color. Avoid generic classrooms, generic vaults, stock photos, dashboards, "
         "flat infographic cards, UI panels, random icons, decorative neon wallpaper, collage layouts and tiny details. "
-        "NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO BORDERS, NO TYPOGRAPHY. Landscape 16:9."
+        "NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO BORDERS, NO TYPOGRAPHY. Portrait 9:16."
     )
 
 
@@ -1722,4 +1722,256 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
     }
     (variant_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[thumbnail-v11] selected={best.name}; score={best_score}; headline={headline!r}; subline={secondary!r}")
+    return out_path
+
+# ═════════════════════════════════════════════════════════════════════════════
+# THUMBNAIL V12 — Shorts-native 9:16, mobile-first, center-safe, thumbnail-only
+# ═════════════════════════════════════════════════════════════════════════════
+
+_SHORTS_SAFE_TOP = 690
+_SHORTS_SAFE_BOTTOM = 3150
+_SHORTS_CENTER_45_TOP = 570
+_SHORTS_CENTER_45_BOTTOM = 3270
+
+
+def _v12_short_text_zone(img: Image.Image) -> tuple[str, tuple[int,int,int,int], float, float]:
+    """Pick the quieter side inside the 9:16 + centered 4:5 safe band."""
+    from PIL import ImageStat
+    rgb = img.convert('RGB')
+    w, h = rgb.size
+    top = max(0, min(h - 1, _SHORTS_SAFE_TOP))
+    bottom = max(top + 10, min(h, _SHORTS_SAFE_BOTTOM))
+    margin = int(w * 0.045)
+    left_box = (margin, top, int(w * 0.44), bottom)
+    right_box = (int(w * 0.56), top, w - margin, bottom)
+
+    def score(box):
+        crop = rgb.crop(box).resize((180, 220))
+        gray = crop.convert('L')
+        edge = ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).mean[0]
+        stat = ImageStat.Stat(crop)
+        variance = sum(stat.stddev) / 3.0
+        mean = sum(stat.mean) / 3.0
+        brightness_penalty = max(0.0, mean - 165.0) * 0.40
+        return edge * 1.25 + variance * 0.72 + brightness_penalty
+
+    left_score, right_score = score(left_box), score(right_box)
+    if left_score <= right_score:
+        return 'left', left_box, left_score, right_score
+    return 'right', right_box, left_score, right_score
+
+
+def _v12_procedural_hero(topic: str, variant: int) -> Image.Image:
+    """Vertical designed fallback; never use a random video frame when AI is unavailable."""
+    from PIL import ImageDraw, ImageFilter
+    img = Image.new('RGB', (THUMBNAIL_W, THUMBNAIL_H), (7, 14, 28))
+    draw = ImageDraw.Draw(img, 'RGBA')
+    cx, cy = 1510, 1870
+    for r in range(1150, 50, -60):
+        alpha = max(8, int(4 + (1150 - r) * 0.045))
+        draw.ellipse((cx-r, cy-r, cx+r, cy+r), fill=(18, 115, 240, alpha))
+    core = _v11_core_topic(topic).lower()
+
+    def node(x, y, r, color):
+        draw.ellipse((x-r, y-r, x+r, y+r), fill=(5, 12, 26, 235), outline=color, width=max(10, r//9))
+        draw.ellipse((x-r//2, y-r//2, x+r//2, y+r//2), fill=color)
+
+    if re.search(r'tcp.*3-way|3-way.*handshake|syn.*syn-ack', core):
+        pts = [(1260, 1200), (1640, 1880), (1260, 2560)]
+        colors = [(64, 205, 255, 235), (255, 196, 66, 235), (89, 225, 170, 235)]
+        for p, c, r in zip(pts, colors, (105, 135, 105)):
+            node(*p, r, c)
+        draw.line((*pts[0], *pts[1]), fill=(235,245,255,205), width=22)
+        draw.line((*pts[1], *pts[2]), fill=(235,245,255,205), width=22)
+        draw.arc((1260, 1460, 1770, 2280), 315, 145, fill=(255, 112, 78, 235), width=18)
+        draw.polygon([(1730, 1900), (1665, 1860), (1680, 1930)], fill=(255,112,78,235))
+    elif re.search(r'deadlock|coffman', core):
+        pts = [(1210, 1320), (1670, 1450), (1630, 2390), (1160, 2500)]
+        cols = [(70,200,255,235),(255,194,66,235),(90,225,170,235),(240,95,115,235)]
+        for p,c in zip(pts,cols): node(*p, 105, c)
+        for i in range(4):
+            a,b=pts[i],pts[(i+1)%4]
+            draw.line((*a,*b), fill=(240,245,255,185), width=18)
+    elif re.search(r'crr|slr|repo|npa|bank|finance', core):
+        draw.rounded_rectangle((1280, 1180, 1780, 2600), 70, fill=(22,38,67,235), outline=(96,185,255,235), width=18)
+        draw.ellipse((1385, 1320, 1675, 1610), fill=(255,195,64,235))
+        for y in (1890, 2070, 2250):
+            draw.rounded_rectangle((1390, y, 1670, y+70), 20, fill=(85,205,176,215))
+    elif re.search(r'sql|database|normalization|query', core):
+        for y in (1320, 1880, 2440):
+            draw.ellipse((1260, y, 1740, y+135), fill=(62,153,239,220), outline=(218,244,255,190), width=14)
+            draw.rounded_rectangle((1260, y+70, 1740, y+235), 26, fill=(23,54,90,235), outline=(220,245,255,120), width=10)
+        draw.polygon([(1790, 1440),(2010,1440),(1920,1810),(1860,1810)], fill=(255,190,70,210))
+    else:
+        for r, fill in ((520,(35,125,255,55)), (360,(45,190,240,75)), (210,(255,190,70,145))):
+            draw.ellipse((cx-r, cy-r, cx+r, cy+r), fill=fill, outline=(230,245,255,140), width=10)
+        draw.line((1080, 2550, 1900, 1050), fill=(95,220,190,185), width=24)
+        draw.polygon([(1900,1050),(1815,1100),(1845,1165)], fill=(95,220,190,220))
+    return img.filter(ImageFilter.GaussianBlur(0.25))
+
+
+def _v12_fit_headline(draw, text: str, max_width: int) -> tuple[ImageFont.FreeTypeFont, list[str]]:
+    clean = _v11_compact_words(text, 4, 30) or 'KEY CONCEPT'
+    for size in range(230, 94, -4):
+        font = _v6_thumb_font(size, heavy=True)
+        lines = _v6_wrap(draw, clean, font, max_width, 2)
+        widths = [draw.textbbox((0,0), line, font=font, stroke_width=6)[2] for line in lines]
+        heights = [draw.textbbox((0,0), line, font=font, stroke_width=6)[3] for line in lines]
+        if len(lines) <= 2 and max(widths or [0]) <= max_width and sum(heights) + 20 <= 980:
+            return font, lines
+    font = _v6_thumb_font(96, heavy=True)
+    return font, _v6_wrap(draw, clean, font, max_width, 2)
+
+
+def _v12_render(background: Image.Image, out: Path, headline: str, subline: str, label: str, variant: int) -> dict:
+    bg = _fit_background(background).convert('RGB')
+    bg = ImageEnhance.Contrast(bg).enhance(1.19)
+    bg = ImageEnhance.Color(bg).enhance(1.15)
+    bg = ImageEnhance.Sharpness(bg).enhance(1.10)
+    canvas = bg.convert('RGBA')
+    zone, box, left_score, right_score = _v12_short_text_zone(bg)
+    x1, y1, x2, y2 = box
+    if zone == 'left':
+        tx, maxw = 100, 850
+        grad = Image.new('RGBA', canvas.size, (0,0,0,0)); gd = ImageDraw.Draw(grad)
+        for x in range(0, 1120):
+            t = x / 1119
+            gd.line((x, 0, x, THUMBNAIL_H), fill=(0,0,0,int(155*(1-t)**2.15)))
+    else:
+        tx, maxw = 1210, 850
+        grad = Image.new('RGBA', canvas.size, (0,0,0,0)); gd = ImageDraw.Draw(grad)
+        for x in range(1040, THUMBNAIL_W):
+            t = (x-1040) / max(1, THUMBNAIL_W-1041)
+            gd.line((x, 0, x, THUMBNAIL_H), fill=(0,0,0,int(155*t**2.15)))
+    canvas.alpha_composite(grad)
+    draw = ImageDraw.Draw(canvas)
+    accent = _V6_ACCENTS[variant % len(_V6_ACCENTS)] + (255,)
+    accent2 = _V6_ACCENTS[(variant+1) % len(_V6_ACCENTS)] + (255,)
+
+    tag = _clean_text(label).upper()[:18]
+    if tag:
+        tag_font = _v6_thumb_font(40, heavy=True)
+        draw.text((tx, _SHORTS_SAFE_TOP), tag, font=tag_font, fill=(255,255,255,232), stroke_width=3, stroke_fill=(0,0,0,180))
+        draw.line((tx, _SHORTS_SAFE_TOP+55, min(tx+260, tx+maxw), _SHORTS_SAFE_TOP+55), fill=accent, width=7)
+
+    hf, lines = _v12_fit_headline(draw, headline, maxw)
+    heights = [draw.textbbox((0,0), line, font=hf, stroke_width=6)[3] for line in lines]
+    total = sum(heights) + 28 * max(0, len(lines)-1)
+    y = 980
+    for idx, line in enumerate(lines):
+        fill = (255,255,255,255) if idx < len(lines)-1 else accent
+        draw.text((tx, y), line, font=hf, fill=fill, stroke_width=9, stroke_fill=(0,0,0,238))
+        y += heights[idx] + 28
+
+    sub = _v11_symbolic_copy(subline, 34) or 'EXAM READY'
+    sf = _v6_thumb_font(48 if len(sub) < 22 else 42, heavy=True)
+    sub_y = min(_SHORTS_SAFE_BOTTOM-300, y+95)
+    draw.text((tx, sub_y), sub, font=sf, fill=(245,248,252,248), stroke_width=4, stroke_fill=(0,0,0,220))
+    draw.line((tx, sub_y+90, min(tx+320, tx+maxw), sub_y+90), fill=accent2, width=8)
+
+    # Very restrained brand mark, inside the center-safe region.
+    mark_font = _v6_thumb_font(28, heavy=False)
+    draw.text((tx, _SHORTS_SAFE_BOTTOM-110), 'EXAMCRACKER', font=mark_font, fill=(240,244,250,155), stroke_width=2, stroke_fill=(0,0,0,120))
+
+    canvas.convert('RGB').save(out, 'JPEG', quality=94, optimize=True, progressive=True)
+    return {
+        'text_zone': zone,
+        'zone_box': [x1,y1,x2,y2],
+        'left_complexity': round(left_score,2),
+        'right_complexity': round(right_score,2),
+        'safe_center_45': [_SHORTS_CENTER_45_TOP, _SHORTS_CENTER_45_BOTTOM],
+        'canvas': [THUMBNAIL_W, THUMBNAIL_H],
+    }
+
+
+def _v12_thumbnail_score(path: Path, zone_meta: dict, headline: str = '', subline: str = '') -> float:
+    from PIL import ImageStat
+    with Image.open(path) as im:
+        small = im.convert('RGB').resize((360,640))
+        stat = ImageStat.Stat(small)
+        contrast = sum(stat.stddev)/3.0
+        mean = sum(stat.mean)/3.0
+        brightness = max(0.0, 1.0-abs(mean-122.0)/122.0)
+        edges = small.convert('L').filter(ImageFilter.FIND_EDGES)
+        edge_energy = ImageStat.Stat(edges).mean[0]
+        # Center-safe 4:5 preview: the actual thumbnail will still have a coherent crop.
+        crop45 = small.crop((0, 95, 360, 545)).resize((360,450))
+        c45 = ImageStat.Stat(crop45)
+        c45_contrast = sum(c45.stddev)/3.0
+        left_var = sum(ImageStat.Stat(small.crop((0,95,160,545))).stddev)/3.0
+        right_var = sum(ImageStat.Stat(small.crop((200,95,360,545))).stddev)/3.0
+        balance = min(left_var, right_var)
+    quiet = min(zone_meta.get('left_complexity',100), zone_meta.get('right_complexity',100))
+    words = len(re.findall(r'[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*', headline or ''))
+    sub_words = len(re.findall(r'[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*', subline or ''))
+    penalty = 0.0
+    if not 2 <= words <= 4: penalty += 28.0
+    if len(_clean_text(headline)) > 30: penalty += 18.0
+    if sub_words > 6: penalty += 12.0
+    if re.search(r'\?|\bQUICK TEST\b|\bTHINK FAST\b|\bREVEAL\b|\bKEY DIFFERENCE\b|\bWORKED EXAMPLE\b|\bEXAM CLUE\b', headline or '', re.I): penalty += 24.0
+    return round(
+        contrast*1.75 + c45_contrast*1.25 + brightness*22.0 + edge_energy*0.42 + balance*0.42
+        + max(0.0,72.0-quiet)*1.35 - penalty,
+        2,
+    )
+
+
+def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: float, question: str, label: str,
+                            background_path: Path | None = None, topic: str = '', variants: int | None = None,
+                            subline: str = '', visual_prompt: str = '') -> Path:
+    """V12: Shorts-native 9:16 thumbnail only; all video-generation logic is untouched."""
+    count = max(5, int(variants or os.getenv('THUMBNAIL_VARIANTS','5')))
+    headline, secondary = _v11_thumbnail_copy(topic, question, subline)
+    variant_dir = out_path.parent/'thumbnail_variants'; variant_dir.mkdir(parents=True, exist_ok=True)
+    seed_base = int(hashlib.sha1(f'v12|{topic}|{headline}|{secondary}|{label}'.encode('utf-8')).hexdigest()[:10],16)
+    try:
+        clean = _load_clean_background(video_path, background_path, challenge_time)
+    except Exception as exc:
+        print(f'[thumbnail-v12] clean frame fallback unavailable: {exc}')
+        clean = _v12_procedural_hero(topic or label, 0)
+    candidates=[]
+    for i in range(count):
+        prompt = _v11_visual_prompt(topic or label, headline, secondary, i)
+        if visual_prompt and len(_clean_text(visual_prompt)) > 45:
+            prompt += f' Exact visual cue from the content brief: {_clean_text(visual_prompt)[:450]}.'
+        seed = seed_base + i*7919
+        try:
+            ai_img = _request_ai_background(prompt, seed)
+        except Exception as exc:
+            print(f'[thumbnail-v12] AI candidate {i+1} failed: {exc}')
+            ai_img = None
+        if ai_img is not None:
+            bg = ai_img
+            bg_source = 'cloudflare'
+        else:
+            bg = _v12_procedural_hero(topic or label, i)
+            bg_source = 'procedural_concept'
+        path = variant_dir/f'v12_{i+1:02d}.jpg'
+        meta = _v12_render(bg, path, headline, secondary, label, i)
+        score = _v12_thumbnail_score(path, meta, headline, secondary)
+        meta['background_source']=bg_source; meta['hit_rate_score']=score
+        candidates.append((path, meta, score))
+
+    ranked = sorted(candidates, key=lambda x:x[2], reverse=True)
+    if not ranked: raise RuntimeError('V12 Shorts thumbnail engine produced no candidates')
+    best, best_meta, best_score = ranked[0]
+    Image.open(best).convert('RGB').save(out_path,'JPEG',quality=94,optimize=True,progressive=True)
+    manifest={
+        'engine':'v12_shorts_native',
+        'thumbnail_patch':'v12_shorts_native_9x16',
+        'hit_rate_program':'25-point-thumbnail-hit-rate-program',
+        'headline':headline,'subline':secondary,'selected':best.name,
+        'variants':[p.name for p,_,_ in ranked],
+        'scores':{p.name:score for p,_,score in candidates},
+        'composition':{p.name:meta for p,meta,_ in candidates},
+        'creative_briefs': {p.name: {'thumbnail_patch':'v12_shorts_native_9x16','variant':i+1} for i,(p,_,_) in enumerate(candidates)},
+        'canvas':[THUMBNAIL_W,THUMBNAIL_H],
+        'aspect_ratio':'9:16','recommended_resolution':'2160x3840',
+        'center_safe_4_5':True,
+        'api_failover':'CLOUDFLARE_ACCOUNT_ID[_2.._4] + CLOUDFLARE_API_TOKEN[_2.._4]',
+        'copy_rule':'2-4 word concept headline + short mechanism clarifier',
+        'ai_provider':os.getenv('CLOUDFLARE_THUMBNAIL_MODEL','@cf/black-forest-labs/flux-2-klein-4b'),
+    }
+    (variant_dir/'manifest.json').write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding='utf-8')
+    print(f'[thumbnail-v12] selected={best.name}; score={best_score}; headline={headline!r}; subline={secondary!r}; canvas={THUMBNAIL_W}x{THUMBNAIL_H}')
     return out_path

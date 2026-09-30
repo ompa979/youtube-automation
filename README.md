@@ -296,3 +296,5 @@ Image settings:
 V10 is image-first: five different creative concepts are generated, the actual artwork is analysed for a quiet text-safe zone, and typography is added only after the artwork is selected. It no longer uses a fixed template, A/B quiz language, countdown cards, or video-frame-as-thumbnail fallback as the primary creative path. See `V10_CREATIVE_THUMBNAILS.md`.
 
 The pipeline normalizes generated scene art locally to 1080×1920 and composes thumbnails locally at 1280×720. If Cloudflare image generation is unavailable, the video still falls back to Pexels (when configured) and then a procedural backdrop rather than trying Gemini image generation.
+
+Shorts-native thumbnail specification is documented in THUMBNAIL_SHORTS_NATIVE_25_POINT_PLAN.md.

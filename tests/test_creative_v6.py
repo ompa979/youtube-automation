@@ -118,13 +118,13 @@ class TestCreativeV6(unittest.TestCase):
 
     def test_07_visual_prompt_is_premium(self):
         prompt = ev2._v6_thumb_visual_prompt("Money Supply M1 M3", "DOES FD EXPAND M3", "hero_closeup", "M1 vs M3")
-        for phrase in ["PREMIUM", "16:9", "RIGHT", "NO WORDS", "NO LOGOS"]:
+        for phrase in ["PREMIUM", "9:16", "RIGHT", "NO WORDS", "NO LOGOS"]:
             self.assertIn(phrase.upper(), prompt.upper())
 
     def test_08_thumbnail_renders_offline(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            bg = Image.new("RGB", (1280, 720), (30, 90, 130))
+            bg = Image.new("RGB", (2160, 3840), (30, 90, 130))
             bg_path = root / "bg.jpg"
             bg.save(bg_path)
             out = root / "thumbnail.jpg"
@@ -136,7 +136,7 @@ class TestCreativeV6(unittest.TestCase):
                 )
             self.assertTrue(got.exists())
             with Image.open(got) as im:
-                self.assertEqual(im.size, (1280, 720))
+                self.assertEqual(im.size, (2160, 3840))
             self.assertTrue((root / "thumbnail_variants" / "manifest.json").exists())
 
     def test_09_thumbnail_has_no_old_cta_band(self):

@@ -223,3 +223,41 @@ def get_cluster_for_topic(topic: str) -> KeywordCluster | None:
         return KEYWORD_CLUSTERS[best_key]
 
     return None
+
+
+# V6 fallback: every curated topic receives a usable search cluster even when it is not in the static map.
+def get_cluster_for_topic(topic: str) -> KeywordCluster | None:  # type: ignore[no-redef]
+    topic_text = re.sub(r"\s+", " ", (topic or "").strip())
+    if not topic_text:
+        return None
+    # Prefer a concept before ':' / dash; strip exam suffixes so the primary query stays human-searchable.
+    primary = re.split(r":|\s+—\s+|\s+-\s+", topic_text, maxsplit=1)[0].strip()
+    if len(primary.split()) > 8:
+        primary = " ".join(primary.split()[:8])
+    exams = []
+    for exam in ["IBPS SO IT", "IBPS PO", "SBI PO", "SBI Clerk", "RBI Grade B", "NABARD", "SEBI", "RRB", "SSC"]:
+        if exam.lower() in topic_text.lower():
+            exams.append(exam)
+    domain_map = {
+        "sql": "SQL", "dbms": "DBMS", "tcp": "Computer Networks", "osi": "Computer Networks",
+        "subnet": "Computer Networks", "rsa": "Cyber Security", "aes": "Cyber Security", "deadlock": "Operating Systems",
+        "crr": "Banking Awareness", "slr": "Banking Awareness", "repo": "Banking Awareness", "npa": "Banking Awareness",
+        "neft": "Digital Banking", "rtgs": "Digital Banking", "imps": "Digital Banking", "gdp": "Economics",
+        "gnp": "Economics", "fiscal": "Economics", "inflation": "Economics", "m1": "Monetary Economics",
+        "m3": "Monetary Economics", "syllogism": "Reasoning", "percentage": "Quantitative Aptitude",
+        "profit": "Quantitative Aptitude", "quadratic": "Quantitative Aptitude", "series": "Quantitative Aptitude",
+        "agreement": "English", "para jumble": "English", "cloze": "English"
+    }
+    lower = primary.lower()
+    domain = next((v for k, v in domain_map.items() if k in lower), "Exam Preparation")
+    return KeywordCluster(
+        primary_query=primary,
+        exam_query=f"{primary} {exams[0]}" if exams else primary,
+        concept_query=f"{primary} in {domain}",
+        question_query=f"what is {primary}",
+        example_query=f"{primary} example",
+        short_query=f"{primary} explained",
+        long_tail=[f"{primary} for {exams[0]}" if exams else f"{primary} explained", f"{primary} example {domain}"],
+        domain=[domain],
+        exams=exams,
+    )

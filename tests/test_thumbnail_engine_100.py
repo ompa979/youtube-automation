@@ -203,8 +203,8 @@ for offset, seed in enumerate([1, 17, 123, 999, 987654], 81):
             payload = ai.build_cloudflare_payload("cinematic banking scene", seed, 4)
             self.assertIn("abc123", url)
             self.assertIn("flux-1-schnell", url)
-            self.assertEqual(payload["seed"], seed)
-            self.assertEqual(payload["steps"], 4)
+            self.assertEqual(set(payload), {"prompt"})
+            self.assertTrue(payload["prompt"].startswith("cinematic banking"))
         return case
     setattr(TestThumbnailEngine100, f"test_{offset:03d}_cloudflare_payload", make_case())
 
@@ -257,7 +257,7 @@ def test_case_093(self):
     try:
         ai.CLOUDFLARE_ACCOUNT_ID = "acct"
         ai.CLOUDFLARE_API_TOKEN = "token"
-        ai.generate_cloudflare_background = lambda prompt, seed: Image.new("RGB", (8, 8), (1, 2, 3))
+        ai.generate_cloudflare_background = lambda prompt, seed, **kwargs: Image.new("RGB", (8, 8), (1, 2, 3))
         im, provider = ai.generate_background("x", 1)
         self.assertEqual(provider, "cloudflare")
         self.assertEqual(im.size, (8, 8))
@@ -307,6 +307,19 @@ for offset, q in enumerate([
                 self.assertTrue(manifest.exists())
         return case
     setattr(TestThumbnailEngine100, f"test_{offset:03d}_compositor", make_case())
+
+
+# 96-100: FLUX.2 klein multipart contract
+for offset, seed in enumerate([2, 18, 77, 101, 2026], 96):
+    def make_case(seed=seed):
+        def case(self):
+            fields = ai.build_flux2_multipart_fields("premium thumbnail art", seed, 1152, 768)
+            self.assertEqual(fields["prompt"][1], "premium thumbnail art")
+            self.assertEqual(fields["width"][1], "1152")
+            self.assertEqual(fields["height"][1], "768")
+            self.assertEqual(fields["seed"][1], str(seed))
+        return case
+    setattr(TestThumbnailEngine100, f"test_{offset:03d}_flux2_multipart", make_case())
 
 
 if __name__ == "__main__":

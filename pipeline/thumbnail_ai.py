@@ -1,6 +1,6 @@
 """Hosted AI thumbnail background adapters.
 
-Primary provider: Cloudflare Workers AI + FLUX.1 [schnell].
+Primary provider: Cloudflare Workers AI + FLUX.2 [klein] 4B.
 Fallback provider: legacy generic THUMBNAIL_AI_URL endpoint.
 
 The final thumbnail typography/layout is still owned by Pillow in
@@ -21,6 +21,14 @@ from PIL import Image
 CLOUDFLARE_MODEL = os.getenv(
     "CLOUDFLARE_IMAGE_MODEL",
     "@cf/black-forest-labs/flux-1-schnell",
+).strip()
+CLOUDFLARE_SCENE_MODEL = os.getenv(
+    "CLOUDFLARE_SCENE_MODEL",
+    CLOUDFLARE_MODEL,
+).strip()
+CLOUDFLARE_THUMBNAIL_MODEL = os.getenv(
+    "CLOUDFLARE_THUMBNAIL_MODEL",
+    "@cf/black-forest-labs/flux-2-klein-4b",
 ).strip()
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
@@ -48,16 +56,31 @@ def cloudflare_endpoint(account_id: str | None = None, model: str | None = None)
     return f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model_name}"
 
 
-def build_cloudflare_payload(prompt: str, seed: int, steps: int | None = None) -> dict[str, Any]:
-    """Return the REST payload documented for FLUX.1 Schnell."""
+def build_cloudflare_payload(prompt: str, seed: int, steps: int | None = None, width: int = 1280, height: int = 720) -> dict[str, Any]:
+    """Safe JSON payload for FLUX.1 Schnell REST.
+
+    Some Workers AI accounts reject optional seed/size fields even though older
+    examples documented them. The production adapter therefore starts with the
+    smallest portable schema: prompt only.
+    """
+    del seed, steps, width, height
     clean_prompt = " ".join(str(prompt or "").split()).strip()
     if not clean_prompt:
         raise ValueError("prompt must not be empty")
-    step_count = CLOUDFLARE_IMAGE_STEPS if steps is None else int(steps)
-    if step_count < 1 or step_count > 8:
-        raise ValueError("steps must be between 1 and 8")
-    return {"prompt": clean_prompt[:2048], "seed": int(seed), "steps": step_count, "width": 1280, "height": 720}
+    return {"prompt": clean_prompt[:2048]}
 
+
+def build_flux2_multipart_fields(prompt: str, seed: int, width: int = 1152, height: int = 768) -> dict[str, tuple[None, str]]:
+    """Multipart form fields required by Cloudflare FLUX.2 klein models."""
+    clean_prompt = " ".join(str(prompt or "").split()).strip()
+    if not clean_prompt:
+        raise ValueError("prompt must not be empty")
+    return {
+        "prompt": (None, clean_prompt[:2048]),
+        "width": (None, str(int(width))),
+        "height": (None, str(int(height))),
+        "seed": (None, str(int(seed))),
+    }
 
 def _decode_base64_image(value: str) -> Image.Image:
     raw = value
@@ -94,23 +117,43 @@ def parse_cloudflare_response(response: requests.Response) -> Image.Image:
     raise RuntimeError("Cloudflare image response did not contain an image")
 
 
-def generate_cloudflare_background(prompt: str, seed: int) -> Image.Image:
-    endpoint = cloudflare_endpoint()
-    payload = build_cloudflare_payload(prompt, seed)
+def generate_cloudflare_background(
+    prompt: str,
+    seed: int,
+    width: int = 1280,
+    height: int = 720,
+    model: str | None = None,
+) -> Image.Image:
+    """Generate with the requested Cloudflare model, handling model-specific REST schemas."""
+    model_name = (model or os.getenv("CLOUDFLARE_IMAGE_MODEL", CLOUDFLARE_MODEL)).strip()
+    endpoint = cloudflare_endpoint(model=model_name)
     token = os.getenv("CLOUDFLARE_API_TOKEN", CLOUDFLARE_API_TOKEN).strip()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json,image/*",
-    }
     timeout = max(15, int(os.getenv("CLOUDFLARE_IMAGE_TIMEOUT", str(THUMBNAIL_AI_TIMEOUT))))
-    response = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json,image/*"}
+
+    if "flux-2-klein" in model_name.lower():
+        # FLUX.2 klein currently uses multipart form fields and fixed 4-step inference.
+        fields = build_flux2_multipart_fields(prompt, seed, width=max(256, int(width)), height=max(256, int(height)))
+        response = requests.post(endpoint, headers=headers, files=fields, timeout=timeout)
+        if response.status_code >= 400:
+            detail = response.text.replace(token, "***")[:1200]
+            raise RuntimeError(f"Cloudflare Workers AI HTTP {response.status_code}: {detail}")
+        return parse_cloudflare_response(response)
+
+    # FLUX.1 Schnell: start with the minimal JSON schema. If an account still
+    # rejects the request, retry once with prompt-only to avoid seed/schema drift.
+    payload = build_cloudflare_payload(prompt, seed, steps=4, width=width, height=height)
+    response = requests.post(
+        endpoint,
+        headers={**headers, "Content-Type": "application/json"},
+        json=payload,
+        timeout=timeout,
+    )
     if response.status_code >= 400:
-        # Do not include the token in logs/errors.
         detail = response.text.replace(token, "***")[:1200]
+        # The first payload is already prompt-only, so this branch only reports the provider error.
         raise RuntimeError(f"Cloudflare Workers AI HTTP {response.status_code}: {detail}")
     return parse_cloudflare_response(response)
-
 
 def generate_generic_background(prompt: str, seed: int) -> Image.Image:
     if not THUMBNAIL_AI_URL:
@@ -135,16 +178,23 @@ def generate_generic_background(prompt: str, seed: int) -> Image.Image:
 
 
 def generate_background(prompt: str, seed: int) -> tuple[Image.Image | None, str]:
-    """Use Cloudflare FLUX.1 Schnell as the active image generator.
+    """Use Cloudflare FLUX.2 [klein] 4B as the active image generator.
 
     The generic endpoint remains available only for compatibility; it is not
     selected unless explicitly enabled via THUMBNAIL_ALLOW_GENERIC=true.
     """
     if cloudflare_configured():
+        primary = os.getenv("CLOUDFLARE_THUMBNAIL_MODEL", CLOUDFLARE_THUMBNAIL_MODEL).strip()
         try:
-            return generate_cloudflare_background(prompt, seed), "cloudflare"
+            return generate_cloudflare_background(prompt, seed, width=1152, height=768, model=primary), "cloudflare"
         except Exception as exc:
-            print(f"[thumbnail-ai] Cloudflare generation failed; falling back: {exc}")
+            print(f"[thumbnail-ai] Cloudflare thumbnail model {primary} failed; trying FLUX.1 fallback: {exc}")
+            fallback_model = os.getenv("CLOUDFLARE_SCENE_MODEL", "@cf/black-forest-labs/flux-1-schnell").strip()
+            if fallback_model and fallback_model != primary:
+                try:
+                    return generate_cloudflare_background(prompt, seed, width=1280, height=720, model=fallback_model), "cloudflare-flux1-fallback"
+                except Exception as fallback_exc:
+                    print(f"[thumbnail-ai] FLUX.1 fallback failed; falling back: {fallback_exc}")
 
     if THUMBNAIL_AI_URL and os.getenv("THUMBNAIL_ALLOW_GENERIC", "false").strip().lower() in {"1", "true", "yes", "on"}:
         try:

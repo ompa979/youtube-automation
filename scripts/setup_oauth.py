@@ -2,7 +2,7 @@
 """One-time YouTube OAuth setup.
 
 Usage:
-    python scripts/setup_oauth.py /path/to/client_secrets.json
+    python scripts/setup_oauth.py /path/to/client_secrets.json [--force-reconsent]
 
 What it does:
     1. Opens your browser to grant upload access to your channel.
@@ -43,11 +43,14 @@ SCOPES = [
 OUT_DIR = Path(__file__).resolve().parent.parent / "credentials"
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        print("Usage: python scripts/setup_oauth.py <client_secrets.json>")
+    args = sys.argv[1:]
+    force_reconsent = "--force-reconsent" in args
+    args = [a for a in args if a != "--force-reconsent"]
+    if len(args) != 1:
+        print("Usage: python scripts/setup_oauth.py <client_secrets.json> [--force-reconsent]")
         sys.exit(1)
 
-    client_secrets = Path(sys.argv[1])
+    client_secrets = Path(args[0])
     if not client_secrets.exists():
         print(f"[!] Client secrets file not found: {client_secrets}")
         sys.exit(1)
@@ -57,6 +60,12 @@ def main() -> None:
 
     flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets), SCOPES)
     # Opens a local server on port 8080 → sign in with the channel you want to upload to.
+    # Explicit consent prompt is always used so a re-run can issue a token with
+    # the expanded YouTube comment scope. --force-reconsent is retained as a
+    # clear operator-facing flag for existing tokens, even though prompt=consent
+    # already forces the OAuth consent screen.
+    if force_reconsent:
+        print("[oauth] Forcing re-consent with youtube.force-ssl for comments...")
     creds = flow.run_local_server(port=8080, access_type="offline", prompt="consent")
 
     # Read the client config back so we can embed client_id/secret in the token JSON.

@@ -1,212 +1,147 @@
 {
-  "version": 13,
-  "last_updated": "2026-09-29T00:00:00Z",
-  "_strategy_note": "v13 cinematic_hud upgrade: topics rewritten as exact high-intent YouTube search queries aspirants type after failing mocks. Visual style upgraded to cinematic_hud so every scene now has a photorealistic AI background + Ken Burns motion + animated progress bar + hook sweep overlay instead of a static text card.",
+  "version": 21,
+  "last_updated": "2026-09-30T00:00:00Z",
+  "strategy": {
+    "channel_positioning": "ExamCrackerAI — high-utility exam concepts turned into visually memorable 20-35 second explainers, with search-led packaging and original premium thumbnail art.",
+    "selection": "Exam-only. Rank candidate topics by YouTube search intent, autocomplete evidence, SEO cluster fit, exam relevance, teachability, concrete example potential, visual mechanism, freshness, and trend signal; reject generic lifestyle/psychology content.",
+    "script": "55-85 words. One complete idea: misconception or consequence → context → mechanism → worked example → exam clue → memory rule. No A/B games, countdowns, fake urgency, generic CTA narration, or filler.",
+    "thumbnail": "AI hero art first (Cloudflare FLUX; FLUX.2 klein for thumbnails), then original Pillow typography and graphic accents. 10 archetypes, three candidates, automatic visual scoring, 1280×720 output."
+  },
   "niches": {
     "bank_it_officer": {
       "display_name": "Bank IT Officer",
-      "visual_style": "cinematic_hud",
+      "visual_style": "educational_ai",
       "card_tag": "IBPS SO IT",
+      "weight": 3,
       "voice": {
         "en": "en-IN"
       },
-      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a confrontational hook that names the EXACT exam pitfall or trap, (2) the single core rule or mental model that solves it, (3) one worked example or mnemonic, (4) a 2-choice comment CTA. Only state facts you are certain of. Never invent cutoffs, vacancies, dates or statistics. Focus area: IT officer subjects: networks, DBMS, OS, security, data structures.",
+      "system_prompt": "Create a high-value 25-40 second educational Short for Indian bank IT-officer aspirants. Teach one precise concept. Start with a concrete misconception, contradiction, or practical consequence. Explain the rule in plain English, show one worked example or visual mechanism, then end with a one-line exam takeaway. No A/B choices, no countdown, no fake percentages, no generic motivational filler.",
       "topics": [
-        "BCNF vs 3NF: The 5-Second Candidate Key Test for IBPS SO IT",
-        "TCP 3-Way Handshake SYN ACK sequence trap asked in bank exams",
-        "SQL Correlated Subquery vs JOIN: The speed difference IBPS SO IT tests",
-        "Deadlock Banker Algorithm: Find Safe State in 30 seconds for bank exams",
-        "Subnetting without binary conversion: the shortcut for IT Officer exam",
-        "OSI model Layer 3 vs Layer 4 confusion that costs marks in IBPS SO IT",
-        "SQL GROUP BY vs HAVING: The filter order trap in bank IT exams",
-        "Process scheduling FCFS vs SJF: The waiting time trap for bank IT exams",
-        "RSA vs AES: Why bank IT exams always ask which one is asymmetric",
-        "Stack overflow vs heap overflow: The security trap in IBPS SO IT",
-        "Primary key vs Unique key vs Candidate key: The null trap for bank exams",
-        "IPv4 vs IPv6 subnetting difference IBPS SO IT always tests",
-        "SQL Transaction ACID properties: The isolation level trap in bank exams",
-        "Firewall vs IDS vs IPS: The detection vs prevention trap for IT officers"
-      ],
-      "weight": 2
+        "BCNF vs 3NF in DBMS: the candidate-key condition that decides the answer",
+        "TCP 3-way handshake: what SYN, SYN-ACK and ACK actually do",
+        "SQL GROUP BY vs HAVING: which rows are filtered and when",
+        "SQL correlated subquery vs JOIN: how the query logic differs",
+        "Deadlock in OS: the four Coffman conditions with a simple process example",
+        "Banker Algorithm: how to identify a safe state step by step",
+        "OSI Layer 3 vs Layer 4: routing versus end-to-end delivery",
+        "Subnetting shortcut: finding usable hosts without converting everything to binary",
+        "RSA vs AES: asymmetric versus symmetric encryption with one real use case",
+        "ACID properties in DBMS: why isolation changes transaction behavior",
+        "Primary key vs candidate key vs unique key: what NULL changes",
+        "Firewall vs IDS vs IPS: prevention versus detection in one network flow"
+      ]
     },
     "bank_reasoning_quant": {
       "display_name": "Reasoning & Quant",
-      "visual_style": "cinematic_hud",
-      "card_tag": "BANK PO",
+      "visual_style": "educational_ai",
+      "card_tag": "BANK EXAMS",
+      "weight": 3,
       "voice": {
         "en": "en-IN"
       },
-      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a confrontational hook naming the exact exam mistake aspirants make, (2) the speed shortcut or rule that solves it, (3) one worked example, (4) a 2-choice comment CTA. Only state facts you are certain of. Never invent cutoffs or statistics. Focus area: reasoning and quantitative aptitude speed methods.",
+      "system_prompt": "Create a high-value 20-35 second exam Short. Start from a common solving mistake, reveal the shortest reliable method, work one example completely, and finish with a memory rule. Do not manufacture statistics or say '90% get this wrong'. No A/B game, no countdown.",
       "topics": [
-        "Syllogism 'Only a Few' vs 'Few' rule that 90% of aspirants get wrong in IBPS PO",
-        "Machine Input-Output: Shifting vs Fixed position shortcut for SBI PO in 60 seconds",
-        "Blood Relations coded tree shortcut to solve in 45 seconds for bank exams",
-        "Circular Seating facing inside vs outside simultaneous shortcut for IBPS PO",
-        "Quadratic Equations root sign shortcut without factorizing for SBI PO",
-        "Inequality reasoning: the double condition trap that costs marks in IBPS Clerk",
-        "Number Series: The difference-of-difference pattern 80% of bank exams use",
-        "Percentage to fraction shortcut: the 5 conversions every bank aspirant must know",
-        "Profit Loss Successive Discount trap: why your formula gives the wrong answer",
-        "Time and Work: The LCM shortcut SBI PO uses every year in prelims",
-        "Data Interpretation: The denominator trick to avoid calculation errors in bank PO",
-        "Coding Decoding letter shift shortcut that appears in every SBI Clerk exam"
-      ],
-      "weight": 2
+        "Machine Input-Output: how shifting positions reveals the operation",
+        "Syllogism: the difference between 'only a few' and 'few' with a diagram",
+        "Blood relations: building a two-step family tree without guessing",
+        "Circular seating: the inside-facing versus outside-facing direction rule",
+        "Quadratic equations: using root signs to eliminate options quickly",
+        "Inequality reasoning: how a compound condition changes the conclusion",
+        "Number series: finding a second-order difference pattern with one example",
+        "Percentage to fraction shortcuts that reduce common bank-exam calculations",
+        "Successive discount: why two discounts cannot simply be added",
+        "Time and Work: the LCM method with a two-person example",
+        "Data Interpretation: choosing the correct denominator before calculating",
+        "Coding-Decoding: using letter-shift patterns without writing the whole alphabet"
+      ]
     },
     "banking_awareness": {
       "display_name": "Banking Awareness",
-      "visual_style": "cinematic_hud",
+      "visual_style": "educational_ai",
       "card_tag": "BANK EXAMS",
+      "weight": 3,
       "voice": {
         "en": "en-IN"
       },
-      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a confrontational hook naming the exact exam trap or confusion, (2) the core rule or distinction stated plainly, (3) one memory trick or worked example, (4) a 2-choice comment CTA. Only state facts you are certain of. Never invent cutoffs, vacancies, dates or statistics. Focus area: banking awareness: RBI, payments, bank types, rules.",
+      "system_prompt": "Create a practical banking-awareness Short for competitive-exam aspirants. Explain one rule or distinction, why it exists, and one exam-style application. Avoid stale or unsupported absolute claims. Use exact current facts only when they are known from the supplied topic; otherwise keep the explanation conceptual.",
       "topics": [
-        "SDF vs Reverse Repo: The exact RBI trap question asked in SBI PO every year",
-        "PCA Framework: The 3 trigger points RBI uses to restrict banks for IBPS PO",
-        "Priority Sector Lending PSL 40 percent sub-target trap in IBPS PO Mains",
-        "NEFT vs RTGS vs IMPS settlement time trap that every bank exam asks",
-        "NPA classification: the 90-day rule trap aspirants always get wrong in IBPS",
-        "Basel III Capital Adequacy Ratio: The 8 percent trap in bank exam MCQs",
-        "CRR vs SLR: Which one the RBI uses to control inflation, bank exam trick",
-        "Payments Banks vs Small Finance Banks: The deposit limit trap in bank exams",
-        "SARFAESI Act: The 60-day notice rule bank exams always trap aspirants with",
-        "NABARD vs SIDBI vs NHB: Which development bank funds what for bank exams",
-        "Functions of RBI: The currency management vs monetary policy trap in IBPS PO",
-        "KYC eKYC difference: The Aadhaar OTP rule that SBI PO mains always tests"
-      ],
-      "weight": 2
+        "CRR vs SLR: what banks keep as reserves and where each reserve sits",
+        "SDF vs reverse repo: the operational difference in RBI liquidity management",
+        "NEFT vs RTGS vs IMPS: how the payment systems differ in purpose and timing",
+        "NPA classification: how the 90-day overdue rule works conceptually",
+        "Priority Sector Lending: what the category means and why targets exist",
+        "Basel III capital adequacy: what capital is protecting a bank against",
+        "Payments Bank vs Small Finance Bank: how the business models differ",
+        "SARFAESI Act: what the recovery process is designed to do",
+        "NABARD vs SIDBI vs NHB: the development-finance role of each institution",
+        "RBI functions: monetary policy versus currency management",
+        "KYC vs e-KYC: what changes in the customer-verification process",
+        "PCA framework: how supervisory restrictions can escalate as bank risk rises"
+      ]
     },
     "rbi_economy": {
-      "display_name": "RBI & Economy",
-      "visual_style": "cinematic_hud",
+      "display_name": "RBI Grade B Economy",
+      "visual_style": "educational_ai",
       "card_tag": "RBI GRADE B",
+      "weight": 2,
       "voice": {
         "en": "en-IN"
       },
-      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a confrontational hook naming the exact exam trap or distinction, (2) the core concept or rule stated plainly, (3) one memory trick or worked example, (4) a 2-choice comment CTA. Only state facts you are certain of. Never invent cutoffs, vacancies, dates or statistics. Focus area: economy and finance for RBI Grade B, SEBI and NABARD.",
+      "system_prompt": "Create a high-clarity RBI Grade B economy Short. Start with a real conceptual confusion, explain the mechanism using one concrete example, and end with a one-line recall rule. Do not use unsupported 'always asked' or '90%' claims. Current policy facts must be phrased only when they are confidently supported.",
       "topics": [
-        "GDP vs GNP vs NNP: The net factor income trap RBI Grade B always asks",
-        "Demand-pull vs Cost-push inflation: The oil price trap in RBI Grade B paper",
-        "Fiscal Deficit vs Revenue Deficit vs Primary Deficit: The interest payment trap",
-        "Money Supply M1 M2 M3: The near-money trap that RBI Grade B tests every year",
-        "Current Account vs Capital Account: The FDI vs FII classification trap",
-        "FRBM Act 3 percent target: The escape clause trap in RBI Grade B prelims",
-        "MPC voting: How the 6-member repo rate decision works for RBI Grade B",
-        "SEBI vs RBI vs IRDAI: Which regulator governs what, the overlap trap in bank exams",
-        "Financial Inclusion PMJDY: The overdraft limit and account opening trap",
-        "Monetary Policy Transmission: The credit channel trap RBI Grade B always tests"
-      ],
-      "weight": 1
+        "GDP vs GNP vs NNP: how factor income changes the national-income measure",
+        "Demand-pull vs cost-push inflation: how an oil-price shock changes the story",
+        "Fiscal deficit vs revenue deficit vs primary deficit: where interest payments enter",
+        "Money supply M1 M2 M3: why term deposits appear in broader money",
+        "Current account vs capital account: where trade and investment flows belong",
+        "FRBM fiscal rules: why deficit targets have escape clauses",
+        "MPC voting: how six members determine the policy-rate decision",
+        "RBI vs SEBI vs IRDAI: matching regulators to the markets they supervise",
+        "Monetary policy transmission: how a policy-rate move reaches borrowers",
+        "Financial inclusion: what a basic bank account is designed to achieve"
+      ]
     },
     "bank_english": {
       "display_name": "Bank English",
-      "visual_style": "cinematic_hud",
+      "visual_style": "educational_ai",
       "card_tag": "BANK ENGLISH",
+      "weight": 1,
       "voice": {
         "en": "en-IN"
       },
-      "system_prompt": "Create a 30-45 second revision Short for Indian bank-exam aspirants (IBPS PO/Clerk/SO, SBI PO/Clerk, RBI Grade B). Structure: (1) a confrontational hook naming the exact mistake aspirants make, (2) the rule or shortcut that solves it instantly, (3) one worked example from a real bank exam question, (4) a 2-choice comment CTA. Only state facts you are certain of. Focus area: English section methods for bank exams.",
+      "system_prompt": "Create a concise bank-exam English Short that teaches one rule through one example. Show the incorrect form, fix it, and explain the grammatical reason in plain English. No empty motivational lines and no fake frequency claims.",
       "topics": [
-        "Para Jumbles: The mandatory opening sentence rule SBI PO always uses to trap you",
-        "Subject Verb Agreement: The collective noun trap that appears in every IBPS error spotting",
-        "Reading Comprehension: The 3-step elimination method that saves 4 minutes in IBPS PO",
-        "Cloze Test: The contextual elimination shortcut SBI PO Mains uses every year",
-        "Error Spotting: The 'each of' and 'one of' singular verb trap in bank exams",
-        "Fill in the Blanks: The preposition pair shortcut for bank exam double blanks",
-        "Sentence Improvement: The dangling modifier trap IBPS PO always includes",
-        "Word Rearrangement: The subject-verb-object anchor shortcut for bank exams",
-        "Synonyms Antonyms: The root word shortcut that unlocks 80% of bank vocab questions"
-      ],
-      "weight": 1
+        "Subject-verb agreement: why 'each of' takes a singular verb",
+        "Error spotting: the 'one of' construction and its verb form",
+        "Para jumbles: finding the sentence that must open the paragraph",
+        "Cloze tests: using context before grammar to eliminate options",
+        "Reading comprehension: the three-step elimination process for inference questions",
+        "Sentence improvement: spotting a dangling modifier in one example",
+        "Fill in the blanks: choosing prepositions by collocation, not translation",
+        "Word rearrangement: using subject-verb-object anchors to restore a sentence",
+        "Synonyms and antonyms: using word roots to narrow unfamiliar vocabulary"
+      ]
     },
-    "ai_tech_hacks": {
-      "display_name": "AI & Tech Hacks",
-      "visual_style": "cinematic_hud",
-      "card_tag": "TECH HACKS",
+    "ssc_general": {
+      "display_name": "SSC Concepts",
+      "visual_style": "educational_ai",
+      "card_tag": "SSC",
+      "weight": 2,
       "voice": {
-        "en": "en-US"
+        "en": "en-IN"
       },
-      "system_prompt": "Create an electrifying 30-45 second viral Short about hidden AI tools, secret smartphone settings, and futuristic tech hacks. Structure: (1) an immediate high-stakes hook revealing a shocking capability, (2) the exact step-by-step method or how the technology works, (3) a mind-blowing use case or warning, (4) a high-engagement 2-choice comment question. Keep it fast-paced, highly visual, and punchy.",
+      "system_prompt": "Create a compact SSC exam concept Short. Teach one fact, rule, or calculation method with a concrete example. Keep the language direct and useful. No fake rank claims, no generic motivation, no A/B game.",
       "topics": [
-        "3 Free AI tools that feel completely illegal to know in 2026",
-        "The hidden smartphone setting draining your battery and tracking your location",
-        "How to turn any messy pencil sketch into a 3D animation in 5 seconds",
-        "Why your phone shows you ads for things you only talked about out loud",
-        "The 10-second AI trick to remove any watermark or stranger from a video",
-        "How quantum computers will crack every password on Earth in 20 seconds",
-        "Secret Google Maps features that 99 percent of people have never seen",
-        "How AI can now clone your voice from just a 3-second audio recording",
-        "The single privacy setting you must turn off on your phone right now",
-        "How to get free unlimited cloud storage without paying a single dollar"
-      ],
-      "weight": 3
-    },
-    "science_curiosity": {
-      "display_name": "Science & Mind-Blowing Facts",
-      "visual_style": "cinematic_hud",
-      "card_tag": "DID YOU KNOW",
-      "voice": {
-        "en": "en-US"
-      },
-      "system_prompt": "Create an awe-inspiring 30-45 second viral Short about mysterious science, cosmic phenomena, and mind-bending biological facts. Structure: (1) a jaw-dropping hook stating a counter-intuitive reality, (2) the fascinating scientific mechanism behind it with vivid visual analogies, (3) the mind-blowing consequence, (4) a thought-provoking comment CTA. Focus on wonder, curiosity, and high replay value.",
-      "topics": [
-        "What actually happens to your body if you fall into a supermassive black hole",
-        "The immortal jellyfish that can reverse its own biological age forever",
-        "Why commercial airplanes are strictly forbidden from flying over Tibet",
-        "The terrifying reason why deep space is completely silent and pitch black",
-        "What would happen if the Earth suddenly stopped spinning for just 5 seconds",
-        "Why the Mariana Trench is more mysterious and unexplored than the surface of Mars",
-        "The strange physics of neutron stars where one teaspoon weighs 6 billion tons",
-        "Why you get goosebumps when you hear incredible music: the brain secret",
-        "The deepest hole ever dug on Earth and the bizarre sounds scientists recorded",
-        "What happens to your brain when you experience deja vu: the neural glitch"
-      ],
-      "weight": 3
-    },
-    "money_wealth_hacks": {
-      "display_name": "Money & Wealth Hacks",
-      "visual_style": "cinematic_hud",
-      "card_tag": "MONEY HACKS",
-      "voice": {
-        "en": "en-US"
-      },
-      "system_prompt": "Create an eye-opening 30-45 second viral Short about financial secrets, consumer banking traps, and wealth-building psychology. Structure: (1) a confrontational hook exposing a financial trap or hidden wealth rule, (2) the exact numbers and contrast that make the reality click, (3) the actionable counter-strategy, (4) an engaging 2-choice comment question. Keep it relatable, honest, and high-impact.",
-      "topics": [
-        "The 3 hidden bank charges quietly draining your savings account every month",
-        "Why banks pay you 3 percent on savings while earning 12 percent on your money",
-        "The 50 30 20 budget rule that actually builds wealth in your 20s",
-        "How credit card companies make billions from the minimum payment trap",
-        "The secret ATM rule that lets you get your cash back if the machine fails",
-        "Why you should never use a debit card for online shopping: the fraud trap",
-        "The compound interest secret that turns 5000 a month into 1 Crore",
-        "Why the super wealthy borrow money against assets instead of taking a salary",
-        "The psychological supermarket trick that forces you to spend 30 percent more",
-        "How inflation quietly halves the purchasing power of cash sitting in your bank"
-      ],
-      "weight": 3
-    },
-    "everyday_life_hacks": {
-      "display_name": "Everyday Life & Mind Hacks",
-      "visual_style": "cinematic_hud",
-      "card_tag": "LIFE HACKS",
-      "voice": {
-        "en": "en-US"
-      },
-      "system_prompt": "Create an irresistible 30-45 second viral Short about psychological life hacks, human behavior, and high-performance productivity tricks. Structure: (1) a punchy hook promising a cure for a universal frustration, (2) the psychological principle explained in simple terms, (3) how to apply it in 10 seconds today, (4) a relatable comment CTA. High curiosity, immediate practical value.",
-      "topics": [
-        "The 2-minute rule that permanently cures severe procrastination",
-        "How to spot if someone is lying to you: the 3 subconscious micro-expressions",
-        "The military method to fall asleep in under 2 minutes anywhere in the world",
-        "Why you wake up exhausted even after 8 hours of sleep: the sleep cycle trap",
-        "The psychological trick to win any argument without raising your voice",
-        "How the Doorway Effect makes your brain instantly forget what you entered a room for",
-        "The Feynman technique: How to master any complex topic in 4 simple steps",
-        "The 5-second rule that stops your brain from hesitating and self-sabotage",
-        "How a 24-hour dopamine detox resets your attention span and motivation",
-        "The subtle body language secret that makes you look instantly confident in any room"
-      ],
-      "weight": 3
+        "Indian Constitution: Fundamental Rights versus Directive Principles in one visual",
+        "Indian geography: why monsoon winds reverse direction seasonally",
+        "Modern history: the immediate trigger versus background cause in a major event",
+        "Percentage change: the fastest safe method for SSC arithmetic",
+        "Ratio and proportion: scaling a mixture without rebuilding the whole equation",
+        "Time, speed and distance: why relative speed changes the formula",
+        "Profit and loss: marked price, discount and selling price in one chain",
+        "Static GK: how to separate location, river and state facts without confusion"
+      ]
     }
   }
 }

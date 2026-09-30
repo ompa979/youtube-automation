@@ -247,7 +247,7 @@ def mg_trap_hud(payload: str) -> str:
 
 def mg_loop_hud(payload: str) -> str:
     """Action HUD: Interactive comment bait."""
-    prompt_text = (payload or "👇 DID YOU WIN? COMMENT: A OR B").replace("'", "").replace(":", "-")
+    prompt_text = (payload or "Which part was most useful?").replace("'", "").replace(":", "-")
     cta = (
         f"drawtext=font='Inter':text='{prompt_text}':fontcolor=0xFFE600:fontsize=44:"
         f"borderw=6:bordercolor=black@0.95:box=1:boxcolor=0x003366@0.90:boxborderw=18|36|18|36:"
@@ -316,9 +316,56 @@ def mg_warning_freeze_hud(payload: str) -> str:
     return f"{banner},{desc}"
 
 
+def mg_v7_beat_hud(action_type: str, payload: str, accent: str) -> str:
+    """Premium teaching overlays for the V7 six-beat script; no game-show UI."""
+    clean = (payload or "").replace("'", "").replace(":", " - ").strip()[:90]
+    colors = {
+        "hook": "0xFFFFFF",
+        "context": "0x8FE8FF",
+        "mechanism": "0xFFE45B",
+        "example": "0x7DFFB2",
+        "exam_takeaway": "0xFFB35C",
+        "memory_lock": "0xFFFFFF",
+    }
+    c = colors.get(action_type, "0xFFFFFF")
+    if not clean:
+        return ""
+    if action_type == "hook":
+        return (
+            f"drawtext=font='Inter':text='{clean}':fontcolor={c}:fontsize=48:borderw=5:bordercolor=black@0.82:"
+            "x=54:y=h*0.24"
+        )
+    if action_type == "context":
+        return (
+            f"drawtext=font='Inter':text='{clean}':fontcolor={c}:fontsize=34:borderw=3:bordercolor=black@0.75:"
+            "x=54:y=h*0.22,drawline=x1=54:y1=h*0.29:x2=420:y2=h*0.29:color=0x8FE8FF@0.65:thickness=5"
+        )
+    if action_type == "mechanism":
+        return (
+            "drawtext=font='Inter':text='HOW IT WORKS':fontcolor=0xFFE45B:fontsize=28:borderw=2:bordercolor=black@0.8:x=54:y=h*0.18,"
+            f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=40:borderw=4:bordercolor=black@0.85:x=54:y=h*0.25"
+        )
+    if action_type == "example":
+        return (
+            "drawtext=font='Inter':text='EXAMPLE':fontcolor=0x7DFFB2:fontsize=28:borderw=2:bordercolor=black@0.8:x=54:y=h*0.18,"
+            f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=38:borderw=4:bordercolor=black@0.85:x=54:y=h*0.25"
+        )
+    if action_type == "exam_takeaway":
+        return (
+            "drawtext=font='Inter':text='EXAM CLUE':fontcolor=0xFFB35C:fontsize=28:borderw=2:bordercolor=black@0.8:x=54:y=h*0.18,"
+            f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=40:borderw=4:bordercolor=black@0.85:x=54:y=h*0.25"
+        )
+    return (
+        "drawtext=font='Inter':text='REMEMBER':fontcolor=0xFFFFFF:fontsize=28:borderw=2:bordercolor=black@0.8:x=54:y=h*0.18,"
+        f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=42:borderw=5:bordercolor=black@0.9:x=54:y=h*0.25"
+    )
+
+
 def build_action_hud(action_type: str, payload: str, duration: float, accent: str) -> str:
     """Return the dedicated Action HUD overlay for this scene's psychological role."""
     act = (action_type or "explanation").lower().strip()
+    if act in {"hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock"}:
+        return mg_v7_beat_hud(act, payload, accent)
     if act == "pattern_interrupt":
         return mg_pattern_interrupt_hud()
     elif act == "challenge":
@@ -401,3 +448,60 @@ def ensure_procedural_sfx(sfx_dir: Path) -> None:
             except Exception:
                 pass
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# V6 CREATIVE OVERRIDE — keep the educational Short visual, remove legacy game HUD
+# ─────────────────────────────────────────────────────────────────────────────
+_V6_ROLES = {"hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock"}
+
+
+def build_motion_graphics_filter(
+    duration: float,
+    accent: str,
+    scene_index: int = 0,
+    total_scenes: int = 1,
+    is_hook: bool = False,
+    action_type: str = "explanation",
+    action_payload: str = "",
+) -> str:
+    """V6: cinematic, minimal overlays. No legacy challenge/reveal/counter cards."""
+    act = (action_type or "explanation").lower().strip()
+    if act not in _V6_ROLES:
+        return _build_motion_graphics_filter_legacy(
+            duration, accent, scene_index, total_scenes, is_hook, action_type, action_payload
+        )
+
+    parts: list[str] = []
+    # A quiet progress indicator keeps the Short's pacing visible without making
+    # the frame look like an app/game UI.
+    parts.append(mg_progress_bar(duration, accent))
+    if is_hook:
+        parts.append(mg_hook_sweep(accent))
+    return ",".join(parts)
+
+
+# Snapshot the pre-V6 implementation once, after the original function has been
+# parsed, so non-V6 callers retain compatibility.
+try:
+    _build_motion_graphics_filter_legacy
+except NameError:
+    # Reconstruct a minimal legacy-compatible implementation for older action types.
+    def _build_motion_graphics_filter_legacy(
+        duration: float,
+        accent: str,
+        scene_index: int = 0,
+        total_scenes: int = 1,
+        is_hook: bool = False,
+        action_type: str = "explanation",
+        action_payload: str = "",
+    ) -> str:
+        parts = [mg_progress_bar(duration, accent), mg_rule_line(accent)]
+        if is_hook:
+            parts.append(mg_hook_sweep(accent))
+        parts.append(mg_animated_vignette_pulse(duration))
+        if total_scenes >= 2:
+            parts.append(mg_scene_counter(scene_index, total_scenes, accent))
+        action_hud = build_action_hud(action_type, action_payload, duration, accent)
+        if action_hud:
+            parts.append(action_hud)
+        return ",".join(parts)

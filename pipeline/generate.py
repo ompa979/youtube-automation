@@ -12,7 +12,7 @@ Round 1 optimizations:
   #9  Upload cron scheduled for 7 AM IST, loops 20 videos every 45 min
   #10 Quota state tracks last successful topic for retry
 
-Round 2 optimizations — anti-monotone variety pass:
+Round 2 optimizations — legacy notes retained for compatibility. Current V7 uses value-first teaching and premium hero thumbnails:
   #1  Accent color per niche/category, threaded into render.py via `category=niche`
   #2  Caption box style rotates bar/pill/card per scene (render.py)
   #3  Subtitle + keyword text fades in instead of popping in (render.py)
@@ -20,11 +20,10 @@ Round 2 optimizations — anti-monotone variety pass:
   #5  Background music track picked per-video by hash of the slug, not always
       the alphabetically-first track (render.py)
   #6  Whoosh SFX layered under every scene cut (render.py + assets/sfx/)
-  #7  Hook style (question/shocking-fact/numbered) rotates per topic (script_gen.py)
+  #7  Hook style rotates between misconception/consequence/curiosity (script_gen.py)
   #8  Prompt now asks for varied scene pacing instead of uniform length (script_gen.py)
-  #9  Rotating outro CTA card appended as a final "scene" (render.py)
-  #10 Thumbnail is now the best of 4 scored candidate frames from scene 0,
-      not always a fixed 0.5s grab (render.py)
+  #9  No generic outro CTA card; CTA stays outside the spoken teaching arc
+  #10 Dedicated 16:9 premium AI-art thumbnails are generated independently of scene frames
 """
 from __future__ import annotations
 
@@ -241,14 +240,15 @@ def _run_one(
 
     # Per-scene TTS + image fetch used to run fully sequential (one scene's
     # audio, then its image, then the next scene's audio, ...). Both calls
-    # are pure network I/O (edge-tts/gTTS and Pollinations/Pexels), so they
+    # are pure network I/O (edge-tts/gTTS, Cloudflare Workers AI and Pexels), so they
     # were mostly just blocking on the wire rather than on CPU. Running scenes
     # concurrently is the single biggest lever on total build time — for a
     # typical 6-scene video this turns roughly 6x(TTS + image) of sequential
     # wall time into ~ceil(6/SCENE_WORKERS)x, a multi-minute cut per video.
-    # Workers are capped (default 4) to stay polite to the free Pollinations/
+    # Workers are capped to avoid rate-limit bursts against the free image endpoints.
     # edge-tts endpoints rather than firing every scene at once.
-    scene_workers = max(1, int(os.getenv("SCENE_WORKERS", "4")))
+    default_workers = "2" if os.getenv("IMAGE_PROVIDER", "cloudflare").strip().lower() == "cloudflare" else "4"
+    scene_workers = max(1, int(os.getenv("SCENE_WORKERS", default_workers)))
 
     def _process_scene(scene) -> dict:
         scene_no = scene.index + 1
@@ -335,6 +335,8 @@ def _run_one(
         scene_sfx_cues=scene_sfx_cues,
         thumbnail_text=getattr(script, "thumbnail_text", ""),
         thumbnail_label=(niche_cfg.get("card_tag", "") or (script.title.split("|")[-1].strip() if "|" in script.title else niche.replace("_", " "))),
+        thumbnail_subline=getattr(script, "thumbnail_subline", ""),
+        thumbnail_visual_prompt=getattr(script, "thumbnail_visual_prompt", ""),
     )
     print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
 
@@ -372,6 +374,8 @@ def _run_one(
                 scene_durations=durations,
             )
             state["project"] = idx + 1
+            state.setdefault("completed_topics", []).append(topic)
+            state["recent_topics"] = (state.get("recent_topics", []) + [topic])[-12:]
             _save_state(state)
             print(f"[✓] Uploaded with YT_CREDS_{cred.index}: {result['url']}")
             try:
@@ -443,5 +447,113 @@ def main() -> int:
     return 0 if failed == 0 else 1
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# CREATIVE V6 TOPIC ROUTER
+# ═════════════════════════════════════════════════════════════════════════════
+from .topic_engine import choose_best_topic as _choose_best_topic_v6
+
+
+def _load_state_v6() -> dict:
+    if not STATE_PATH.exists():
+        return {
+            "niche": 0, "language": 0, "topic": 0, "project": 0,
+            "last_successful_topic": None, "last_failed_topic": None,
+            "last_niche": None, "recent_topics": [], "completed_topics": [], "topic_cursors": {},
+        }
+    try:
+        data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        return {
+            "niche": int(data.get("niche", 0)),
+            "language": int(data.get("language", 0)),
+            "topic": int(data.get("topic", 0)),
+            "project": int(data.get("project", 0)),
+            "last_successful_topic": data.get("last_successful_topic"),
+            "last_failed_topic": data.get("last_failed_topic"),
+            "last_niche": data.get("last_niche"),
+            "recent_topics": list(data.get("recent_topics", []))[-12:],
+            "completed_topics": list(data.get("completed_topics", []))[-100:],
+            "topic_cursors": dict(data.get("topic_cursors", {})),
+        }
+    except Exception:
+        return {
+            "niche": 0, "language": 0, "topic": 0, "project": 0,
+            "last_successful_topic": None, "last_failed_topic": None,
+            "last_niche": None, "recent_topics": [], "completed_topics": [], "topic_cursors": {},
+        }
+
+
+def _save_state_v6(state: dict) -> None:
+    state["recent_topics"] = list(state.get("recent_topics", []))[-12:]
+    state["completed_topics"] = list(state.get("completed_topics", []))[-100:]
+    STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _choose_v6(plan: dict[str, Any], settings: Settings, state: dict):
+    available_niches = [n for n in settings.niches_enabled if n in plan and plan[n].get("topics")]
+    if os.getenv("EXAM_ONLY", "true").strip().lower() in {"1", "true", "yes", "on"}:
+        allowed = {"bank_it_officer", "bank_reasoning_quant", "banking_awareness", "rbi_economy", "bank_english", "ssc_general"}
+        available_niches = [n for n in available_niches if n in allowed]
+    if not available_niches:
+        raise RuntimeError(f"No enabled niches have topics. Enabled={settings.niches_enabled}; available={list(plan)}")
+
+    # Failed topic gets priority once; a rendering failure is not a quality signal about the topic.
+    failed = state.get("last_failed_topic")
+    if failed and failed != state.get("last_successful_topic"):
+        for niche in available_niches:
+            if failed in plan[niche].get("topics", []):
+                cfg = plan[niche]
+                lang = next(iter(cfg.get("voice", {"en": "en-IN"})))
+                state["last_failed_topic"] = None
+                state["last_niche"] = niche
+                return niche, cfg, lang, failed
+
+    niche, cfg, language, topic, score, board = _choose_best_topic_v6(
+        plan, available_niches, state
+    )
+    state["last_niche"] = niche
+    state.setdefault("recent_topics", []).append(topic)
+    cursors = state.setdefault("topic_cursors", {})
+    topics = cfg.get("topics", [])
+    if topics:
+        try:
+            cursors[niche] = (topics.index(topic) + 1) % len(topics)
+        except ValueError:
+            cursors[niche] = int(cursors.get(niche, 0)) + 1
+
+    intelligence = {
+        "selected": score.as_dict(),
+        "top_candidates": [item.as_dict() for item in board[:10]],
+        "signals": {
+            "youtube_autocomplete": bool(os.getenv("TOPIC_USE_AUTOCOMPLETE", "true").lower() in {"1", "true", "yes", "on"}),
+            "google_trends": bool(os.getenv("TOPIC_USE_TRENDS", "true").lower() in {"1", "true", "yes", "on"}),
+            "cache_ttl_seconds": int(os.getenv("TOPIC_INTELLIGENCE_TTL", str(6 * 60 * 60))),
+        },
+    }
+    state["topic_intelligence"] = intelligence
+    try:
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        (OUT_DIR / "topic_intelligence.json").write_text(
+            json.dumps(intelligence, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+    print(f"[topic-v6] selected={topic!r} niche={niche} score={score.total:.1f}")
+    for item in board[:5]:
+        print(
+            f"[topic-v6]  {item.total:.1f} | {item.niche} | {item.topic} | "
+            f"search={item.search_intent:.1f} seo={item.seo_fit:.1f} value={item.value_density:.1f} exam={item.exam_fit:.1f} visual={item.visual:.1f} trend={item.trend:.1f}"
+        )
+    print(f"[topic-v6] reasons={'; '.join(score.reasons)}")
+    return niche, cfg, language, topic
+
+
+# Runtime overrides used by main/_run_one.
+_load_state = _load_state_v6
+_save_state = _save_state_v6
+_choose = _choose_v6
+
+# Apply V6 runtime overrides before the executable entry point.
+# This ordering matters for `python -m pipeline.generate`.
 if __name__ == "__main__":
     raise SystemExit(main())

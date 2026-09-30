@@ -104,7 +104,7 @@ def _exam_label(topic: str, title: str) -> str:
         m = _EXAM_RE.search(text or "")
         if m:
             return re.sub(r"\s+", " ", m.group(1)).strip()
-    return "EXAMCRACKER AI"
+    return ""
 
 
 def _concept_from_topic(topic: str, base_title: str = "") -> str:
@@ -579,4 +579,531 @@ def create_custom_thumbnail(
     }
     (variant_dir / "manifest.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print(f"[thumbnail] selected {best.name}; variants={len(candidates)} cloudflare={cloudflare_configured()}")
+    return out_path
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CREATIVE V6 THUMBNAIL ENGINE
+# ═════════════════════════════════════════════════════════════════════════════
+
+_V6_THUMB_ARCHETYPES = (
+    "hero_closeup",
+    "cinematic_split",
+    "concept_macro",
+    "dramatic_diagram",
+    "human_reaction",
+    "object_transformation",
+)
+_V6_ACCENTS = (
+    (255, 205, 54),   # warm yellow
+    (36, 219, 255),   # electric cyan
+    (255, 68, 86),    # red
+    (255, 145, 40),   # orange
+)
+_V6_FONT_PATHS = (
+    "/usr/share/fonts/opentype/inter/InterDisplay-Black.otf",
+    "/usr/share/fonts/opentype/inter/Inter-Black.otf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+)
+_V6_SEMI_PATHS = (
+    "/usr/share/fonts/opentype/inter/InterDisplay-ExtraBold.otf",
+    "/usr/share/fonts/opentype/inter/Inter-ExtraBold.otf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+)
+
+
+def _v6_thumb_font(size: int, heavy: bool = True):
+    for path in (_V6_FONT_PATHS if heavy else _V6_SEMI_PATHS):
+        if Path(path).exists():
+            return ImageFont.truetype(path, size=size)
+    return ImageFont.load_default()
+
+
+def _v6_wrap(draw, text: str, font, max_width: int, max_lines: int = 2) -> list[str]:
+    words = _clean_text(text).upper().split()
+    lines: list[str] = []
+    cur = ""
+    for word in words:
+        cand = word if not cur else f"{cur} {word}"
+        if draw.textbbox((0, 0), cand, font=font, stroke_width=1)[2] <= max_width:
+            cur = cand
+        else:
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
+    if len(lines) <= max_lines:
+        return lines
+    # Force an even 2-line split for long copy.
+    midpoint = max(1, len(words) // 2)
+    left = " ".join(words[:midpoint])
+    right = " ".join(words[midpoint:])
+    while draw.textbbox((0, 0), left, font=font, stroke_width=1)[2] > max_width and " " in left:
+        a, b = left.rsplit(" ", 1)
+        right = (b + " " + right).strip()
+        left = a
+    return [left, right]
+
+
+def _v6_dark_left(img: Image.Image) -> Image.Image:
+    """Create a soft text-safe gradient without turning the thumbnail into a black card."""
+    W, H = img.size
+    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    px = overlay.load()
+    for x in range(W):
+        t = max(0.0, 1.0 - x / (W * 0.58))
+        a = int(118 * (t ** 1.6))
+        for y in range(H):
+            # Keep the art visible; only darken the text-safe region.
+            vertical = 0.82 + 0.18 * (abs(y - H / 2) / (H / 2))
+            px[x, y] = (0, 0, 0, min(132, int(a * vertical)))
+    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+
+def _v6_text_shadow(draw, xy, text, font, fill, anchor="la", stroke=0):
+    x, y = xy
+    draw.text((x + 6, y + 8), text, font=font, fill=(0, 0, 0, 210), anchor=anchor, stroke_width=max(5, stroke + 2), stroke_fill=(0, 0, 0, 180))
+    draw.text(xy, text, font=font, fill=fill, anchor=anchor, stroke_width=stroke, stroke_fill=(5, 7, 12, 230))
+
+
+def _v6_thumb_visual_prompt(topic: str, headline: str, archetype: str, subline: str) -> str:
+    style = {
+        "hero_closeup": "one dominant hero subject or character in a dramatic close-up, crisp foreground, shallow depth of field, expressive pose",
+        "cinematic_split": "two concept elements staged in one premium composition, visually contrasting through scale, lighting and position rather than text",
+        "concept_macro": "macro close-up of the exact real-world object or mechanism that represents the concept, tactile material detail",
+        "dramatic_diagram": "premium 3D conceptual visualization with physical objects flowing through a mechanism, rich depth and clear causality",
+        "human_reaction": "expressive young Indian learner reacting to a clearly recognizable concept object, cinematic portrait lighting and strong facial expression",
+        "object_transformation": "a visually obvious before-to-after transformation of the exact concept, with motion frozen at the most dramatic moment",
+    }[archetype]
+    return (
+        "Create a premium creator-style YouTube thumbnail hero image, designed as original commercial artwork rather than a video frame. "
+        f"Topic: {topic}. Core curiosity: {headline}. Secondary meaning: {subline}. "
+        f"Visual concept: {style}. Landscape 16:9. The RIGHT side contains the dominant subject; the LEFT side has controlled visual simplicity for later typography. "
+        "Use strong foreground/background separation, realistic or high-end 3D materials, dramatic but clean cinematic lighting, vivid accent color, subtle particles or atmosphere, a strong focal light, layered depth, and a single unmistakable visual metaphor. "
+        "The image should feel expensive, modern, editorial and highly clickable at small size. Avoid generic educational stock imagery. "
+        "NO WORDS, NO LETTERS, NO NUMBERS, NO FAKE UI, NO LOGOS, NO WATERMARKS, NO BORDER, NO COLLAGE, NO CHEAP CLIPART. "
+        "Reserve clean negative space on the LEFT for graphic typography added later in code."
+    )
+
+
+def _v6_thumbnail_render(background: Image.Image, out: Path, headline: str, subline: str, label: str, archetype: str, variant_index: int) -> Path:
+    bg = _fit_background(background).convert("RGB")
+    # Three distinct visual treatments keep a batch from looking templated.
+    if variant_index % 3 == 0:
+        bg = ImageEnhance.Contrast(bg).enhance(1.16)
+        bg = ImageEnhance.Color(bg).enhance(1.24)
+    elif variant_index % 3 == 1:
+        bg = ImageEnhance.Contrast(bg).enhance(1.10)
+        bg = ImageEnhance.Color(bg).enhance(1.08)
+        bg = ImageEnhance.Brightness(bg).enhance(1.04)
+    else:
+        bg = ImageEnhance.Contrast(bg).enhance(1.20)
+        bg = ImageEnhance.Color(bg).enhance(1.30)
+        bg = ImageEnhance.Sharpness(bg).enhance(1.10)
+    bg = _v6_dark_left(bg)
+
+    canvas = bg.convert("RGBA")
+    draw = ImageDraw.Draw(canvas)
+    accent = _V6_ACCENTS[variant_index % len(_V6_ACCENTS)] + (255,)
+    accent2 = _V6_ACCENTS[(variant_index + 1) % len(_V6_ACCENTS)] + (255,)
+
+    # Premium graphic accents: glow, slash, rays and one concept cue.
+    glow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    for r, alpha in ((260, 20), (210, 28), (160, 38)):
+        gd.ellipse((1000-r, 360-r, 1000+r, 360+r), fill=accent[:3] + (alpha,))
+    glow = glow.filter(ImageFilter.GaussianBlur(18))
+    canvas = Image.alpha_composite(canvas, glow)
+    draw = ImageDraw.Draw(canvas)
+
+    # Asymmetric editorial slash, not a UI panel.
+    draw.polygon([(0, 592), (470, 448), (560, 468), (70, 648)], fill=accent[:3] + (125,))
+    draw.polygon([(0, 648), (320, 557), (354, 574), (0, 690)], fill=accent2[:3] + (100,))
+    draw.line((770, 76, 1226, 76), fill=(255,255,255,62), width=3)
+    draw.line((770, 86, 1090, 86), fill=accent[:3] + (95,), width=5)
+
+    # Small exam label; branding stays subordinate to the hook.
+    badge = _clean_text(label).upper()[:22] or "EXAMCRACKER"
+    badge_font = _v6_thumb_font(27, heavy=True)
+    badge_w = draw.textbbox((0, 0), badge, font=badge_font)[2] + 42
+    draw.rounded_rectangle((40, 34, 40 + badge_w, 82), radius=16, fill=(9, 12, 20, 210), outline=accent, width=3)
+    draw.text((61, 58), badge, font=badge_font, fill=(255,255,255,255), anchor="lm")
+
+    headline = re.sub(r"\s+", " ", headline).strip().upper()
+    subline = re.sub(r"\s+", " ", subline).strip().upper()
+    if len(headline) > 30:
+        headline = headline[:30].rsplit(" ", 1)[0]
+    if len(subline) > 36:
+        subline = subline[:36].rsplit(" ", 1)[0]
+
+    # Make the first line white and the last line an accent for an editorial punch.
+    headline_font = _v6_thumb_font(92 if len(headline) < 20 else 82, heavy=True)
+    sub_font = _v6_thumb_font(29, heavy=False)
+    lines = _v6_wrap(draw, headline, headline_font, 610, 2)
+    y = 148
+    for idx, line in enumerate(lines):
+        color = accent if idx == len(lines) - 1 else (255,255,255,255)
+        _v6_text_shadow(draw, (46, y), line, headline_font, color, anchor="la", stroke=2)
+        bbox = draw.textbbox((46, y), line, font=headline_font, anchor="la")
+        if idx == len(lines) - 1:
+            draw.rounded_rectangle((46, bbox[3] + 7, min(675, bbox[2] + 18), bbox[3] + 16), radius=5, fill=accent)
+        y += 108
+
+    if subline:
+        # Compact editorial subline — no rectangular card.
+        draw.text((48, 395), subline, font=sub_font, fill=(244,247,252,235), anchor="la",
+                  stroke_width=1, stroke_fill=(0,0,0,150))
+
+    # One bold graphic cue makes the thumbnail feel designed rather than merely composited.
+    import math
+    if "?" in headline or variant_index % 4 == 0:
+        qfont = _v6_thumb_font(178, heavy=True)
+        draw.text((1075, 82), "?", font=qfont, fill=accent[:3] + (175,), anchor="mm",
+                  stroke_width=10, stroke_fill=(0,0,0,55))
+    if archetype == "dramatic_diagram":
+        draw.line((765, 560, 1115, 250), fill=accent[:3] + (235,), width=9)
+        ang = math.atan2(250-560, 1115-765)
+        pts = [(1115,250), (1115-38*math.cos(ang-0.55), 250-38*math.sin(ang-0.55)), (1115-38*math.cos(ang+0.55), 250-38*math.sin(ang+0.55))]
+        draw.polygon(pts, fill=accent)
+    elif archetype == "object_transformation":
+        draw.line((765, 590, 1140, 590), fill=accent, width=12)
+        draw.polygon([(1140,590),(1090,560),(1090,620)], fill=accent)
+        for dx in (0, 20, 40):
+            draw.ellipse((790+dx, 565, 802+dx, 577), fill=accent2[:3] + (210,))
+    elif archetype == "concept_macro":
+        draw.ellipse((910, 410, 1215, 715), outline=accent, width=10)
+        draw.ellipse((940, 440, 1185, 685), outline=(255,255,255,120), width=3)
+    elif archetype == "human_reaction":
+        draw.arc((790, 120, 1210, 540), 208, 325, fill=accent2, width=8)
+    elif archetype == "cinematic_split":
+        draw.line((760, 150, 1165, 530), fill=accent[:3] + (225,), width=8)
+        draw.ellipse((1120, 485, 1178, 543), fill=accent2[:3] + (210,))
+    else:
+        draw.arc((820, 410, 1240, 830), 198, 332, fill=accent[:3] + (165,), width=7)
+
+    # Tiny brand signature only.
+    mark_font = _v6_thumb_font(18, heavy=False)
+    draw.text((46, 684), "EXAMCRACKER AI", font=mark_font, fill=(235,240,248,145))
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    canvas.convert("RGB").save(out, "JPEG", quality=97, optimize=True, progressive=True)
+    return out
+
+
+def _v6_score_thumbnail(path: Path) -> float:
+    """Score for thumbnail readability + visual energy + left/right composition."""
+    from PIL import ImageStat, ImageFilter
+    with Image.open(path) as im:
+        im = im.convert("RGB").resize((320, 180))
+        stat = ImageStat.Stat(im)
+        mean = sum(stat.mean) / 3.0
+        contrast = sum(stat.stddev) / 3.0
+        saturation = max(stat.mean) - min(stat.mean)
+        brightness = max(0.0, 1.0 - abs(mean - 126.0) / 126.0)
+        edges = im.filter(ImageFilter.FIND_EDGES).convert("L")
+        e = ImageStat.Stat(edges).mean[0]
+        left = ImageStat.Stat(im.crop((0, 0, 150, 180)).filter(ImageFilter.FIND_EDGES)).mean[0]
+        right = ImageStat.Stat(im.crop((165, 0, 320, 180)).filter(ImageFilter.FIND_EDGES)).mean[0]
+        composition = max(0.0, min(20.0, (right - left) * 0.8 + 8.0))
+        return contrast * 1.7 + brightness * 26.0 + saturation * 0.5 + e * 0.5 + composition
+
+
+def create_custom_thumbnail(
+    video_path: Path,
+    out_path: Path,
+    challenge_time: float,
+    question: str,
+    label: str,
+    background_path: Path | None = None,
+    topic: str = "",
+    variants: int | None = None,
+    subline: str = "",
+    visual_prompt: str = "",
+) -> Path:
+    """V6 premium thumbnail engine: AI hero art + original deterministic typography."""
+    count = max(3, int(variants or THUMBNAIL_VARIANTS))
+    headline = _clean_text(question).strip(" ?!.:").upper() or "LEARN THIS FAST"
+    secondary = _clean_text(subline).upper()
+    if not secondary:
+        # Derive a compact concept line from the topic instead of inventing a generic A/B game.
+        secondary = _concept_from_topic(topic, headline).upper()[:32]
+    variant_dir = out_path.parent / "thumbnail_variants"
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    seed_base = int(hashlib.sha1(f"{topic}|{headline}|{secondary}|{label}".encode("utf-8")).hexdigest()[:10], 16)
+    clean = _load_clean_background(video_path, background_path, challenge_time)
+    candidates: list[Path] = []
+
+    for i in range(count):
+        archetype = _V6_THUMB_ARCHETYPES[i % len(_V6_THUMB_ARCHETYPES)]
+        seed = seed_base + i * 7919
+        prompt = _clean_text(visual_prompt) if visual_prompt else _v6_thumb_visual_prompt(topic or label, headline, archetype, secondary)
+        # Add the archetype-specific composition constraints even when Gemini authored the brief.
+        prompt = prompt + (" Landscape 16:9. RIGHT-side hero subject, LEFT-side clean negative space for typography. NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS.")
+        ai_img = _request_ai_background(prompt, seed)
+        bg = ai_img if ai_img is not None else clean
+        candidate = variant_dir / f"v6_{i+1:02d}_{archetype}.jpg"
+        _v6_thumbnail_render(bg, candidate, headline, secondary, label, archetype, i)
+        candidates.append(candidate)
+
+    ranked = sorted(candidates, key=_v6_score_thumbnail, reverse=True)
+    best = ranked[0]
+    Image.open(best).convert("RGB").save(out_path, "JPEG", quality=96, optimize=True, progressive=True)
+    manifest = {
+        "engine": "creative_v6_premium_art",
+        "headline": headline,
+        "subline": secondary,
+        "topic": topic,
+        "label": label,
+        "variants": [p.name for p in ranked],
+        "scores": {p.name: round(_v6_score_thumbnail(p), 2) for p in candidates},
+        "selected": best.name,
+        "canvas": [THUMBNAIL_W, THUMBNAIL_H],
+        "ai_provider": os.getenv("CLOUDFLARE_THUMBNAIL_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"),
+        "visual_prompt_source": "script.thumbnail_visual_prompt" if visual_prompt else "engine_archetype_prompt",
+    }
+    (variant_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    print(f"[thumbnail-v6] selected={best.name} headline={headline!r} subline={secondary!r}")
+    return out_path
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CREATIVE V7 — natural teaching, premium packaging, NO GAME-SHOW COPY
+# ═════════════════════════════════════════════════════════════════════════════
+
+V2_ACTION_SEQUENCE = ("hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock")
+
+_V7_BANNED = re.compile(
+    r"\b(?:A\s*(?:OR|VS\.?|VERSUS)\s*B|QUICK TEST|THINK FAST|COUNTDOWN|STOP SCROLLING|STOP|REVEAL|THE TRICK|DID YOU GET IT)\b",
+    re.I,
+)
+
+
+def _v7_clean(value: str) -> str:
+    text = _clean_text(value)
+    text = re.sub(r"\bA\s*(?:OR|VS\.?|VERSUS)\s*B\b", "", text, flags=re.I)
+    text = re.sub(r"\b(?:QUICK TEST|THINK FAST|COUNTDOWN|STOP SCROLLING|STOP|REVEAL|THE TRICK|DID YOU GET IT)\b", "", text, flags=re.I)
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip(" -:|,;")
+
+
+def _v7_question(script: "Script") -> str:
+    """Create a natural, concept-specific question for the description/pinned comment."""
+    if not getattr(script, "scenes", None):
+        return "What part of this concept would you like explained next?"
+    for scene in script.scenes:
+        text = _clean_text(getattr(scene, "narration", ""))
+        m = re.search(r"([^.!?]*\?)", text)
+        if m:
+            q = _v7_clean(m.group(1)).strip()
+            if q and len(q) <= 110:
+                return q
+    last = _clean_text(getattr(script.scenes[-1], "narration", ""))
+    concept = _clean_text(last[:90]).rstrip(".,;:!? ")
+    return f"Which part of this concept was most useful: {concept}?"
+
+
+def build_comment_cta(script: "Script") -> str:
+    """Turn the final memory rule into a useful pinned comment, not a quiz CTA."""
+    scenes = getattr(script, "scenes", []) or []
+    memory = _clean_text(getattr(scenes[-1], "narration", "")) if scenes else ""
+    memory = _v7_clean(memory).rstrip(".?! ")
+    if len(memory) > 120:
+        memory = memory[:120].rsplit(" ", 1)[0]
+    if memory:
+        return f"Save this rule: {memory}. What exam concept should we break down next? Comment below."
+    return "What exam concept should we break down next? Comment below."
+
+
+def build_thumbnail_text(script: "Script") -> str:
+    """Return a bold value-led thumbnail phrase; never a quiz option prompt."""
+    text = _clean_text(getattr(script, "thumbnail_text", ""))
+    cleaned = _v7_clean(text).upper()
+    if 2 <= len(cleaned.split()) <= 7:
+        return cleaned[:42]
+    for scene in getattr(script, "scenes", []):
+        candidate = _v7_clean(getattr(scene, "on_screen_text", ""))
+        if 2 <= len(candidate.split()) <= 6:
+            return candidate.upper()[:42]
+    return _clean_text(getattr(script, "title", ""))[:42].upper()
+
+
+def build_click_title(topic: str, base_title: str, script: "Script") -> str:
+    """Search-first title: exact concept + useful outcome, no game-show gimmicks."""
+    concept = _clean_text(topic)
+    if ":" in concept:
+        concept = concept.split(":", 1)[0].strip()
+    concept = re.sub(r"^(?:IBPS|SBI|RBI|UPSC|SSC|GATE)[^:|\-–—]*[:|\-–—]\s*", "", concept, flags=re.I).strip()
+    if not concept:
+        concept = _clean_text(base_title)
+    # Use a natural benefit based on the topic itself.
+    low = topic.lower()
+    if " vs " in low or "versus" in low or "difference" in low:
+        suffix = "The Key Difference"
+    elif "how" in low or "works" in low:
+        suffix = "How It Actually Works"
+    elif "rule" in low or "classification" in low or "property" in low:
+        suffix = "The Rule You Need"
+    elif "shortcut" in low or "trick" in low:
+        suffix = "The Fastest Safe Method"
+    else:
+        suffix = "Explained With an Example"
+    title = f"{concept}: {suffix}"
+    exam = _exam_label(topic, base_title)
+    if exam != "EXAMCRACKER AI" and exam.lower() not in title.lower():
+        addition = f" | {exam}"
+        if len(title) + len(addition) <= 85:
+            title += addition
+    return re.sub(r"\s+", " ", title).strip(" -:|")[:85]
+
+
+def enforce_v2_contract(script: "Script") -> None:
+    """Normalize to six teaching beats without overwriting good copy."""
+    if not getattr(script, "scenes", None):
+        return
+    for i, scene in enumerate(script.scenes[:6]):
+        role = V2_ACTION_SEQUENCE[i]
+        scene.action_type = role
+        scene.narration = _v7_clean(getattr(scene, "narration", ""))
+        scene.tts_text = _v7_clean(getattr(scene, "tts_text", "")) or scene.narration
+        scene.on_screen_text = _v7_clean(getattr(scene, "on_screen_text", ""))[:60]
+        scene.action_payload = _v7_clean(getattr(scene, "action_payload", ""))[:180]
+        if not scene.on_screen_text:
+            defaults = {
+                "hook": "WHY IT MATTERS",
+                "context": "WHAT CHANGES",
+                "mechanism": "HOW IT WORKS",
+                "example": "WORKED EXAMPLE",
+                "exam_takeaway": "LOOK FOR THIS",
+                "memory_lock": "REMEMBER THE RULE",
+            }
+            scene.on_screen_text = defaults[role]
+    if not getattr(script, "thumbnail_text", ""):
+        script.thumbnail_text = build_thumbnail_text(script)
+
+# V7 thumbnail helpers — text is added after AI art, with a clean editorial layout.
+_V7_THUMB_ARCHETYPES = (
+    "editorial_hero", "cinematic_split", "concept_macro", "human_reaction", "transformation",
+    "exploded_view", "spotlight_subject", "dynamic_arrow", "cutaway_3d", "warning_diagonal",
+)
+
+
+def _v7_visual_prompt(topic: str, headline: str, archetype: str, subline: str) -> str:
+    styles = {
+        "editorial_hero": "one unforgettable hero subject, large in frame, expressive action, crisp silhouette, shallow depth of field",
+        "cinematic_split": "two real concept elements interacting in one composition, strong directional separation, no text",
+        "concept_macro": "extreme-detail close-up of the exact object or mechanism that represents the concept",
+        "human_reaction": "an expressive young Indian learner with a clear reaction beside the exact concept object, cinematic portrait lighting",
+        "transformation": "a frozen instant of a clear before-to-after transformation of the concept, with motion implied by particles and directional light",
+        "exploded_view": "a premium exploded-view composition showing the parts of the concept separated in space with precise physical relationships",
+        "spotlight_subject": "one iconic subject under a dramatic studio spotlight, with rich environment detail and a strong rim light",
+        "dynamic_arrow": "a dynamic directional composition where the real concept object visibly travels from one state to another",
+        "cutaway_3d": "a sophisticated 3D cutaway revealing the internal mechanism of the concept with realistic materials and layered depth",
+        "warning_diagonal": "a high-energy editorial composition with one clear mistake/correction visual and bold diagonal motion cues",
+    }
+    return (
+        "Create a stunning, premium, creator-grade YouTube thumbnail HERO IMAGE that feels like top-tier social creative, not a screenshot, lesson slide, stock photo, or template. "
+        f"Topic: {topic}. Main idea: {headline}. Context: {subline}. "
+        f"Art direction: {styles[archetype]}. Landscape 16:9. "
+        "Design for a tiny mobile thumbnail first: one unforgettable focal subject, immediate visual storytelling, strong silhouette, aggressive but tasteful depth, cinematic lens perspective, believable motion, rich material detail, bright focal highlight, premium color contrast, controlled shadows, subtle glow, depth haze, and a polished advertising/editorial finish. "
+        "Make the scene feel expensive and energetic: glossy or tactile materials, realistic reflections, directional light, rich environmental context, layered foreground/midground/background, and one decisive visual action that explains the idea. "
+        "Place the hero subject on the RIGHT 55-65% of the canvas and keep the LEFT 35-45% visually simpler but still cinematic so later typography can sit there without covering the hero. "
+        "Do NOT use flat black backgrounds, generic neon wallpaper, classroom stock photos, cheap clipart, fake dashboards, infographic grids, random decorative symbols, repetitive circles, tiny unreadable detail, or poster/card layouts. "
+        "Think: premium creator thumbnail + cinematic advertisement + photorealistic concept art. The image itself must be memorable before any text is added. "
+        "NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO BORDERS, NO COLLAGE."
+    )
+
+
+def _v7_thumbnail_render(background: Image.Image, out: Path, headline: str, subline: str, label: str, archetype: str, idx: int) -> Path:
+    import math
+    bg = _fit_background(background).convert("RGB")
+    bg = ImageEnhance.Contrast(bg).enhance(1.22)
+    bg = ImageEnhance.Color(bg).enhance(1.20)
+    bg = ImageEnhance.Sharpness(bg).enhance(1.10)
+
+    canvas = bg.convert("RGBA")
+    # soft left vignette, never a solid card
+    grad = Image.new("RGBA", canvas.size, (0,0,0,0))
+    gd = ImageDraw.Draw(grad)
+    for x in range(760):
+        t = x/760.0
+        a = int(112 * (1-t)**1.8)
+        gd.line((x,0,x,720), fill=(0,0,0,a))
+    canvas = Image.alpha_composite(canvas, grad)
+    draw = ImageDraw.Draw(canvas)
+    accent = _V6_ACCENTS[idx % len(_V6_ACCENTS)] + (255,)
+    accent2 = _V6_ACCENTS[(idx+2) % len(_V6_ACCENTS)] + (255,)
+
+    badge = _clean_text(label).upper()[:20]
+    badge_font = _v6_thumb_font(27, heavy=True)
+    draw.text((48, 42), badge, font=badge_font, fill=(255,255,255,245), stroke_width=2, stroke_fill=(0,0,0,190))
+    draw.line((48, 88, 270, 88), fill=accent, width=7)
+
+    headline = _v7_clean(headline).upper()[:34]
+    subline = _v7_clean(subline).upper()[:40]
+    font_size = 88 if len(headline) <= 18 else 76
+    hfont = _v6_thumb_font(font_size, heavy=True)
+    sfont = _v6_thumb_font(30, heavy=False)
+    lines = _v6_wrap(draw, headline, hfont, 640, 2)[:2]
+    y = 150
+    for j, line in enumerate(lines):
+        color = (255,255,255,255) if j == 0 else accent
+        _v6_text_shadow(draw, (48, y), line, hfont, color, anchor="la", stroke=3)
+        y += font_size + 8
+    if subline:
+        draw.text((50, min(430, y+8)), subline, font=sfont, fill=(240,244,250,238), stroke_width=2, stroke_fill=(0,0,0,185))
+
+    # One strong graphic mark, no UI panels.
+    if archetype == "cinematic_split":
+        draw.line((760, 120, 1190, 600), fill=accent, width=10)
+    elif archetype == "concept_macro":
+        draw.ellipse((985, 310, 1190, 515), outline=accent, width=10)
+    elif archetype == "human_reaction":
+        draw.arc((850, 90, 1220, 450), 210, 325, fill=accent2, width=9)
+    elif archetype == "transformation":
+        draw.line((820, 610, 1165, 610), fill=accent, width=13)
+        draw.polygon([(1165,610),(1108,572),(1108,648)], fill=accent)
+    else:
+        draw.arc((860, 400, 1240, 790), 205, 325, fill=accent2, width=8)
+
+    mark_font = _v6_thumb_font(18, heavy=False)
+    draw.text((48, 688), "EXAMCRACKER AI", font=mark_font, fill=(238,242,247,150))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    canvas.convert("RGB").save(out, "JPEG", quality=97, optimize=True, progressive=True)
+    return out
+
+
+def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: float, question: str, label: str,
+                            background_path: Path | None = None, topic: str = "", variants: int | None = None,
+                            subline: str = "", visual_prompt: str = "") -> Path:
+    """V7 premium thumbnail: AI hero art first, typography second, no stale HUD-card look."""
+    count = max(3, int(variants or int(os.getenv("THUMBNAIL_VARIANTS", "3"))))
+    headline = _v7_clean(question or "").upper().strip(" ?!.") or "LEARN THIS RULE"
+    secondary = _v7_clean(subline) or _concept_from_topic(topic, headline)
+    variant_dir = out_path.parent / "thumbnail_variants"
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    seed_base = int(hashlib.sha1(f"{topic}|{headline}|{secondary}|{label}".encode()).hexdigest()[:10], 16)
+    clean = _load_clean_background(video_path, background_path, challenge_time)
+    candidates=[]
+    for i in range(count):
+        start_index = seed_base % len(_V7_THUMB_ARCHETYPES)
+        archetype = _V7_THUMB_ARCHETYPES[(start_index + i) % len(_V7_THUMB_ARCHETYPES)]
+        prompt = _clean_text(visual_prompt) if visual_prompt else _v7_visual_prompt(topic or label, headline, archetype, secondary)
+        prompt += " Landscape 16:9; hero weighted to right; premium commercial thumbnail art; no text."
+        try:
+            ai_img = _request_ai_background(prompt, seed_base + i*7919)
+        except Exception as exc:
+            print(f"[thumbnail-v7] AI variant {i+1} failed: {exc}")
+            ai_img = None
+        bg = ai_img if ai_img is not None else clean
+        candidate = variant_dir / f"v7_{i+1:02d}_{archetype}.jpg"
+        _v7_thumbnail_render(bg, candidate, headline, secondary, label, archetype, i)
+        candidates.append(candidate)
+    ranked = sorted(candidates, key=_v6_score_thumbnail, reverse=True)
+    best = ranked[0]
+    Image.open(best).convert("RGB").save(out_path, "JPEG", quality=97, optimize=True, progressive=True)
+    manifest={"engine":"creative_v7_premium_hero","headline":headline,"subline":secondary,"selected":best.name,
+              "variants":[p.name for p in ranked],"scores":{p.name:round(_v6_score_thumbnail(p),2) for p in candidates},
+              "canvas":[1280,720],"ai_provider":os.getenv("CLOUDFLARE_THUMBNAIL_MODEL", os.getenv("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"))}
+    (variant_dir/"manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    print(f"[thumbnail-v7] selected={best.name} headline={headline!r} subline={secondary!r}")
     return out_path

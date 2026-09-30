@@ -83,15 +83,13 @@ STYLE_SUFFIX = {
     "educational_ai": (
         ", premium cinematic educational visualization, photorealistic 3D or editorial scientific "
         "illustration, one unmistakable focal subject, clear cause-and-effect composition, "
-        "layered depth, dramatic studio lighting, realistic textures, visually striking but accurate, "
-        "vertical 9:16, no text, no logos, no watermark"
+        "layered depth, bright directional key light, rich but natural color separation, realistic materials, "
+        "crisp focal detail, subtle atmosphere, visually striking but accurate, vertical 9:16, no text, no logos, no watermark"
     ),
     "cinematic_hud": (
-        ", ultra-dramatic dark cinematic concept art, deep midnight-black or navy background, "
-        "single glowing focal element (holographic data grid / neon circuit traces / illuminated "
-        "vault door / glowing server racks / laser network topology), extreme foreground–background "
-        "separation, volumetric God rays, lens flare on accent element, hyperrealistic materials, "
-        "IMAX film grain, vertical 9:16, no text, no labels, no logos, no watermark"
+        ", premium cinematic concept art, sophisticated dark-to-bright gradient environment, "
+        "single glowing focal element with realistic physical context, strong foreground-background separation, "
+        "volumetric key light, subtle lens flare, hyperrealistic materials, rich depth, vertical 9:16, no text, no labels, no logos, no watermark"
     ),
 }
 
@@ -423,8 +421,8 @@ def _pollinations_prompt(image_prompt: str, visual_style: str) -> str:
     return base + suffix
 
 
-# Dark-themed Pexels fallback queries by subject area — used when Pollinations
-# returns 402/429 and we fall through to Pexels. Generic bright stock photos
+# Dark-themed Pexels fallback queries by subject area — used when Cloudflare
+# generation is unavailable and we fall through to stock imagery. Generic bright stock photos
 # ("education", "concept") look terrible under a cinematic_hud dark scrim;
 # these queries are curated to return images that already match the dark
 # dramatic aesthetic.
@@ -441,6 +439,9 @@ _DARK_PEXELS_FALLBACK: dict[str, str] = {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Text-card visuals (visual_style == "text_card")
+#
+# Kept as a deterministic fallback for factual/diagram-heavy scenes when an
+# external image provider is unavailable.
 #
 # Channel analytics showed the videos that actually get views are exam-topic
 # text cards (the facts are readable on screen), while AI-image scenes can't
@@ -685,17 +686,8 @@ def _fetch_cloudflare_scene_image(
     width: int = 768,
     height: int = 1365,
 ) -> bool:
-    """Generate a vertical scene image through Cloudflare Workers AI.
-
-    The FLUX.1 Schnell model endpoint accepts prompt/seed/steps. Cloudflare's
-    generic TextToImage API also exposes width/height, so we try the requested
-    vertical canvas first and, if the model rejects those optional dimensions,
-    retry once with the documented model-minimum payload. The image is then
-    normalized locally to the exact 1080x1920 Shorts canvas.
-    """
-    if PROVIDER_STATE.get("cloudflare_image") != "available":
-        return False
-    if not _cloudflare_scene_enabled():
+    """Generate a vertical scene image through the active Cloudflare model."""
+    if PROVIDER_STATE.get("cloudflare_image") != "available" or not _cloudflare_scene_enabled():
         return False
 
     clean_prompt = " ".join((prompt or "").split()).strip()
@@ -705,35 +697,19 @@ def _fetch_cloudflare_scene_image(
     if "9:16" not in scene_prompt.lower() and "vertical" not in scene_prompt.lower():
         scene_prompt += ", vertical 9:16 composition"
 
-    # Extend the shared Cloudflare thumbnail adapter with optional dimensions.
     try:
-        image = _generate_cloudflare_image_with_dimensions(
-            scene_prompt, seed, width=width, height=height, steps=4
-        )
+        image = _generate_cloudflare_image_with_dimensions(scene_prompt, seed, width=width, height=height, steps=4)
         temp = out_path.with_suffix(".cloudflare.jpg")
         image.save(temp, "JPEG", quality=94)
         if _valid_image(temp) and _normalize_image(temp, 1080, 1920):
             temp.replace(out_path)
-            print(f"[visuals] Cloudflare FLUX.1 Schnell generated scene -> {out_path.name}")
+            model = os.getenv("CLOUDFLARE_IMAGE_MODEL", "").split("/")[-1]
+            print(f"[visuals] Cloudflare {model} generated scene -> {out_path.name}")
             return True
     except Exception as exc:
-        print(f"[visuals] Cloudflare vertical image attempt failed: {exc}")
-
-    try:
-        image = _generate_cloudflare_image_with_dimensions(
-            scene_prompt, seed, width=None, height=None, steps=4
-        )
-        temp = out_path.with_suffix(".cloudflare2.jpg")
-        image.save(temp, "JPEG", quality=94)
-        if _valid_image(temp) and _normalize_image(temp, 1080, 1920):
-            temp.replace(out_path)
-            print(f"[visuals] Cloudflare FLUX.1 Schnell fallback generated scene -> {out_path.name}")
-            return True
-    except Exception as exc:
-        print(f"[visuals] Cloudflare fallback generation failed: {exc}")
+        print(f"[visuals] Cloudflare scene generation failed: {exc}")
         PROVIDER_STATE["cloudflare_image"] = "disabled"
     return False
-
 
 def _generate_cloudflare_image_with_dimensions(
     prompt: str,
@@ -742,39 +718,11 @@ def _generate_cloudflare_image_with_dimensions(
     height: int | None,
     steps: int = 4,
 ) -> Image.Image:
-    """Call the shared Cloudflare REST adapter with optional width/height."""
-    import base64, io
-    account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
-    token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
-    model = os.getenv("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell").strip()
-    if not account or not token:
-        raise RuntimeError("Cloudflare Workers AI credentials are not configured")
-    endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
-    payload = {"prompt": prompt[:2048], "seed": int(seed), "steps": int(steps)}
-    if width is not None:
-        payload["width"] = int(width)
-    if height is not None:
-        payload["height"] = int(height)
-    response = requests.post(
-        endpoint,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json,image/*"},
-        json=payload,
-        timeout=max(30, int(os.getenv("CLOUDFLARE_IMAGE_TIMEOUT", "180"))),
-    )
-    if response.status_code >= 400:
-        detail = response.text.replace(token, "***")[:1000]
-        raise RuntimeError(f"Cloudflare Workers AI HTTP {response.status_code}: {detail}")
-    content_type = response.headers.get("content-type", "").lower()
-    if content_type.startswith("image/"):
-        return Image.open(io.BytesIO(response.content)).convert("RGB")
-    data = response.json()
-    result = data.get("result") if isinstance(data.get("result"), dict) else data
-    b64 = result.get("image") if isinstance(result, dict) else None
-    if not b64:
-        raise RuntimeError("Cloudflare image response did not contain result.image")
-    if isinstance(b64, str) and b64.startswith("data:image/") and "," in b64:
-        b64 = b64.split(",", 1)[1]
-    return Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+    """Call the shared Cloudflare adapter using the configured model transport."""
+    target_w = int(width or 1024)
+    target_h = int(height or 1024)
+    return generate_cloudflare_background(prompt, seed, width=target_w, height=target_h, model=os.getenv("CLOUDFLARE_SCENE_MODEL", os.getenv("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")))
+
 
 def fetch_scene_image(
     scene_index: int, image_prompt: str, visual_style: str, settings, subject_area: str = "default",

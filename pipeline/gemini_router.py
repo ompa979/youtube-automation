@@ -150,38 +150,49 @@ _CALL_ORDER: dict[CallType, list[str]] = {
 
 
 # --- JSON response schema for SCRIPT_GEN -------------------------------------
-# Hard-enforces <=5 scenes and required fields.  Eliminates the "6-scene
-# rejection" class of failures and most malformed-JSON repair calls.
+# V6 schema: exactly six teaching scenes and explicit thumbnail fields.
+# This prevents the old A/B/countdown challenge structure from re-entering via schema output.
 _SCRIPT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "title":          {"type": "string"},
-        "hook":           {"type": "string"},
-        "description":    {"type": "string"},
+        "title": {"type": "string"},
+        "hook": {"type": "string"},
+        "description": {"type": "string"},
         "pinned_comment": {"type": "string"},
-        "tags": {
-            "type": "array",
-            "items": {"type": "string"},
-        },
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "thumbnail_text": {"type": "string"},
+        "thumbnail_subline": {"type": "string"},
+        "thumbnail_visual_prompt": {"type": "string"},
         "scenes": {
             "type": "array",
+            "minItems": 6,
+            "maxItems": 6,
             "items": {
                 "type": "object",
                 "properties": {
-                    "narration":      {"type": "string"},
-                    "tts_text":       {"type": "string"},
-                    "image_prompt":   {"type": "string"},
+                    "action_type": {"type": "string"},
+                    "action_payload": {"type": "string"},
+                    "narration": {"type": "string"},
+                    "tts_text": {"type": "string"},
+                    "image_prompt": {"type": "string"},
                     "on_screen_text": {"type": "string"},
-                    "card_points": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
+                    "card_points": {"type": "array", "items": {"type": "string"}},
+                    "motion_type": {"type": "string"},
+                    "camera_motion": {"type": "string"},
+                    "sfx_cue": {"type": "string"},
                 },
-                "required": ["narration", "tts_text", "image_prompt", "on_screen_text"],
+                "required": [
+                    "action_type", "action_payload", "narration", "tts_text",
+                    "image_prompt", "on_screen_text", "card_points",
+                    "motion_type", "camera_motion", "sfx_cue",
+                ],
             },
         },
     },
-    "required": ["title", "hook", "description", "pinned_comment", "tags", "scenes"],
+    "required": [
+        "title", "hook", "description", "pinned_comment", "tags",
+        "thumbnail_text", "thumbnail_subline", "thumbnail_visual_prompt", "scenes",
+    ],
 }
 
 

@@ -39,10 +39,12 @@ jobs:
       - name: Restore quota state
         uses: actions/cache@v4
         with:
-          path: .quota_state.json
-          key: quota-state-${{ github.run_id }}
+          path: |
+            .quota_state.json
+            .topic_intelligence.json
+          key: quota-and-topic-${{ github.run_id }}
           restore-keys: |
-            quota-state-
+            quota-and-topic-
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -76,42 +78,74 @@ jobs:
           print(f'PASS: {len(niches)} niches, {total_topics} topics, visual styles valid')
           PY
 
-      - name: Run 100 thumbnail sanity tests
-        run: python -m unittest tests.test_thumbnail_engine_100 -v
+      - name: Run creative + thumbnail sanity tests
+        run: python -m unittest tests.test_creative_v6 tests.test_thumbnail_engine_100 tests.test_cloudflare_scene_provider tests.test_topic_selection_v7 -v
 
-      - name: Run Cloudflare scene-image provider tests
-        run: python -m unittest tests.test_cloudflare_scene_provider -v
+
+      - name: Verify V7 creative mode
+        run: |
+          python - <<'PY'
+          from pipeline.engagement_v2 import V2_ACTION_SEQUENCE
+          assert V2_ACTION_SEQUENCE == ("hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock")
+          print('PASS: V7 value-first creative renderer enabled')
+          PY
 
       - name: Generate & Upload (3 videos × 45 min)
         env:
           # Gemini remains enabled for text/script generation only.
           GEMINI_API_KEY:         ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}
-          # Cloudflare Workers AI + FLUX.1 Schnell is the active AI image generator
+          # Cloudflare Workers AI is the active image generator: FLUX.1 Schnell for scenes, FLUX.2 Klein 4B for premium thumbnails
           CLOUDFLARE_ACCOUNT_ID:   ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN:    ${{ secrets.CLOUDFLARE_API_TOKEN }}
           IMAGE_PROVIDER:          'cloudflare'
           CLOUDFLARE_SCENE_IMAGES_ENABLED: 'true'
-          CLOUDFLARE_SCENE_WIDTH:    '768'
-          CLOUDFLARE_SCENE_HEIGHT:   '1365'
-          CLOUDFLARE_IMAGE_MODEL:  '@cf/black-forest-labs/flux-1-schnell'
-          CLOUDFLARE_IMAGE_STEPS:  '4'
+          CLOUDFLARE_IMAGE_MODEL: '@cf/black-forest-labs/flux-1-schnell'
+          CLOUDFLARE_SCENE_MODEL: '@cf/black-forest-labs/flux-1-schnell'
+          CLOUDFLARE_THUMBNAIL_MODEL: '@cf/black-forest-labs/flux-2-klein-4b'
+          CLOUDFLARE_IMAGE_STEPS: '4'
           THUMBNAIL_VARIANTS:      '3'
           YT_CREDS_1:             ${{ secrets.YT_CREDS_1 }}
           UPLOAD_ENABLED:         'true'
           UPLOAD_COUNT:           ${{ inputs.count || '3' }}
-          NICHES_ENABLED:         'ai_tech_hacks,science_curiosity,money_wealth_hacks,everyday_life_hacks,banking_awareness,bank_it_officer,bank_reasoning_quant,rbi_economy,bank_english'
+          NICHES_ENABLED:        'bank_it_officer,bank_reasoning_quant,banking_awareness,rbi_economy,bank_english,ssc_general'
+          EXAM_ONLY:              'true'
+          TOPIC_USE_AUTOCOMPLETE:  'true'
+          TOPIC_USE_TRENDS:       'true'
+          TOPIC_INTELLIGENCE_TTL:   '21600'
           LANGUAGES_ENABLED:      'en'
           TTS_PROVIDER:           edge
           TTS_LANGUAGE:           en-IN
           TTS_VOICE:              en-IN-PrabhatNeural
           TTS_RATE:               '+0%'
-        run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            python -m pipeline.generate --dry-run --count ${{ inputs.count || 3 }}
-          else
-            python -m pipeline.generate --count ${{ inputs.count || 3 }}
-          fi
+        if: ${{ inputs.dry_run != true }}
+        run: python -m pipeline.generate --count ${{ inputs.count || 3 }}
+
+      - name: Generate only (dry run)
+        if: ${{ inputs.dry_run == true }}
+        env:
+          GEMINI_API_KEY:         ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN:   ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          IMAGE_PROVIDER:         'cloudflare'
+          CLOUDFLARE_SCENE_IMAGES_ENABLED: 'true'
+          CLOUDFLARE_IMAGE_MODEL: '@cf/black-forest-labs/flux-1-schnell'
+          CLOUDFLARE_SCENE_MODEL: '@cf/black-forest-labs/flux-1-schnell'
+          CLOUDFLARE_THUMBNAIL_MODEL: '@cf/black-forest-labs/flux-2-klein-4b'
+          THUMBNAIL_VARIANTS:    '3'
+          UPLOAD_ENABLED:        'false'
+          NICHES_ENABLED:        'bank_it_officer,bank_reasoning_quant,banking_awareness,rbi_economy,bank_english,ssc_general'
+          EXAM_ONLY:             'true'
+          TOPIC_USE_AUTOCOMPLETE: 'true'
+          TOPIC_USE_TRENDS:      'true'
+          TOPIC_INTELLIGENCE_TTL: '21600'
+          LANGUAGES_ENABLED:     'en'
+          TTS_PROVIDER:          edge
+          TTS_LANGUAGE:          en-IN
+          TTS_VOICE:             en-IN-PrabhatNeural
+          TTS_RATE:              '+0%'
+        run: python -m pipeline.generate --dry-run --count ${{ inputs.count || 3 }}
 
       - name: Collect last artifact
         if: always()
@@ -121,6 +155,7 @@ jobs:
           cp -v /tmp/out/thumbnail.jpg out/ 2>/dev/null || true
           cp -rv /tmp/out/thumbnail_variants out/ 2>/dev/null || true
           cp -v /tmp/out/script.json out/ 2>/dev/null || true
+          cp -v /tmp/out/topic_intelligence.json out/ 2>/dev/null || true
           ls -lah out || true
 
       # Keep only the final artifact from each day's run.

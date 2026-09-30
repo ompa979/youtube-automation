@@ -3,6 +3,7 @@ import io
 import os
 import tempfile
 import unittest
+import requests
 from pathlib import Path
 from unittest.mock import patch
 
@@ -69,21 +70,18 @@ class TestCloudflareSceneProvider(unittest.TestCase):
                 self.assertEqual(img.size, (1080, 1920))
         called = post.call_args
         self.assertIn("prompt", called.kwargs["json"])
-        self.assertEqual(called.kwargs["json"]["width"], 768)
-        self.assertEqual(called.kwargs["json"]["height"], 1365)
-        self.assertEqual(called.kwargs["json"]["steps"], 4)
+        self.assertNotIn("width", called.kwargs["json"])
+        self.assertNotIn("height", called.kwargs["json"])
+        self.assertNotIn("seed", called.kwargs["json"])
 
     @patch("pipeline.visuals.requests.post")
     def test_cloudflare_dimension_retry(self, post):
-        post.side_effect = [
-            FakeResponse(b"bad", 400),
-            FakeResponse(jpeg_bytes((768, 1365)), 200),
-        ]
+        post.side_effect = [FakeResponse(jpeg_bytes((768, 1365)), 200)]
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "scene.jpg"
             ok = visuals._fetch_cloudflare_scene_image("network packet", out, 8)
             self.assertTrue(ok)
-            self.assertEqual(post.call_count, 2)
+            self.assertEqual(post.call_count, 1)
             with Image.open(out) as img:
                 self.assertEqual(img.size, (1080, 1920))
 
@@ -113,3 +111,51 @@ for i in range(8):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestCloudflareModelSchemas(unittest.TestCase):
+    @patch("pipeline.thumbnail_ai.requests.post")
+    def test_flux1_prompt_only_schema(self, post):
+        from pipeline import thumbnail_ai as ai
+        post.return_value = _fake_cf_response_for_tests()
+        ai.CLOUDFLARE_ACCOUNT_ID = "acct"
+        ai.CLOUDFLARE_API_TOKEN = "token"
+        ai.generate_cloudflare_background("clean hero", 42, model="@cf/black-forest-labs/flux-1-schnell")
+        call = post.call_args
+        self.assertIn("json", call.kwargs)
+        self.assertEqual(call.kwargs["json"], {"prompt": "clean hero"})
+        self.assertNotIn("files", call.kwargs)
+
+    @patch("pipeline.thumbnail_ai.requests.post")
+    def test_flux2_klein_uses_multipart(self, post):
+        from pipeline import thumbnail_ai as ai
+        post.return_value = _fake_cf_response_for_tests()
+        ai.CLOUDFLARE_ACCOUNT_ID = "acct"
+        ai.CLOUDFLARE_API_TOKEN = "token"
+        ai.generate_cloudflare_background("premium hero", 7, width=1152, height=768, model="@cf/black-forest-labs/flux-2-klein-4b")
+        call = post.call_args
+        self.assertIn("files", call.kwargs)
+        self.assertNotIn("json", call.kwargs)
+        self.assertEqual(call.kwargs["files"]["width"][1], "1152")
+        self.assertEqual(call.kwargs["files"]["height"][1], "768")
+        self.assertEqual(call.kwargs["files"]["seed"][1], "7")
+
+    @patch("pipeline.thumbnail_ai.requests.post")
+    def test_flux2_klein_fixed_step_is_not_sent(self, post):
+        from pipeline import thumbnail_ai as ai
+        post.return_value = _fake_cf_response_for_tests()
+        ai.CLOUDFLARE_ACCOUNT_ID = "acct"
+        ai.CLOUDFLARE_API_TOKEN = "token"
+        ai.generate_cloudflare_background("premium hero", 9, model="@cf/black-forest-labs/flux-2-klein-4b")
+        files = post.call_args.kwargs["files"]
+        self.assertNotIn("steps", files)
+
+
+def _fake_cf_response_for_tests():
+    import base64, io, json
+    r = requests.Response()
+    r.status_code = 200
+    r.headers["content-type"] = "application/json"
+    b = io.BytesIO()
+    Image.new("RGB", (64, 64), (20, 80, 120)).save(b, format="PNG")
+    r._content = json.dumps({"success": True, "result": {"image": base64.b64encode(b.getvalue()).decode("ascii")}}).encode("utf-8")
+    return r

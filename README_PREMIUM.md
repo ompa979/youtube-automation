@@ -1,4 +1,4 @@
-# YouTube Automation — Google-Only Premium Stack
+# YouTube Automation — ExamCracker V7 Creative Stack
 
 ## What changed from the previous version
 
@@ -6,7 +6,7 @@
 |-----------|--------|-----|
 | Script AI | OpenRouter (weak free models) | **Gemini 2.5 Flash** (PRIMARY) → Gemini 1.5 Flash (fallback) |
 | TTS | Edge-TTS / gTTS / espeak | **Google Cloud Chirp3-HD** (if key set) → Edge NeerjaNeural → gTTS → eSpeak |
-| Images | Pollinations (Flux) | Unchanged — Flux via Pollinations is already premium quality |
+| Images | Cloudflare Workers AI | FLUX.1 Schnell for scenes + FLUX.2 Klein 4B for thumbnails; Gemini image generation is disabled |
 
 ## GitHub Secrets — what to set
 
@@ -34,6 +34,7 @@
 
 ### Secrets you can DELETE
 - `OPENROUTER_API_KEY` — no longer used
+- `POLLINATIONS_API_KEY` — no longer used for active image generation
 - `OPENROUTER_MODEL` — no longer used
 - `OPENROUTER_TTS_MODEL` — no longer used
 - `TTS_PROVIDER` secret — now set directly in the workflow file

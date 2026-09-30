@@ -8,40 +8,24 @@ def generate_v3_description(
     engagement_question: str = "",
 ) -> str:
     primary = cluster.primary_query
-    concept = cluster.concept_query
-    exam = cluster.exams[0] if cluster.exams else "bank exams"
-    domain = cluster.domain[0] if cluster.domain else ""
-
-    if domain:
-        line1 = f"{concept} explained for {exam}."
-    else:
-        line1 = f"{primary} explained for {exam}."
-
-    if topic_context:
-        line2 = topic_context.rstrip(".") + "."
-    else:
-        line2 = f"This is a commonly tested concept in {exam} and similar banking examinations."
-
-    if engagement_question:
-        line3 = engagement_question.rstrip("?") + "?"
-    else:
-        line3 = f"Can you answer a {primary} question in under 10 seconds? Comment below!"
-
-    line4 = "Subscribe to ExamCrackerAI for daily exam concepts, shortcuts and MCQs."
-    return "\n\n".join([line1, line2, line3, line4])
+    exam = cluster.exams[0] if cluster.exams else ""
+    domain = cluster.domain[0] if cluster.domain else "the concept"
+    line1 = f"Learn {primary} in simple terms" + (f" for {exam}" if exam else "") + "."
+    context = topic_context.strip().replace("\n", " ")[:180]
+    line2 = context.rstrip(".") + "." if context else f"This Short breaks down the key {domain} idea and shows one practical example."
+    line3 = engagement_question.strip() if engagement_question.strip() else "Save this Short as a quick revision note before your next mock."
+    return "\n\n".join([line1, line2, line3])
 
 def generate_v3_tags(cluster: KeywordCluster) -> list[str]:
-    tags = []
-    tags.append(cluster.primary_query.lower())
-    for exam in cluster.exams[:2]:
-        tags.append(exam.lower())
-    if cluster.domain:
-        tags.append(cluster.domain[0].lower())
-
+    candidates = [cluster.primary_query.lower()]
+    candidates.extend(e.lower() for e in cluster.exams[:2])
+    candidates.extend(d.lower() for d in cluster.domain[:1])
+    candidates.extend(x.lower() for x in cluster.long_tail[:3])
+    candidates.append(cluster.short_query.lower())
     seen: set[str] = set()
-    unique_tags: list[str] = []
-    for t in tags:
-        if t not in seen:
-            seen.add(t)
-            unique_tags.append(t)
-    return unique_tags[:5]
+    result: list[str] = []
+    for tag in candidates:
+        clean = " ".join(tag.split())
+        if clean and clean not in seen:
+            seen.add(clean); result.append(clean)
+    return result[:10]

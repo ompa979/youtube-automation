@@ -338,7 +338,7 @@ def _ken_burns_clip(
     # Layer 2: 4-layer on-screen text system — exam badge (top), memory
     # anchor card (≈32%), fire-tinted keyword (mid), and a word-by-word
     # bold caption (bottom).
-    interactive_beats = {"pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap_loop", "loop", "trap"}
+    interactive_beats = {"pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap_loop", "loop", "trap", "hook", "context", "example", "exam_takeaway", "memory_lock"}
     badge_f = _badge_filter(badge_text, accent) if badge_text and on_screen_text else ""
     # In V2 the Action HUD is the primary visual interface. Stacking an extra
     # keyword and memory card on every interactive scene made the frame look
@@ -387,7 +387,7 @@ def _ken_burns_clip(
 # ---------------------------------------------------------------------------
 CTA_PHRASES = [
     "Comment your answer below",
-    "Got it right? Comment A or B",
+    "What should we explain next? Comment below",
     "Comment your answer below",
     "Which exam are you preparing for? Comment",
     "Comment DONE if you learned this",
@@ -747,6 +747,8 @@ def assemble_video(
     scene_sfx_cues: list[str] | None = None,
     thumbnail_text: str = "",
     thumbnail_label: str = "EXAMCRACKER AI",
+    thumbnail_subline: str = "",
+    thumbnail_visual_prompt: str = "",
 ) -> Path:
     del scene_ass
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1003,7 +1005,7 @@ def assemble_video(
             max(first_scene_duration + 0.55, 0.65),
             max(total_video_duration - 0.45, 0.65),
         )
-        thumb_text = thumbnail_text or (scene_texts[1] if scene_texts and len(scene_texts) > 1 else "CAN YOU GET IT RIGHT?")
+        thumb_text = thumbnail_text or (scene_texts[0] if scene_texts and scene_texts[0] else "KEY IDEA")
         clean_background = scene_images[1] if len(scene_images) > 1 else scene_images[0]
         create_custom_thumbnail(
             final,
@@ -1013,8 +1015,10 @@ def assemble_video(
             thumbnail_label or badge_text,
             background_path=clean_background,
             topic=topic,
+            subline=thumbnail_subline,
+            visual_prompt=thumbnail_visual_prompt,
         )
-        print(f"[render] V2 16:9 thumbnail created: {thumb} ({thumb.stat().st_size // 1024}KB)")
+        print(f"[render] V7 16:9 premium thumbnail created: {thumb} ({thumb.stat().st_size // 1024}KB)")
     except Exception as exc:
         print(f"[!] V2 thumbnail failed, falling back to best frame: {exc}")
         try:

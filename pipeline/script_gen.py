@@ -1,4 +1,4 @@
-"""Natural Indian-English educational script generation — v19 three-pass pipeline.
+"""Natural Indian-English educational script generation — V7 value-first pipeline.
 
 Model routing is handled by GeminiRouter (pipeline/gemini_router.py):
 
@@ -26,7 +26,7 @@ Also provides:
   - fact_check_script(): cross-model factual accuracy pass
   - polish_script(): hook + pacing review pass
   - Hook image rule: scene 0 always a striking single-subject visual
-  - Hook STYLE rotation (question / shocking-fact / numbered)
+  - Hook styles: misconception / consequence / curiosity
 """
 from __future__ import annotations
 
@@ -67,25 +67,29 @@ def _stable_hash(text: str) -> int:
 # #7 Hook style rotation — picked once per topic so the opening line style
 # varies across videos instead of every script reaching for the same pattern.
 _HOOK_STYLES = {
-    "question": (
-        "Open the very first spoken line as a genuine question the viewer "
-        "would actually wonder about — not a rhetorical setup, a real question."
+    "misconception": (
+        "Open with the exact misconception or confusion the viewer is likely to have, then immediately promise the correction. "
+        "Example shape: 'M3 looks like a bigger M1, but the extra category is what changes the measure.'"
     ),
-    "shocking_fact": (
-        "Open the very first spoken line with a surprising, counter-intuitive "
-        "fact stated directly as a statement (no question mark)."
+    "consequence": (
+        "Open with the practical consequence of getting the concept wrong, then name the rule that prevents the mistake. "
+        "Example shape: 'If you treat these two SQL clauses as interchangeable, your query logic changes.'"
     ),
-    "numbered": (
-        "Open the very first spoken line around a short number cue (for example "
-        "'Two things decide this...' or 'One invisible factor...'), stated "
-        "naturally — not a clickbait numbered-listicle tone."
+    "curiosity": (
+        "Open with one specific, natural question that the explanation will answer. Avoid generic questions and game-show wording. "
+        "Example shape: 'Why can a term deposit make M3 wider even though it is less liquid?'"
     ),
 }
+
 
 
 def _pick_hook_style(topic: str) -> str:
     keys = list(_HOOK_STYLES)
     return keys[_stable_hash(topic) % len(keys)]
+
+
+def _clean_text(value: str) -> str:
+    return " ".join((value or "").replace("\n", " ").split()).strip()
 
 
 class ScriptRejected(RuntimeError):
@@ -117,12 +121,16 @@ class Script:
     scenes: list[Scene]
     pinned_comment: str = ""
     thumbnail_text: str = ""
+    thumbnail_subline: str = ""
+    thumbnail_visual_prompt: str = ""
     seo_metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
             "pinned_comment": self.pinned_comment,
             "thumbnail_text": self.thumbnail_text,
+            "thumbnail_subline": self.thumbnail_subline,
+            "thumbnail_visual_prompt": self.thumbnail_visual_prompt,
             "title": self.title,
             "hook": self.hook,
             "description": self.description,
@@ -559,6 +567,7 @@ _SEO_HASHTAGS_BY_NICHE = {
     "banking_awareness": ["#shorts", "#bankingawareness", "#bankexams", "#sbipo", "#rbi"],
     "rbi_economy": ["#shorts", "#rbigradeb", "#economy", "#bankexams", "#monetarypolicy"],
     "bank_english": ["#shorts", "#bankexams", "#englishforbankexams", "#ibpspo", "#sbipo"],
+    "ssc_general": ["#shorts", "#ssc", "#ssccgl", "#sscchsl", "#examprep"],
     "why_things_work": ["#shorts", "#didyouknow", "#sciencefacts", "#amazingfacts", "#learnonshortsm"],
     "exam_concepts":   ["#shorts", "#upsc", "#examprep", "#studymotivation", "#currentaffairs"],
     "science_explainers": ["#shorts", "#science", "#sciencefacts", "#physics", "#biology"],
@@ -1210,3 +1219,390 @@ def _seo_and_finalize(script: Script, topic: str, niche_key: str | None, setting
     if bad:
         raise ScriptRejected("SEO rewrite introduced factual error(s): " + "; ".join(bad))
     return _finalize(script, topic, niche_key)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CREATIVE V6 — value-first scripts, no A/B game, no fake urgency, richer visual briefs
+# ═════════════════════════════════════════════════════════════════════════════
+
+_V6_SCENE_SEQUENCE = ("hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock")
+_V6_ACTION_TYPES = set(_V6_SCENE_SEQUENCE)
+_V6_RISK_PHRASES = (
+    "90%", "99%", "every year", "always asked", "always asks", "illegal", "guaranteed",
+    "never", "secret", "hack any", "crack every", "you will be shocked", "most people don't know",
+)
+
+
+def _v6_prompt(topic: str, niche_cfg: dict, language: str, repair: str | None = None, hook_style: str | None = None, **_) -> str:
+    repair_text = f"\nREPAIR REQUEST:\n{repair}\n" if repair else ""
+    hook_style = hook_style or _pick_hook_style(topic)
+    hook_instruction = _HOOK_STYLES[hook_style]
+    return f"""
+{niche_cfg.get('system_prompt', '')}
+
+You are the senior writer for ExamCrackerAI. Write a premium educational YouTube Short that earns the viewer's attention by delivering real value immediately.
+
+TOPIC: {topic}
+LANGUAGE: {language}
+HOOK STYLE: {hook_style}
+
+CORE RULE: Teach ONE COMPLETE IDEA. Every spoken sentence must add information. The viewer must learn something useful even if they never comment, like, or subscribe. The Short must feel worth saving for revision.
+Never use phrases such as "in this video", "let us understand", "let’s understand", "let's understand", "today we will learn", "keep watching", or "stay tuned".
+{hook_instruction}
+
+NON-NEGOTIABLE CREATIVE RULES
+- This is a teaching video, not a quiz show.
+- Never use A/B choices, countdowns, 'STOP', 'WAIT', 'REVEAL', 'QUICK TEST', 'THINK FAST', 'DID YOU GET IT', 'STOP SCROLLING', or fake urgency.
+- Never ask for an answer before teaching the concept.
+- Never say '90% get this wrong', 'always asked', 'secret', 'guaranteed', or similar unsupported claims.
+- Every spoken line must add information. Remove any line that exists only to create hype.
+- Use natural conversational Indian English, not presenter language, forced slang, Hinglish or textbook prose.
+- One idea only. One mechanism. One concrete example. One exam clue. One memory rule.
+
+VALUE-FIRST SCRIPT SHAPE — EXACTLY 6 SCENES
+1. HOOK: Start with the specific confusion, consequence, or useful question. Make the promise concrete.
+2. CONTEXT: Define only the two or three pieces needed to follow the explanation. No textbook dump.
+3. MECHANISM: Explain the cause → effect, process, formula, rule, or distinction. This is the highest-value scene.
+4. EXAMPLE: Work through ONE realistic example from start to finish. Use numbers, a row, a packet, a transaction, a query, or a real-world situation where appropriate.
+5. EXAM TAKEAWAY: State exactly what wording, signal, or condition lets an aspirant recognize or apply the answer in a question. This is the practical exam-use line.
+   EXAM CLUE should be embedded naturally inside this scene when useful; do not render a generic badge merely to label it.
+6. MEMORY LOCK: Compress the lesson into one accurate line that is worth saving for revision. No generic CTA in the narration.
+
+TARGET LENGTH
+- 50-90 spoken words total.
+- Prefer 55-80 words when the idea is simple.
+- Do not pad to hit a target. Do not exceed 90 words.
+- Aim for roughly 20-35 seconds of speech; the actual TTS duration is allowed to vary by voice.
+
+ON-SCREEN TEXT
+- 2-6 words per scene.
+- The words must add meaning, not label the scene with generic UI.
+- Good examples: 'TERM DEPOSITS WIDEN M3', 'WHERE THE PACKET GOES', 'GROUP BY FIRST', 'ONE BANK EXAMPLE', 'EXAM CLUE', 'REMEMBER THIS RULE'.
+- Never use game labels or empty phrases.
+
+VISUAL STORYBOARD
+- Every scene needs a different visual event. Do not swap one wallpaper for another.
+- Show the mechanism physically: money moves into a broader bucket; a SYN packet travels to a server; a database dependency splits a table; a calculation transforms step by step.
+- Prefer large, concrete hero subjects, cinematic depth, premium 3D or high-end editorial realism.
+- Avoid generic classroom scenes, generic vaults, random neon backgrounds, stock-photo collages, fake dashboards and unrelated decoration.
+- The visual must communicate the same idea as the narration even when muted.
+- image_prompt must contain NO written words, logos, UI labels or watermarks.
+
+THUMBNAIL
+- Return thumbnail_text (2-5 words) that creates curiosity without becoming a quiz-show slogan.
+- Return thumbnail_subline (2-6 words) that clarifies the subject.
+- Return thumbnail_visual_prompt: premium 16:9 hero artwork, one dominant subject, dramatic action, subject weighted RIGHT, clean LEFT area for later typography, expensive commercial look, photorealistic or premium 3D. No text, numbers, logos or UI.
+
+SEO/PACKAGING
+- Title must lead with the actual search concept, then add a useful benefit or clear mechanism.
+- Keep 45-85 characters.
+- Do not use fake claims or generic clickbait.
+- Description should explain what the viewer learns and why it matters for the relevant exam/search intent.
+- Tags should include the exact concept, exam where relevant, domain and two useful long-tail variants.
+
+Return ONLY this JSON:
+{{
+  "title": "...",
+  "hook": "...",
+  "description": "2-3 useful sentences",
+  "pinned_comment": "one specific question about the concept, useful for discussion or revision",
+  "tags": ["6-10 precise tags"],
+  "thumbnail_text": "2-5 words",
+  "thumbnail_subline": "2-6 words",
+  "thumbnail_visual_prompt": "premium 16:9 hero-art description, no text",
+  "scenes": [
+    {{
+      "action_type": "hook | context | mechanism | example | exam_takeaway | memory_lock",
+      "action_payload": "what is physically happening in the scene",
+      "narration": "...",
+      "tts_text": "...",
+      "image_prompt": "...",
+      "on_screen_text": "2-6 meaningful words",
+      "card_points": ["one short teaching anchor"],
+      "motion_type": "hook | push_in | pan_right | formula_build | example_reveal | static",
+      "camera_motion": "...",
+      "sfx_cue": "boom | whoosh | chime | alert | none"
+    }}
+  ]
+}}
+{repair_text}
+""".strip()
+
+
+def _v6_clean_forbidden(text: str) -> str:
+    out = _clean_text(text)
+    out = re.sub(r"\bA\s*(?:or|vs\.?|versus)\s*B\b", "", out, flags=re.I)
+    out = re.sub(r"\b(?:option|choice)\s*[A-D]\b", "", out, flags=re.I)
+    out = re.sub(r"\b(?:STOP|WAIT|QUICK TEST|THINK FAST|COUNTDOWN|REVEAL|THE TRICK|DID YOU GET IT)\b", "", out, flags=re.I)
+    out = re.sub(r"\b(?:90|99)%\b", "", out)
+    return _clean_text(out)
+
+
+def _v6_to_script(data: dict) -> Script:
+    raw_scenes = data.get("scenes")
+    if not isinstance(raw_scenes, list) or len(raw_scenes) != 6:
+        raise ValueError("V6 requires exactly 6 scenes")
+    scenes: list[Scene] = []
+    defaults = {
+        "hook": ("push_in", "push_in", "boom"),
+        "context": ("push_in", "pan_right", "whoosh"),
+        "mechanism": ("formula_build", "push_in", "whoosh"),
+        "example": ("example_reveal", "snap_zoom", "chime"),
+        "exam_takeaway": ("static", "static", "alert"),
+        "memory_lock": ("static", "push_in", "chime"),
+    }
+    for i, raw in enumerate(raw_scenes):
+        if not isinstance(raw, dict):
+            raise ValueError(f"scene {i+1} is not an object")
+        action = _clean_text(str(raw.get("action_type", ""))).lower()
+        action = action if action in _V6_ACTION_TYPES else _V6_SCENE_SEQUENCE[i]
+        narration = _v6_clean_forbidden(_first_text(raw, "narration", "voiceover", "text", "script"))
+        tts = _v6_clean_forbidden(_first_text(raw, "tts_text", "tts", "voiceover", "narration")) or narration
+        if not narration or not tts:
+            raise ValueError(f"scene {i+1} missing narration")
+        if any("\u0900" <= ch <= "\u097F" for ch in narration + tts):
+            raise ValueError(f"scene {i+1} contains Devanagari/Hindi text")
+        image_prompt = _v6_clean_forbidden(_first_text(raw, "image_prompt", "visual_prompt", "visual"))
+        if not image_prompt:
+            image_prompt = "Premium editorial visual of the exact concept being taught, showing one clear physical action or transformation, cinematic realism, vertical 9:16, no text."
+        on_screen = _v6_clean_forbidden(_first_text(raw, "on_screen_text", "caption", "keyword", "memory_cue"))
+        points = raw.get("card_points") or []
+        if isinstance(points, str): points = [points]
+        points = [_v6_clean_forbidden(str(x))[:70] for x in points if str(x).strip()][:1]
+        payload = _v6_clean_forbidden(_first_text(raw, "action_payload", "payload", "cue", "detail"))
+        motion, camera, sfx = defaults[action]
+        scenes.append(Scene(
+            index=i, narration=narration, tts_text=tts, image_prompt=image_prompt,
+            on_screen_text=on_screen[:70], card_points=points, action_type=action,
+            action_payload=payload[:140], motion_type=_first_text(raw,"motion_type","motion") or motion,
+            camera_motion=_first_text(raw,"camera_motion","camera") or camera,
+            sfx_cue=_first_text(raw,"sfx_cue","sfx") or sfx,
+        ))
+
+    script = Script(
+        title=_v6_clean_forbidden(str(data.get("title", "")).strip()),
+        hook=_v6_clean_forbidden(str(data.get("hook", "")).strip()),
+        description=str(data.get("description", "")).strip(),
+        tags=[str(t).lower().lstrip("#") for t in data.get("tags", [])][:12],
+        scenes=scenes,
+        pinned_comment=_v6_clean_forbidden(str(data.get("pinned_comment", "")).strip()),
+        thumbnail_text=_v6_clean_forbidden(str(data.get("thumbnail_text", "")).strip()).upper(),
+    )
+    script.thumbnail_subline = _v6_clean_forbidden(str(data.get("thumbnail_subline", "")).strip()).upper()
+    script.thumbnail_visual_prompt = _v6_clean_forbidden(str(data.get("thumbnail_visual_prompt", "")).strip())
+    script.pinned_comment = _v6_clean_forbidden(str(data.get("pinned_comment", "")).strip())
+    script.description = _v6_clean_forbidden(str(data.get("description", script.description)).strip())
+    if not script.thumbnail_text:
+        script.thumbnail_text = _v6_clean_forbidden(script.scenes[0].on_screen_text or script.title).upper()[:42]
+    if not script.thumbnail_subline:
+        script.thumbnail_subline = _v6_clean_forbidden(script.scenes[1].on_screen_text or "KEY CONCEPT").upper()[:36]
+    return script
+
+
+def _v6_enforce_contract(script: Script) -> None:
+    for i, scene in enumerate(script.scenes[:6]):
+        role = _V6_SCENE_SEQUENCE[i]
+        scene.action_type = role
+        # Never allow the old game-show phrases back into the renderer.
+        if role == "hook" and not scene.on_screen_text:
+            scene.on_screen_text = "WHY THIS MATTERS"
+        elif role == "context" and not scene.on_screen_text:
+            scene.on_screen_text = "THE CONFUSION"
+        elif role == "mechanism" and not scene.on_screen_text:
+            scene.on_screen_text = "THE MECHANISM"
+        elif role == "example" and not scene.on_screen_text:
+            scene.on_screen_text = "SEE IT"
+        elif role == "exam_takeaway" and not scene.on_screen_text:
+            scene.on_screen_text = "EXAM TAKEAWAY"
+        elif role == "memory_lock" and not scene.on_screen_text:
+            scene.on_screen_text = "MEMORY LOCK"
+        scene.on_screen_text = _v6_clean_forbidden(scene.on_screen_text)[:60]
+        scene.action_payload = _v6_clean_forbidden(scene.action_payload)[:140]
+    if not getattr(script, "thumbnail_text", ""):
+        script.thumbnail_text = _v6_clean_forbidden(script.title)[:42].upper()
+
+
+def _v6_length_issue(script: Script) -> str | None:
+    words = sum(len(re.findall(r"\b[\w'-]+\b", s.narration)) for s in script.scenes)
+    if words < 55:
+        return f"script is only {words} words; add the missing mechanism or example so the viewer learns a complete idea"
+    if words > 85:
+        return f"script is {words} words; cut repetition and keep one concrete example (target 55-80 words)"
+    return None
+
+
+def _v6_qa_all(script: Script, topic: str, language: str):
+    qa = validate_script(script, language)
+    extra: list[str] = []
+    if len(script.scenes) != 6:
+        extra.append("V6 requires exactly six teaching scenes")
+    if _v6_length_issue(script):
+        extra.append(_v6_length_issue(script))
+    body = " ".join([script.title, script.hook, script.description, script.pinned_comment] + [s.narration + " " + s.on_screen_text for s in script.scenes]).lower()
+    for phrase in _V6_RISK_PHRASES:
+        if phrase in body:
+            extra.append(f"unsupported/sensational phrase detected: {phrase}")
+    if re.search(r"\bA\s*(?:or|vs\.?|versus)\s*B\b", body, re.I):
+        extra.append("A/B game language is prohibited in V6")
+    if re.search(r"\b(?:stop|wait)\b", script.scenes[0].narration.lower()):
+        extra.append("generic stop/wait hook is prohibited; use a topic-specific hook")
+    qa.issues.extend(extra)
+    qa.ok = not qa.issues
+    return qa
+
+
+def _v6_finalize(script: Script, topic: str, niche_key: str | None) -> Script:
+    _v6_enforce_contract(script)
+    script.title = _ensure_exam_in_title(script.title, topic, niche_key)
+    script.title = re.sub(r"\s+", " ", script.title).strip()[:85].rstrip(" -:|")
+    script.pinned_comment = _v6_clean_forbidden(script.pinned_comment)
+    # Never let a game CTA leak into the published description.
+    script.description = re.sub(r"\b(?:A\s*(?:or|vs\.?|versus)\s*B|quick test|think fast|countdown|stop scrolling|did you get it)\b", "", script.description, flags=re.I)
+    return script
+
+
+def _v6_seo_title(cluster, topic: str, niche_key: str | None) -> str:
+    if not cluster:
+        return _v6_clean_forbidden(topic)[:85]
+    exam = cluster.exams[0] if cluster.exams else _exam_for(topic, niche_key)
+    primary = cluster.primary_query
+    # Prefer a searchable concept + one natural curiosity suffix.
+    suffix_map = {
+        "difference": "The Key Difference",
+        "vs": "The Key Difference",
+        "money": "Why It Matters",
+        "handshake": "How It Actually Works",
+        "npa": "The 90-Day Rule Explained",
+        "m1": "Why M3 Is Broader",
+        "feynman": "4 Steps to Learn Better",
+        "normalization": "The Rule With an Example",
+        "percentage": "The Fast Method With an Example",
+    }
+    topic_l = topic.lower()
+    suffix = next((v for k, v in suffix_map.items() if k in topic_l), "Explained With an Example")
+    title = f"{primary}: {suffix}"
+    if exam and exam.lower() not in title.lower() and len(title) + len(exam) + 3 <= 85:
+        title += f" | {exam}"
+    return title[:85].rstrip(" -:|")
+
+
+def _v6_seo_and_finalize(script: Script, topic: str, niche_key: str | None, settings) -> Script:
+    cluster = get_cluster_for_topic(topic)
+    if cluster:
+        script.title = _v6_seo_title(cluster, topic, niche_key)
+        script.description = generate_v3_description(cluster, topic_context=script.description[:180], engagement_question="")
+        script.tags = generate_v3_tags(cluster)
+        # One Gemini SEO pass remains, but it can only refine within a strict envelope.
+        gemini_title, gemini_desc, gemini_tags = seo_optimize_all(
+            script.title, script.description, script.tags, topic, niche_key or "", settings.gemini_api_key
+        )
+        if _contains_query_safe(gemini_title, cluster.primary_query):
+            script.title = gemini_title[:85]
+        if gemini_desc and cluster.primary_query.lower() in gemini_desc[:220].lower():
+            script.description = gemini_desc
+        if gemini_tags:
+            script.tags = gemini_tags[:10]
+    script.description = _ensure_hashtags(script.description, topic, niche_key)
+    seo_score = 0
+    retention_score = 0
+    if cluster:
+        narration_all = " ".join(s.narration for s in script.scenes)
+        screen_texts = [s.on_screen_text for s in script.scenes]
+        seo_score = calculate_seo_score(cluster, script.title, script.description, narration_all, screen_texts, script.tags).total
+        retention_score = calculate_retention_score(script.scenes).total
+    script.seo_metadata = {
+        "primary_query": cluster.primary_query if cluster else "",
+        "seo_score": seo_score,
+        "retention_score": retention_score,
+        "creative_version": "v6_value_first",
+        "thumbnail_engine": "v6_premium_art",
+    }
+    bad = _known_fact_issues(script)
+    if bad:
+        raise ScriptRejected("SEO/packaging pass introduced factual error(s): " + "; ".join(bad))
+    return _v6_finalize(script, topic, niche_key)
+
+
+def _contains_query_safe(text: str, query: str) -> bool:
+    if not text or not query:
+        return False
+    tokens = set(re.findall(r"[a-z0-9]+", query.lower()))
+    body = set(re.findall(r"[a-z0-9]+", text.lower()))
+    return len(tokens & body) / max(1, len(tokens)) >= 0.6
+
+# Override the original generation hooks at import time.
+_build_prompt = _v6_prompt
+_to_script = _v6_to_script
+_qa_all = _v6_qa_all
+enforce_v2_contract = _v6_enforce_contract
+_seo_and_finalize = _v6_seo_and_finalize
+_finalize = _v6_finalize
+
+# ─────────────────────────────────────────────────────────────────────────────
+# V6 SEO / polish overrides
+# ─────────────────────────────────────────────────────────────────────────────
+
+def seo_optimize_all(
+    title: str, description: str, tags: list[str], topic: str, niche_key: str, api_key: str
+) -> tuple[str, str, list[str]]:
+    """Strict SEO refinement: search intent + truthful curiosity, no generic hype."""
+    prompt = f"""
+You are the SEO editor for ExamCrackerAI, an Indian exam-prep Shorts channel.
+TOPIC: {topic}
+NICHE: {niche_key}
+CURRENT TITLE: {title}
+CURRENT DESCRIPTION: {description}
+CURRENT TAGS: {tags}
+
+Return a better version only if it improves search clarity or viewer expectation.
+TITLE RULES:
+- Keep the exact core concept near the beginning.
+- 45-85 characters.
+- Accurate and intriguing, but never misleading.
+- Never use fake percentages, 'always asked', '90%', '99%', 'secret', 'illegal', 'guaranteed', 'shocking'.
+- No A/B language, no 'quick test', no '5 seconds'.
+- One exam name only when the topic is genuinely exam-prep.
+DESCRIPTION RULES:
+- 2-3 useful sentences, no generic subscribe CTA.
+- Sentence 1: concept + exam/search intent.
+- Sentence 2: what the viewer will understand or see.
+- Optional sentence 3: save/revision utility.
+- End with exactly 3 relevant hashtags.
+TAGS:
+- 6-10 precise lowercase search phrases.
+- Exact concept, exam, subject, and 2 long-tail variants.
+- No generic tags like 'viral', 'trending', 'youtube'.
+
+Return JSON only:
+{{"title":"...","description":"...","tags":["..."]}}
+""".strip()
+    try:
+        router = GeminiRouter(api_key=api_key)
+        raw = router.generate(prompt, call_type=CallType.SEO)
+        data = json.loads(re.sub(r"```(?:json)?|```", "", raw).strip())
+        new_title = _v6_clean_forbidden(str(data.get("title", title)))[:85].strip(" -:|")
+        new_desc = str(data.get("description", description)).strip()
+        new_tags = [str(t).strip().lower().lstrip("#") for t in data.get("tags", tags) if str(t).strip()][:10]
+        if not new_title or len(new_title) < 18:
+            new_title = title
+        if not new_desc or _v6_clean_forbidden(topic.split(":",1)[0])[:12].lower() not in new_desc.lower():
+            new_desc = description
+        if not new_tags:
+            new_tags = tags
+        if any(p in new_title.lower() for p in _V6_RISK_PHRASES):
+            new_title = title
+        return new_title, new_desc, new_tags
+    except Exception as exc:
+        print(f"[seo-v6] refinement skipped: {exc}")
+        return title, description, tags
+
+
+def polish_script(script: Script, topic: str, api_key: str) -> Script:
+    """Deterministic polish: preserve facts and the six teaching roles; reduce repetition only."""
+    for scene in script.scenes:
+        scene.narration = _v6_clean_forbidden(scene.narration)
+        scene.tts_text = _v6_clean_forbidden(scene.tts_text)
+        scene.on_screen_text = _v6_clean_forbidden(scene.on_screen_text)
+        scene.action_payload = _v6_clean_forbidden(scene.action_payload)
+    script.hook = _v6_clean_forbidden(script.hook)
+    return script

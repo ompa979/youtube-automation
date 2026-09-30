@@ -37,149 +37,59 @@ def calculate_seo_score(
 ) -> SEOScore:
     breakdown: list[str] = []
     primary = cluster.primary_query
-
     title_score = 0
     if _contains_query(title, primary):
-        title_score += 15
-        breakdown.append("[+] title contains primary query (+15)")
-    else:
-        breakdown.append("[-] title missing primary query")
-
-    if cluster.exams and any(e.lower() in title.lower() for e in cluster.exams):
-        title_score += 8
-        breakdown.append("[+] exam name in title (+8)")
-    else:
-        breakdown.append("[-] exam name missing from title")
-
-    if 40 <= len(title) <= 90:
-        title_score += 7
-        breakdown.append(f"[+] title length {len(title)} chars (+7)")
-    elif len(title) < 40:
-        title_score += 3
-        breakdown.append(f"[!] title short ({len(title)} chars) (+3)")
-    else:
-        breakdown.append(f"[-] title too long ({len(title)} chars)")
-
+        title_score += 25; breakdown.append("[+] title contains primary query (+25)")
+    else: breakdown.append("[-] title missing primary query")
+    if 45 <= len(title) <= 85:
+        title_score += 10; breakdown.append("[+] title length is compact (+10)")
+    if any(w in title.lower() for w in ("why", "how", "vs", "difference", "rule", "works")):
+        title_score += 5; breakdown.append("[+] title has a natural curiosity/search qualifier (+5)")
     desc_score = 0
-    desc_first = description[:200]
-    if _contains_query(desc_first, primary):
-        desc_score += 10
-        breakdown.append("[+] description opens with primary query (+10)")
-    else:
-        breakdown.append("[-] description missing primary query in first 200 chars")
-
-    if cluster.exams and any(e.lower() in description.lower() for e in cluster.exams):
-        desc_score += 8
-        breakdown.append("[+] exam name in description (+8)")
-    else:
-        breakdown.append("[-] exam name missing from description")
-
-    if "?" in description:
-        desc_score += 4
-        breakdown.append("[+] description has CTA question (+4)")
-    else:
-        breakdown.append("[-] description missing CTA question")
-
-    if "subscribe" in description.lower() or "examcracker" in description.lower():
-        desc_score += 3
-        breakdown.append("[+] description has channel follow line (+3)")
-
+    if _contains_query(description[:220], primary):
+        desc_score += 20; breakdown.append("[+] primary query in description opening (+20)")
+    if any(k in description.lower() for k in ("learn", "understand", "example", "explains")):
+        desc_score += 10; breakdown.append("[+] description communicates learning value (+10)")
     narration_score = 0
     if _contains_query(narration_all, primary, min_overlap=0.5):
-        narration_score += 15
-        breakdown.append("[+] primary query spoken in narration (+15)")
-    else:
-        breakdown.append("[-] narration missing primary query")
-
-    domain_hits = sum(1 for d in cluster.domain if d.lower() in narration_all.lower())
-    if domain_hits > 0:
-        narration_score += 5
-        breakdown.append(f"[+] {domain_hits} domain keyword(s) in narration (+5)")
-
+        narration_score += 20; breakdown.append("[+] primary query appears naturally in narration (+20)")
+    if cluster.domain and any(d.lower() in narration_all.lower() for d in cluster.domain):
+        narration_score += 5; breakdown.append("[+] domain context is spoken (+5)")
     screen_combined = " ".join(screen_texts)
     screen_score = 0
-    if _contains_query(screen_combined, primary, min_overlap=0.4):
-        screen_score += 15
-        breakdown.append("[+] primary query appears on screen (+15)")
-    else:
-        query_words = [w for w in primary.lower().split() if len(w) > 2]
-        hits = sum(1 for w in query_words if w in screen_combined.lower())
-        if hits > 0:
-            screen_score += 7
-            breakdown.append(f"[!] partial screen text match (+7)")
-        else:
-            breakdown.append("[-] primary query missing from screen text")
-
+    if _contains_query(screen_combined, primary, min_overlap=0.35):
+        screen_score += 15; breakdown.append("[+] concept is visible on screen (+15)")
     tags_score = 0
-    if 3 <= len(tags) <= 5:
-        tags_score += 5
-        breakdown.append(f"[+] ideal tag count ({len(tags)}) (+5)")
-    elif 1 <= len(tags) < 3:
-        tags_score += 2
-        breakdown.append(f"[!] too few tags ({len(tags)}) (+2)")
-    elif len(tags) > 10:
-        breakdown.append(f"[-] too many tags ({len(tags)})")
-
-    tags_text = " ".join(tags).lower()
-    if _contains_query(tags_text, primary, min_overlap=0.5):
-        tags_score += 5
-        breakdown.append("[+] primary query covered in tags (+5)")
-    else:
-        breakdown.append("[-] primary query missing from tags")
-
-    total = title_score + desc_score + narration_score + screen_score + tags_score
-    return SEOScore(
-        total=total,
-        title_score=title_score,
-        description_score=desc_score,
-        narration_score=narration_score,
-        screen_score=screen_score,
-        tags_score=tags_score,
-        breakdown=breakdown,
-    )
+    if 5 <= len(tags) <= 10:
+        tags_score += 5; breakdown.append("[+] focused tag set (+5)")
+    if _contains_query(" ".join(tags), primary, min_overlap=0.5):
+        tags_score += 5; breakdown.append("[+] primary query represented in tags (+5)")
+    total = min(100, title_score + desc_score + narration_score + screen_score + tags_score)
+    return SEOScore(total=total, title_score=title_score, description_score=desc_score, narration_score=narration_score, screen_score=screen_score, tags_score=tags_score, breakdown=breakdown)
 
 def calculate_retention_score(scenes: list) -> RetentionScore:
     breakdown: list[str] = []
-    total = 0
     if not scenes:
         return RetentionScore(total=0, breakdown=["[-] no scenes"])
-
-    action_types = [getattr(s, "action_type", "") for s in scenes]
-
-    if action_types and action_types[0] == "pattern_interrupt":
-        total += 25
-        breakdown.append("[+] scene 0 is pattern_interrupt (+25)")
+    roles = [getattr(s, "action_type", "") for s in scenes]
+    total = 0
+    expected = ["hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock"]
+    if roles == expected:
+        total += 30; breakdown.append("[+] complete value-first scene arc (+30)")
     else:
-        breakdown.append("[-] scene 0 should be pattern_interrupt")
-
-    if "challenge" in action_types:
-        total += 20
-        breakdown.append("[+] challenge scene present (+20)")
+        breakdown.append("[-] scene arc is not value-first")
+    hook_words = len(getattr(scenes[0], "narration", "").split()) if scenes else 0
+    if 7 <= hook_words <= 24:
+        total += 15; breakdown.append("[+] concise specific hook (+15)")
     else:
-        breakdown.append("[-] no challenge scene")
-
-    if "reveal" in action_types:
-        total += 20
-        breakdown.append("[+] reveal scene present (+20)")
-    else:
-        breakdown.append("[-] no reveal scene")
-
-    if "countdown" in action_types or "mechanism" in action_types:
-        total += 15
-        breakdown.append("[+] tension/mechanism scene present (+15)")
-    else:
-        breakdown.append("[-] no countdown/mechanism scene")
-
-    if action_types and action_types[-1] in ("loop", "trap"):
-        total += 20
-        breakdown.append("[+] final scene is loop/CTA (+20)")
-    elif action_types and "loop" in action_types:
-        total += 10
-        breakdown.append("[!] loop scene present but not last (+10)")
-    else:
-        breakdown.append("[-] final scene is not loop/CTA")
-
-    return RetentionScore(total=total, breakdown=breakdown)
+        breakdown.append("[-] hook length needs improvement")
+    if any(r == "mechanism" for r in roles):
+        total += 20; breakdown.append("[+] mechanism explains the concept (+20)")
+    if any(r == "example" for r in roles):
+        total += 20; breakdown.append("[+] concrete example present (+20)")
+    if any(r == "memory_lock" for r in roles):
+        total += 15; breakdown.append("[+] final memory lock (+15)")
+    return RetentionScore(total=min(100, total), breakdown=breakdown)
 
 def calculate_final_publish_score(seo_score: int, retention_score: int) -> PublishScore:
     final = round(seo_score * 0.6 + retention_score * 0.4)

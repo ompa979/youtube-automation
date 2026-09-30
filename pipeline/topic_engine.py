@@ -178,8 +178,20 @@ def _trend_scores(topics: list[str]) -> dict[str, float]:
                 continue
             for topic in chunk:
                 if topic in df.columns:
-                    series = df[topic]
-                    result[topic] = float(series.mean())
+                    series = df[topic].astype(float)
+                    # Trend is momentum, not just historical volume: weight the most
+                    # recent 21 days and compare it with the preceding 21-day window.
+                    values = series.tolist()
+                    if not values:
+                        continue
+                    recent = values[-21:]
+                    previous = values[-42:-21] if len(values) >= 42 else values[:-21]
+                    recent_mean = sum(recent) / max(1, len(recent))
+                    previous_mean = sum(previous) / max(1, len(previous)) if previous else recent_mean
+                    momentum = 0.0 if previous_mean <= 0 else max(-1.0, min(1.0, (recent_mean - previous_mean) / previous_mean))
+                    # 70% current interest + 30% momentum. Still a relative signal
+                    # because Google Trends itself is normalized within a comparison set.
+                    result[topic] = max(0.0, min(100.0, recent_mean * 0.70 + (50.0 + 50.0 * momentum) * 0.30))
         return result
     except Exception as exc:
         print(f"[topic] Google Trends unavailable: {exc}")
@@ -298,7 +310,9 @@ def score_topic(
     trend_score = min(100.0, max(0.0, float(trend)))
     seo_score = min(100.0, max(0.0, seo_fit * 8.0 + search * 2.2 + query_signal * 1.5))
     if trend_score > 0:
-        reasons.append(f"trend signal={trend:.1f}")
+        reasons.append(f"trend momentum signal={trend_score:.1f}")
+    else:
+        reasons.append("trend signal unavailable/flat")
     reasons.append(f"SEO evidence score={seo_score:.1f}")
 
     risk_terms = [term for term in RISK_TERMS if term in text]
@@ -384,6 +398,21 @@ def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: di
     rough.sort(key=lambda x: x.total, reverse=True)
     top_topics = [x.topic for x in rough[:12]]
     trend_values = _trend_scores(top_topics)
+    # If the provider returns no usable values, use a clearly conservative neutral
+    # signal rather than pretending "0" means "not trending". This prevents an
+    # outage from silently dominating topic selection.
+    usable = [float(v) for v in trend_values.values() if float(v) > 0]
+    if not usable:
+        trend_values = {topic: 35.0 for topic in top_topics}
+    elif len(usable) > 1:
+        # Make the score comparable inside this candidate board while preserving
+        # the provider's absolute signal. This is why the dashboard can put Trend
+        # first without allowing tiny raw 0/1 values to masquerade as absolute scores.
+        lo, hi = min(usable), max(usable)
+        if hi > lo:
+            for topic in list(trend_values):
+                raw = float(trend_values.get(topic, 0.0))
+                trend_values[topic] = 20.0 + 80.0 * ((raw - lo) / (hi - lo)) if raw > 0 else 15.0
 
     scored: list[TopicScore] = []
     for item in rough:
@@ -391,12 +420,14 @@ def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: di
             scored.append(item)
             continue
         qs = _candidate_query_signal(item.topic)
-        scored.append(score_topic(item.topic, item.niche, completed, recent_topics, trend_values.get(item.topic, 0.0), query_signal=qs))
-    scored.sort(key=lambda x: x.total, reverse=True)
+        scored.append(score_topic(item.topic, item.niche, completed, recent_topics, trend_values.get(item.topic, 35.0), query_signal=qs))
 
-    # Hard quality floor: do not publish a topic that cannot be justified by search intent
-    # and teaching value. This is a floor, not a prediction of views.
-    viable = [x for x in scored if x.total >= 55.0 and x.teachability >= 7.0 and x.seo_fit >= 4.0]
+    # Discovery order is literal: Trend first, then SEO, then exam fit/value/visual.
+    # Total remains an audit metric, never the primary selector.
+    scored.sort(key=lambda x: (x.trend_score, x.seo_score, x.exam_fit, x.value_density, x.visual, x.total), reverse=True)
+
+    # Hard quality gates: a topic must be useful even if it is temporarily popular.
+    viable = [x for x in scored if x.exam_fit >= 12.0 and x.value_density >= 9.0 and x.teachability >= 7.0 and x.seo_fit >= 4.0]
     if viable:
         scored = viable + [x for x in scored if x not in viable]
 

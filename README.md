@@ -285,8 +285,14 @@ Image settings:
 - `CLOUDFLARE_SCENE_IMAGES_ENABLED=true`
 - `CLOUDFLARE_SCENE_WIDTH=768`
 - `CLOUDFLARE_SCENE_HEIGHT=1365`
-- `CLOUDFLARE_IMAGE_MODEL=@cf/black-forest-labs/flux-1-schnell`
+- `CLOUDFLARE_IMAGE_MODEL=@cf/black-forest-labs/flux-1-schnell` (Short scene art)
+- `CLOUDFLARE_SCENE_MODEL=@cf/black-forest-labs/flux-1-schnell`
+- `CLOUDFLARE_THUMBNAIL_MODEL=@cf/black-forest-labs/flux-2-klein-4b` (thumbnail hero art)
 - `CLOUDFLARE_IMAGE_STEPS=4`
-- `THUMBNAIL_VARIANTS=3`
+- `THUMBNAIL_VARIANTS=5`
+
+## V10 Creative Thumbnail System
+
+V10 is image-first: five different creative concepts are generated, the actual artwork is analysed for a quiet text-safe zone, and typography is added only after the artwork is selected. It no longer uses a fixed template, A/B quiz language, countdown cards, or video-frame-as-thumbnail fallback as the primary creative path. See `V10_CREATIVE_THUMBNAILS.md`.
 
 The pipeline normalizes generated scene art locally to 1080×1920 and composes thumbnails locally at 1280×720. If Cloudflare image generation is unavailable, the video still falls back to Pexels (when configured) and then a procedural backdrop rather than trying Gemini image generation.

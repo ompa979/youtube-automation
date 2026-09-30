@@ -1195,3 +1195,161 @@ def create_custom_thumbnail(video_path, out_path, challenge_time, question, labe
     (vdir/"manifest.json").write_text(json.dumps({"engine":"v8_layout_aware","selected":best.name,"variants":[p.name for p in ranked],"scores":{p.name:round(_v6_score_thumbnail(p),2) for p in candidates},"canvas":[THUMBNAIL_W,THUMBNAIL_H],"model":os.getenv("CLOUDFLARE_THUMBNAIL_MODEL","@cf/black-forest-labs/flux-2-klein-4b")},indent=2),encoding="utf-8")
     print(f"[thumbnail-v8] selected={best.name}; variants={len(candidates)}")
     return out_path
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CREATIVE V10 — art-directed thumbnails, image-first composition, no template sludge
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _v10_fit_headline(draw, text: str, max_width: int, max_height: int = 260):
+    clean = re.sub(r"\s+", " ", _clean_text(text)).upper().strip("?!:;,. ")
+    words = clean.split()[:5]
+    clean = " ".join(words) or "THE KEY DIFFERENCE"
+    for size in range(100, 47, -2):
+        font = _v6_thumb_font(size, heavy=True)
+        lines = _v6_wrap(draw, clean, font, max_width, 3)
+        heights = []
+        widths = []
+        for line in lines:
+            box = draw.textbbox((0, 0), line, font=font, stroke_width=3)
+            widths.append(box[2] - box[0]); heights.append(box[3] - box[1])
+        if len(lines) <= 3 and max(widths or [0]) <= max_width and sum(heights) + 18 * max(0, len(lines)-1) <= max_height:
+            return font, lines
+    font = _v6_thumb_font(48, heavy=True)
+    return font, _v6_wrap(draw, clean, font, max_width, 3)
+
+
+def _v10_apply_text_zone(canvas: Image.Image, zone: str, box: tuple[int,int,int,int], headline: str, subline: str, label: str, variant: int) -> None:
+    draw = ImageDraw.Draw(canvas)
+    x1, y1, x2, y2 = box
+    accent = _V6_ACCENTS[variant % len(_V6_ACCENTS)] + (255,)
+    accent2 = _V6_ACCENTS[(variant + 2) % len(_V6_ACCENTS)] + (255,)
+    zone_w = x2 - x1
+    grad = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    gd = ImageDraw.Draw(grad)
+    if zone == "left":
+        for x in range(max(0, x1-40), min(canvas.width, x2+130)):
+            t = (x - max(0, x1-40)) / max(1, (x2+130) - max(0, x1-40))
+            a = int(125 * (1 - t) ** 1.7)
+            gd.line((x, 0, x, canvas.height), fill=(0, 0, 0, a))
+    else:
+        for x in range(max(0, x1-130), min(canvas.width, x2+40)):
+            t = (x - max(0, x1-130)) / max(1, (x2+40) - max(0, x1-130))
+            a = int(125 * t ** 1.7)
+            gd.line((x, 0, x, canvas.height), fill=(0, 0, 0, a))
+    canvas.alpha_composite(grad)
+    draw = ImageDraw.Draw(canvas)
+
+    tx = x1 + 12
+    maxw = max(260, zone_w - 24)
+    label_text = _clean_text(label).upper()[:22]
+    if label_text:
+        lf = _v6_thumb_font(22, heavy=True)
+        draw.text((tx, y1 + 12), label_text, font=lf, fill=(245, 248, 252, 230), stroke_width=2, stroke_fill=(0,0,0,185))
+        draw.line((tx, y1 + 48, min(tx + 170, x2), y1 + 48), fill=accent, width=5)
+
+    hf, lines = _v10_fit_headline(draw, headline, maxw, max_height=275)
+    heights = [draw.textbbox((0,0), line, font=hf, stroke_width=3)[3] for line in lines]
+    total_h = sum(heights) + 12 * max(0, len(lines)-1)
+    start_y = max(y1 + 72, int((y1 + y2 - total_h) / 2) - 12)
+    if start_y + total_h > y2 - 95:
+        start_y = y2 - 95 - total_h
+    y = start_y
+    for idx, line in enumerate(lines):
+        fill = (255,255,255,255) if idx < len(lines)-1 else accent
+        draw.text((tx, y), line, font=hf, fill=fill, stroke_width=5, stroke_fill=(0,0,0,235))
+        y += heights[idx] + 12
+
+    sub = _clean_text(subline).upper()[:30]
+    if sub:
+        sf = _v6_thumb_font(24, heavy=False)
+        draw.text((tx, min(y + 10, y2 - 50)), sub, font=sf, fill=(242,246,252,245), stroke_width=2, stroke_fill=(0,0,0,205))
+    line_y = min(y2 - 26, max(y1 + 70, y + 8))
+    draw.line((tx, line_y, min(tx + min(190, maxw), x2), line_y), fill=accent2, width=4)
+
+
+def _v10_render(background: Image.Image, out: Path, headline: str, subline: str, label: str, brief, variant: int) -> dict:
+    from .thumbnail_director import detect_text_zone
+    bg = _fit_background(background).convert("RGB")
+    bg = ImageEnhance.Contrast(bg).enhance(1.16)
+    bg = ImageEnhance.Color(bg).enhance(1.12)
+    bg = ImageEnhance.Sharpness(bg).enhance(1.16)
+    canvas = bg.convert("RGBA")
+    zone, box, left_score, right_score = detect_text_zone(bg)
+    _v10_apply_text_zone(canvas, zone, box, headline, subline, label, variant)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    canvas.convert("RGB").save(out, "JPEG", quality=97, optimize=True, progressive=True)
+    return {"text_zone": zone, "zone_box": list(box), "left_complexity": round(left_score, 2), "right_complexity": round(right_score, 2)}
+
+
+def _v10_thumbnail_score(path: Path, zone_meta: dict) -> float:
+    from PIL import ImageStat
+    with Image.open(path) as im:
+        small = im.convert("RGB").resize((320, 180))
+        stat = ImageStat.Stat(small)
+        contrast = sum(stat.stddev) / 3.0
+        mean = sum(stat.mean) / 3.0
+        brightness = max(0.0, 1.0 - abs(mean - 128.0) / 128.0)
+        edges = small.convert("L").filter(ImageFilter.FIND_EDGES)
+        edge_energy = ImageStat.Stat(edges).mean[0]
+        quiet = min(zone_meta.get("left_complexity", 100), zone_meta.get("right_complexity", 100))
+        return round(contrast * 1.9 + brightness * 25.0 + edge_energy * 0.55 + max(0.0, 75.0 - quiet) * 0.9, 2)
+
+
+def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: float, question: str, label: str,
+                            background_path: Path | None = None, topic: str = "", variants: int | None = None,
+                            subline: str = "", visual_prompt: str = "") -> Path:
+    """V10: creative-director thumbnail factory.
+
+    Five materially different art concepts are generated. AI makes only the
+    artwork; typography is composited after measuring the generated image.
+    """
+    from .thumbnail_director import build_brief, build_prompt, headline as director_headline, subline as director_subline, brief_manifest
+
+    count = max(5, int(variants or os.getenv("THUMBNAIL_VARIANTS", "5")))
+    final_headline = director_headline(question, topic)
+    final_subline = director_subline(subline, topic)
+    variant_dir = out_path.parent / "thumbnail_variants"
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    seed_base = int(hashlib.sha1(f"v10|{topic}|{final_headline}|{final_subline}|{label}".encode("utf-8")).hexdigest()[:10], 16)
+    clean = _load_clean_background(video_path, background_path, challenge_time)
+    candidates: list[tuple[Path, dict, dict]] = []
+
+    for i in range(count):
+        brief = build_brief(topic or label, final_headline, final_subline, i)
+        prompt = build_prompt(brief)
+        if visual_prompt and len(_clean_text(visual_prompt)) > 45:
+            prompt += f" Additional concept cue: {_clean_text(visual_prompt)[:500]}"
+        seed = seed_base + i * 7919
+        try:
+            ai_img = _request_ai_background(prompt, seed)
+        except Exception as exc:
+            print(f"[thumbnail-v10] AI candidate {i+1} failed: {exc}")
+            ai_img = None
+        bg = ai_img if ai_img is not None else clean
+        path = variant_dir / f"v10_{i+1:02d}_{['metaphor','confrontation','journey','macro','editorial'][i % 5]}.jpg"
+        zone_meta = _v10_render(bg, path, final_headline, final_subline, label, brief, i)
+        score = _v10_thumbnail_score(path, zone_meta)
+        candidates.append((path, zone_meta, {"brief": brief_manifest(brief), "score": score}))
+
+    ranked = sorted(candidates, key=lambda item: item[2]["score"], reverse=True)
+    if not ranked:
+        raise RuntimeError("V10 thumbnail director produced no candidates")
+    best, best_zone, _ = ranked[0]
+    Image.open(best).convert("RGB").save(out_path, "JPEG", quality=97, optimize=True, progressive=True)
+    manifest = {
+        "engine": "v10_creative_director",
+        "headline": final_headline,
+        "subline": final_subline,
+        "selected": best.name,
+        "variants": [p.name for p, _, _ in ranked],
+        "scores": {p.name: m["score"] for p, _, m in candidates},
+        "composition": {p.name: z for p, z, _ in candidates},
+        "creative_briefs": {p.name: m["brief"] for p, _, m in candidates},
+        "canvas": [THUMBNAIL_W, THUMBNAIL_H],
+        "model": os.getenv("CLOUDFLARE_THUMBNAIL_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"),
+        "image_first": True,
+        "text_generated_after_art": True,
+    }
+    (variant_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"[thumbnail-v10] selected={best.name}; variants={len(ranked)}; text_zone={best_zone['text_zone']}")
+    return out_path

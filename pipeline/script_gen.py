@@ -1621,8 +1621,12 @@ def _v6_to_script(data: dict) -> Script:
     for i, raw in enumerate(raw_scenes):
         if not isinstance(raw, dict):
             raise ValueError(f"scene {i+1} is not an object")
-        action = _clean_text(str(raw.get("action_type", ""))).lower()
-        action = action if action in _V6_ACTION_TYPES else _V6_SCENE_SEQUENCE[i]
+        raw_action = _clean_text(str(raw.get("action_type", ""))).lower()
+        viral_actions = {"pattern_interrupt", "tension", "mechanism", "transformation", "payoff", "loop"}
+        is_viral_shape = any(_clean_text(str(item.get("action_type", ""))).lower() in viral_actions for item in raw_scenes if isinstance(item, dict))
+        allowed_actions = viral_actions if is_viral_shape else _V6_ACTION_TYPES
+        fallback_sequence = ("pattern_interrupt", "tension", "mechanism", "transformation", "payoff", "loop") if is_viral_shape else _V6_SCENE_SEQUENCE
+        action = raw_action if raw_action in allowed_actions else fallback_sequence[i]
         narration = _v6_clean_forbidden(_first_text(raw, "narration", "voiceover", "text", "script"))
         tts = _v6_clean_forbidden(_first_text(raw, "tts_text", "tts", "voiceover", "narration")) or narration
         if not narration or not tts:
@@ -1692,8 +1696,14 @@ def _v8_difference_payload(script: Script) -> str:
 
 
 def _v6_enforce_contract(script: Script) -> None:
+    content_mode = getattr(script, "content_mode", "exam")
+    scene_sequence = (
+        ("pattern_interrupt", "tension", "mechanism", "transformation", "payoff", "loop")
+        if content_mode == "viral"
+        else _V6_SCENE_SEQUENCE
+    )
     for i, scene in enumerate(script.scenes[:6]):
-        role = _V6_SCENE_SEQUENCE[i]
+        role = scene_sequence[i]
         scene.action_type = role
         if role == "hook" and not scene.on_screen_text:
             scene.on_screen_text = "WHY THIS MATTERS"
@@ -1708,6 +1718,16 @@ def _v6_enforce_contract(script: Script) -> None:
         elif role == "difference_card":
             scene.on_screen_text = "KEY DIFFERENCE"
             scene.action_payload = scene.action_payload or _v8_difference_payload(script)
+        elif role == "pattern_interrupt" and not scene.on_screen_text:
+            scene.on_screen_text = "LOOK CLOSER"
+        elif role == "tension" and not scene.on_screen_text:
+            scene.on_screen_text = "HERE'S WHY"
+        elif role == "transformation" and not scene.on_screen_text:
+            scene.on_screen_text = "THE SHIFT"
+        elif role == "payoff" and not scene.on_screen_text:
+            scene.on_screen_text = "THE TAKEAWAY"
+        elif role == "loop" and not scene.on_screen_text:
+            scene.on_screen_text = "REMEMBER THIS"
         scene.on_screen_text = _v6_clean_forbidden(scene.on_screen_text)[:60]
         scene.action_payload = _v6_clean_forbidden(scene.action_payload)[:140]
     if not getattr(script, "thumbnail_text", ""):
@@ -1723,11 +1743,11 @@ def _v6_length_issue(script: Script) -> str | None:
     return None
 
 
-def _v6_qa_all(script: Script, topic: str, language: str):
-    qa = validate_script(script, language)
+def _v6_qa_all(script: Script, topic: str, language: str, content_mode: str = "exam"):
+    qa = validate_script(script, language, content_mode=content_mode)
     extra: list[str] = []
     if len(script.scenes) != 6:
-        extra.append("V6 requires exactly six teaching scenes")
+        extra.append("Viral/V6 requires exactly six scenes")
     if _v6_length_issue(script):
         extra.append(_v6_length_issue(script))
     body = " ".join([script.title, script.hook, script.description, script.pinned_comment] + [s.narration + " " + s.on_screen_text for s in script.scenes]).lower()
@@ -1736,13 +1756,19 @@ def _v6_qa_all(script: Script, topic: str, language: str):
             continue
         if phrase in body:
             extra.append(f"unsupported/sensational phrase detected: {phrase}")
-    final_words = len(re.findall(r"\b[\w'-]+\b", script.scenes[-1].narration)) if script.scenes else 0
-    if final_words > 18:
-        extra.append(f"final difference scene is {final_words} words; keep the visual comparison line under 18 words")
-    if re.search(r"\bA\s*(?:or|vs\.?|versus)\s*B\b", body, re.I):
-        extra.append("A/B game language is prohibited in V6")
-    if re.search(r"\b(?:stop|wait)\b", script.scenes[0].narration.lower()):
-        extra.append("generic stop/wait hook is prohibited; use a topic-specific hook")
+    if content_mode != "viral":
+        final_words = len(re.findall(r"\b[\w'-]+\b", script.scenes[-1].narration)) if script.scenes else 0
+        if final_words > 18:
+            extra.append(f"final difference scene is {final_words} words; keep the visual comparison line under 18 words")
+        if re.search(r"\bA\s*(?:or|vs\.?|versus)\s*B\b", body, re.I):
+            extra.append("A/B game language is prohibited in V6")
+        if re.search(r"\b(?:stop|wait)\b", script.scenes[0].narration.lower()):
+            extra.append("generic stop/wait hook is prohibited; use a topic-specific hook")
+    else:
+        if re.search(r"\b(?:option|choice)\s*[A-D]\b", body, re.I) or re.search(r"\bA\s+or\s+B\b", body, re.I):
+            extra.append("A/B game language is prohibited in viral mode")
+        if re.search(r"\b(?:stop|wait)\b", script.scenes[0].narration.lower()):
+            extra.append("generic stop/wait hook is prohibited; use a topic-specific hook")
     qa.issues.extend(extra)
     qa.ok = not qa.issues
     return qa
@@ -1750,7 +1776,8 @@ def _v6_qa_all(script: Script, topic: str, language: str):
 
 def _v6_finalize(script: Script, topic: str, niche_key: str | None) -> Script:
     _v6_enforce_contract(script)
-    script.title = _ensure_exam_in_title(script.title, topic, niche_key)
+    if getattr(script, "content_mode", "exam") != "viral":
+        script.title = _ensure_exam_in_title(script.title, topic, niche_key)
     script.title = re.sub(r"\s+", " ", script.title).strip()[:85].rstrip(" -:|")
     # Always rebuild the pinned comment from the actual teaching arc so legacy A/B
     # or generic challenge CTAs cannot leak back in through model output.

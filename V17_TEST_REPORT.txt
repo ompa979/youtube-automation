@@ -1,0 +1,27 @@
+ExamCracker V17 verification
+============================
+
+Source base:
+youtube-automation-main-V16-script-trend-fix(1).zip
+
+Implemented:
+- V17 deterministic information-design creative director
+- Topic-specific first-frame headline/subline
+- Three visual modes: concept / worked_example / exam_card
+- One visual-family continuity prefix per Short
+- Removal/replacement of generic UI labels and subtitle-fragment headlines
+- V17 FFmpeg information cards
+- Safer scene-render fallback chain
+- Fixed comparison drawbox dimension expression
+- urllib3/pytrends compatibility shim in topic_engine
+- Balanced trend scoring so live trend is not the literal first-sort key
+- 62-80 word target, 90-word hard cap in the active V6/V17 prompt
+
+Tests:
+PYTHONPATH=. pytest -q
+282 passed in 3.69s
+
+Offline render smoke:
+- 6-scene 1080x1920 H.264/AAC render completed
+- 16:9 thumbnail creation completed
+- ffprobe verified 1080x1920 video + AAC audio

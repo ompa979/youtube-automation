@@ -110,6 +110,7 @@ class Scene:
     motion_type: str = ""
     camera_motion: str = ""
     sfx_cue: str = ""
+    visual_mode: str = "concept"
 
 
 @dataclass
@@ -124,6 +125,11 @@ class Script:
     thumbnail_subline: str = ""
     thumbnail_visual_prompt: str = ""
     seo_metadata: dict = field(default_factory=dict)
+    hero_headline: str = ""
+    hero_subline: str = ""
+    creative_version: str = "v16"
+    creative_badge: str = ""
+    visual_family: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -1413,6 +1419,17 @@ NON-NEGOTIABLE CREATIVE RULES
 - Use natural conversational Indian English, not presenter language, forced slang, Hinglish or textbook prose.
 - One idea only. One mechanism. One concrete example. One exam clue. One memory rule.
 
+V17 INFORMATION-DESIGN CONTRACT (MANDATORY)
+- The Short must feel like a premium exam explainer, not an AI wallpaper and not a subtitle reel.
+- Scene 0 must communicate the exact concept within the first frame: use 2-6 meaningful words that name the concept or confusion. Never use generic UI copy such as "WHY THIS MATTERS".
+- Every scene gets one visual event tied directly to the mechanism. Keep the same hero object/material language across the six scenes so the Short feels like one visual story.
+- On-screen headlines must be meaningful information (concept, rule, example, or exam clue), not narration fragments. Avoid fragments that look like "requiring immediate", "branch totals", "designed" or similar sentence continuations.
+- card_points is an information card: one short rule/anchor, maximum 8 words.
+- action_payload should describe the physical/diagrammatic change in one short phrase, maximum 12 words.
+- Scene 3-4 should make the mechanism visually legible even with audio muted.
+- Use three visual modes across the Short: concept (hook/context/mechanism), worked_example (example), exam_card (exam_takeaway/difference_card).
+- Thumbnail/header copy should be a searchable concept plus a specific mechanism, never "REVEAL", "A OR B?", "STOP", or a sentence fragment.
+
 VALUE-FIRST SCRIPT SHAPE — EXACTLY 6 SCENES
 1. HOOK: Start with the specific confusion, consequence, or useful question. Make the promise concrete.
 2. CONTEXT: Define only the two or three pieces needed to follow the explanation. No textbook dump.
@@ -1423,11 +1440,12 @@ VALUE-FIRST SCRIPT SHAPE — EXACTLY 6 SCENES
 6. FINAL DIFFERENCE CARD: End with a 2-3 second visual comparison of the two most important concepts. Spoken line should be one concise contrast sentence. The image must show the two concepts side by side. No quiz, A/B choice, countdown, or CTA in narration.
 
 TARGET LENGTH
-- Aim for 65-85 spoken words total.
-- Hard cap: 100 words. Never exceed 100 words.
+- Aim for 62-80 spoken words total.
+- Hard cap: 90 words. Never exceed 90 words.
 - Do not pad to hit a target. Remove repetition before adding detail.
-- If a draft exceeds 85 words, rewrite it more compactly while keeping the mechanism and one concrete example; do not expand the script.
-- Aim for roughly 24-38 seconds of speech; the actual TTS duration is allowed to vary by voice.
+- If a draft exceeds 80 words, rewrite it more compactly while keeping the mechanism and one concrete example; do not expand the script.
+- Keep each scene to one useful sentence where possible; avoid multi-clause narration that sounds like a lecture.
+- Aim for roughly 22-34 seconds of speech; the actual TTS duration is allowed to vary by voice.
 
 ON-SCREEN TEXT
 - 2-6 words per scene.
@@ -1535,12 +1553,15 @@ def _v6_to_script(data: dict) -> Script:
         points = [_v6_clean_forbidden(str(x))[:70] for x in points if str(x).strip()][:1]
         payload = _v6_clean_forbidden(_first_text(raw, "action_payload", "payload", "cue", "detail"))
         motion, camera, sfx = defaults[action]
+        visual_mode = _first_text(raw, "visual_mode", "visualMode", "mode") or (
+            "worked_example" if action == "example" else "exam_card" if action in {"exam_takeaway", "difference_card"} else "concept"
+        )
         scenes.append(Scene(
             index=i, narration=narration, tts_text=tts, image_prompt=image_prompt,
             on_screen_text=on_screen[:70], card_points=points, action_type=action,
             action_payload=payload[:140], motion_type=_first_text(raw,"motion_type","motion") or motion,
             camera_motion=_first_text(raw,"camera_motion","camera") or camera,
-            sfx_cue=_first_text(raw,"sfx_cue","sfx") or sfx,
+            sfx_cue=_first_text(raw,"sfx_cue","sfx") or sfx, visual_mode=visual_mode[:32],
         ))
 
     script = Script(

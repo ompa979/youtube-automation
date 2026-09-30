@@ -1,11 +1,12 @@
 {
-  "version": 21,
-  "last_updated": "2026-09-30T00:00:00Z",
+  "version": 22,
+  "last_updated": "2026-09-30T12:00:00Z",
   "strategy": {
     "channel_positioning": "ExamCrackerAI — high-utility exam concepts turned into visually memorable 20-35 second explainers, with search-led packaging and original premium thumbnail art.",
     "selection": "Exam-only. Rank candidate topics by YouTube search intent, autocomplete evidence, SEO cluster fit, exam relevance, teachability, concrete example potential, visual mechanism, freshness, and trend signal; reject generic lifestyle/psychology content.",
-    "script": "55-85 words. One complete idea: misconception or consequence → context → mechanism → worked example → exam clue → memory rule. No A/B games, countdowns, fake urgency, generic CTA narration, or filler.",
-    "thumbnail": "AI hero art first (Cloudflare FLUX; FLUX.2 klein for thumbnails), then original Pillow typography and graphic accents. 10 archetypes, three candidates, automatic visual scoring, 1280×720 output."
+    "script": "62-80 words target, 90 hard cap. One complete idea: specific hook → context → mechanism → one worked example → exam clue → concise difference card. No A/B games, countdowns, fake urgency, generic CTA narration, or filler.",
+    "thumbnail": "AI hero art first (Cloudflare FLUX; FLUX.2 klein for thumbnails), then original Pillow typography and graphic accents. 10 archetypes, three candidates, automatic visual scoring, 1280×720 output.",
+    "creative_engine": "V17 information design: AI artwork + deterministic teaching cards; strong topic-specific first frame; three visual modes (concept, worked_example, exam_card); deterministic scene-family continuity; no generic subtitle-fragment headlines."
   },
   "niches": {
     "bank_it_officer": {

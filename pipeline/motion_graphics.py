@@ -468,7 +468,7 @@ _V6_ROLES = {"hook", "context", "mechanism", "example", "exam_takeaway", "memory
 def _v8_difference_hud(payload: str, accent: str, allow_drawtext: bool = False) -> str:
     """Final comparison card frame. Artwork stays dominant; text is optional."""
     parts = [
-        "drawbox=x=36:y=0:w=iw-72:h=ih*0.70:color=black@0.10:t=3",
+        f"drawbox=x=36:y=0:w={W-72}:h={int(H*0.70)}:color=black@0.10:t=3",
     ]
     if allow_drawtext:
         parts.append(

@@ -266,6 +266,70 @@ def _memory_anchor_filter(text: str, accent: str) -> str:
     )
 
 
+def _v17_text_accent(accent: str) -> str:
+    """Lighten dark subject accents so typography stays readable on black cards."""
+    raw = str(accent or "0x33D6FF").lower().replace("#", "").replace("0x", "")
+    if len(raw) != 6:
+        return "0xBFE9FF"
+    try:
+        rgb = [int(raw[i:i+2], 16) for i in (0, 2, 4)]
+        light = [round(v + (255 - v) * 0.68) for v in rgb]
+        return "0x" + "".join(f"{v:02X}" for v in light)
+    except Exception:
+        return "0xBFE9FF"
+
+
+def _v17_hero_filter(headline: str, subline: str, badge: str, accent: str) -> str:
+    """Large, topic-specific first-frame information design."""
+    parts: list[str] = []
+    text_accent = _v17_text_accent(accent)
+    badge_safe = _escape_drawtext((badge or "EXAMCRACKER AI").upper()[:28])
+    head_safe = _escape_drawtext((headline or "THE CONCEPT").upper()[:44])
+    sub_safe = _escape_drawtext((subline or "ONE CLEAR MECHANISM").upper()[:48])
+    if badge_safe:
+        parts.append(
+            f"drawtext=font='Inter':text='{badge_safe}':fontcolor=white:fontsize=28:"
+            f"borderw=2:bordercolor=black@0.85:box=1:boxcolor={accent}@0.88:boxborderw=12:"
+            f"x=54:y=h*0.055:{_FADE_IN_ALPHA}"
+        )
+    if head_safe:
+        parts.append(
+            f"drawtext=font='Inter':text='{head_safe}':fontcolor=white:fontsize=68:"
+            "borderw=5:bordercolor=black@0.9:box=1:boxcolor=black@0.50:boxborderw=22:"
+            f"x=54:y=h*0.12:{_FADE_IN_ALPHA}"
+        )
+    if sub_safe:
+        parts.append(
+            f"drawtext=font='Inter':text='{sub_safe}':fontcolor={text_accent}:fontsize=36:"
+            "borderw=3:bordercolor=black@0.88:box=1:boxcolor=black@0.48:boxborderw=16:"
+            f"x=54:y=h*0.215:{_FADE_IN_ALPHA}"
+        )
+    return ",".join(parts)
+
+
+def _v17_info_card_filter(label: str, anchor: str, accent: str, mode: str = "concept") -> str:
+    """Compact information card for non-hook scenes."""
+    label_safe = _escape_drawtext((label or "").upper()[:52])
+    anchor_safe = _escape_drawtext((anchor or "").upper()[:82])
+    if not label_safe and not anchor_safe:
+        return ""
+    label_color = "0xFFFFFF" if mode == "concept" else _v17_text_accent(accent)
+    parts: list[str] = []
+    if label_safe:
+        parts.append(
+            f"drawtext=font='Inter':text='{label_safe}':fontcolor={label_color}:fontsize=34:"
+            "borderw=3:bordercolor=black@0.85:box=1:boxcolor=black@0.50:boxborderw=16:"
+            f"x=54:y=h*0.085:{_FADE_IN_ALPHA}"
+        )
+    if anchor_safe:
+        parts.append(
+            f"drawtext=font='Inter':text='{anchor_safe}':fontcolor=white:fontsize=34:"
+            "borderw=3:bordercolor=black@0.9:box=1:boxcolor=black@0.62:boxborderw=18:"
+            f"x=54:y=h*0.18:{_FADE_IN_ALPHA}"
+        )
+    return ",".join(parts)
+
+
 def _subtitle_filter(narration: str, style: str, accent: str) -> str:
     """Burned-in subtitle strip, BOTTOM-anchored with a 170px safe margin.
 
@@ -331,9 +395,14 @@ def _ken_burns_clip(
     anchor_text: str = "",
     action_type: str = "explanation",
     action_payload: str = "",
+    visual_mode: str = "concept",
+    creative_headline: str = "",
+    creative_subline: str = "",
+    creative_badge: str = "",
 ) -> None:
     total_frames = max(int(duration * FPS), 1)
-    vf = _motion_filter(role, total_frames, subject_area)
+    vf_base = _motion_filter(role, total_frames, subject_area)
+    vf = vf_base
 
     # Motion graphics overlay — progress bar, vignette pulse, rule line,
     # hook sweep, scene dots, and dedicated Action HUD.
@@ -351,23 +420,19 @@ def _ken_burns_clip(
     if mg_f:
         vf = f"{vf},{mg_f}"
 
-    # Layer 2: 4-layer on-screen text system — exam badge (top), memory
-    # anchor card (≈32%), fire-tinted keyword (mid), and a word-by-word
-    # bold caption (bottom).
-    interactive_beats = {"pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap_loop", "loop", "trap", "hook", "context", "example", "exam_takeaway", "memory_lock"}
-    badge_f = _badge_filter(badge_text, accent) if drawtext_ok and badge_text and on_screen_text else ""
-    # In V2 the Action HUD is the primary visual interface. Stacking an extra
-    # keyword and memory card on every interactive scene made the frame look
-    # like a study poster and buried the actual question.
-    anchor_f = _memory_anchor_filter(anchor_text, accent) if drawtext_ok and anchor_text and action_type not in interactive_beats else ""
-    keyword_f = _keyword_filter(on_screen_text) if drawtext_ok and on_screen_text and action_type not in interactive_beats else ""
+    # V17 information-design layer: the artwork remains dominant, while the
+    # first frame and teaching cards carry the durable concept information.
+    if drawtext_ok:
+        if scene_index == 0:
+            hero_f = _v17_hero_filter(creative_headline or on_screen_text, creative_subline or anchor_text, creative_badge or badge_text, accent)
+            if hero_f:
+                vf = f"{vf},{hero_f}"
+        else:
+            info_f = _v17_info_card_filter(on_screen_text, anchor_text or action_payload, accent, visual_mode)
+            if info_f:
+                vf = f"{vf},{info_f}"
 
-    if badge_f:
-        vf = f"{vf},{badge_f}"
-    if anchor_f:
-        vf = f"{vf},{anchor_f}"
-    if keyword_f:
-        vf = f"{vf},{keyword_f}"
+    # Do not stack the old generic keyword/anchor system on top of V17 cards.
 
     # Try word-by-word ASS karaoke captions first; fall back to the old
     # single-block subtitle if there's no usable word timing, or if this
@@ -384,21 +449,41 @@ def _ken_burns_clip(
     if not drawtext_ok:
         print("[render] FFmpeg drawtext unavailable; using ASS captions + drawbox-only motion graphics")
 
-    cmd = [
-        "ffmpeg", "-y", "-loop", "1", "-i", str(image),
-        "-vf", vf_words, "-t", f"{duration:.3f}", "-r", str(FPS),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-        "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", str(out),
-    ]
+    def _cmd(filter_graph: str) -> list[str]:
+        return [
+            "ffmpeg", "-y", "-loop", "1", "-i", str(image),
+            "-vf", filter_graph, "-t", f"{duration:.3f}", "-r", str(FPS),
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+            "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", str(out),
+        ]
+
+    attempts: list[tuple[str, str]] = []
     if has_words:
+        attempts.append(("ASS", vf_words))
+    if vf_fallback != vf_words:
+        attempts.append(("block subtitle", vf_fallback))
+    # Runtime-safe last-resort path: remove ALL optional overlays. This directly
+    # addresses CI builds where a single drawbox/drawtext expression can make the
+    # entire filter graph fail with "Filter not found" / expression errors.
+    base_ass = f"{vf_base},{_ass_filter_arg(ass_path)}" if has_words else vf_base
+    attempts.append(("base + ASS", base_ass))
+    attempts.append(("base video", vf_base))
+
+    errors: list[str] = []
+    for label, graph in attempts:
         try:
-            _run(cmd)
+            _run(_cmd(graph))
+            if label not in {"ASS", "block subtitle"}:
+                print(f"[render] runtime-safe fallback used: {label}")
             return
         except Exception as exc:
-            print(f"[!] word-by-word ASS captions failed (falling back to block subtitle): {exc}")
+            errors.append(f"{label}: {exc}")
+            if label == "ASS":
+                print(f"[!] word-by-word ASS captions failed (falling back): {exc}")
+            else:
+                print(f"[!] render attempt failed ({label}): {exc}")
 
-    cmd[cmd.index("-vf") + 1] = vf_fallback
-    _run(cmd)
+    raise RuntimeError("All scene render fallbacks failed: " + " | ".join(errors[-3:]))
 
 
 # ---------------------------------------------------------------------------
@@ -759,6 +844,7 @@ def assemble_video(
     topic: str = "",
     scene_word_timings: list[list[dict]] | None = None,
     scene_card_points: list[list[str]] | None = None,
+    scene_visual_modes: list[str] | None = None,
     scene_action_types: list[str] | None = None,
     scene_action_payloads: list[str] | None = None,
     scene_motion_types: list[str] | None = None,
@@ -768,6 +854,9 @@ def assemble_video(
     thumbnail_label: str = "EXAMCRACKER AI",
     thumbnail_subline: str = "",
     thumbnail_visual_prompt: str = "",
+    creative_headline: str = "",
+    creative_subline: str = "",
+    creative_badge: str = "",
 ) -> Path:
     del scene_ass
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -837,6 +926,10 @@ def assemble_video(
             anchor_text=anchor_text,
             action_type=act_type,
             action_payload=act_payload,
+            visual_mode=(scene_visual_modes[i] if scene_visual_modes and i < len(scene_visual_modes) else "concept"),
+            creative_headline=creative_headline,
+            creative_subline=creative_subline,
+            creative_badge=creative_badge or badge_text,
         )
         clips.append(clip)
         actual_durations.append(actual)

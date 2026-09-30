@@ -51,6 +51,7 @@ from .topic_engine import ALLOWED_EXAM_NICHES, EXAM_ONLY, choose_best_topic
 from .tts import synthesize_scene
 from .upload import upload_video
 from .visuals import fetch_scene_image
+from .creative_v17 import apply_v17_creative_contract
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_PATH = ROOT / ".quota_state.json"
@@ -208,7 +209,10 @@ def _run_one(
                 _save_state(state)
                 raise
 
-    print(f"[pipeline] title={script.title!r}; scenes={len(script.scenes)}")
+    # V17 creative director: deterministic post-processing, no extra Gemini call.
+    v17 = apply_v17_creative_contract(script, topic, niche_cfg)
+    print(f"[creative-v17] family={v17.visual_family!r} hero={v17.hero_headline!r} subline={v17.hero_subline!r}")
+    print(f"[pipeline] title={script.title!r}; scenes={len(script.scenes)}; creative={getattr(script, 'creative_version', 'v17')}")
 
     voice = niche_cfg.get("voice", {}).get(language, "en-IN")
     visual_style = niche_cfg.get("visual_style", "handwritten_notes")
@@ -267,6 +271,7 @@ def _run_one(
             "narration": narration,
             "word_timings": word_timings or [],
             "card_points": scene.card_points or [],
+            "visual_mode": getattr(scene, "visual_mode", "concept"),
         }
 
     print(f"[pipeline] processing {len(script.scenes)} scenes with {scene_workers} parallel workers")
@@ -287,6 +292,7 @@ def _run_one(
     scene_narrations: list[str] = [r["narration"] for r in ordered]
     scene_word_timings: list[list[dict]] = [r["word_timings"] for r in ordered]
     scene_card_points: list[list[str]] = [r["card_points"] for r in ordered]
+    scene_visual_modes: list[str] = [r.get("visual_mode", "concept") for r in ordered]
     scene_action_types: list[str] = [getattr(scene, "action_type", "explanation") for scene in script.scenes]
     scene_action_payloads: list[str] = [getattr(scene, "action_payload", "") for scene in script.scenes]
     scene_motion_types: list[str] = [getattr(scene, "motion_type", "") for scene in script.scenes]
@@ -309,6 +315,7 @@ def _run_one(
         topic=topic,
         scene_word_timings=scene_word_timings,
         scene_card_points=scene_card_points,
+        scene_visual_modes=scene_visual_modes,
         scene_action_types=scene_action_types,
         scene_action_payloads=scene_action_payloads,
         scene_motion_types=scene_motion_types,
@@ -318,6 +325,9 @@ def _run_one(
         thumbnail_label=(niche_cfg.get("card_tag", "") or (script.title.split("|")[-1].strip() if "|" in script.title else niche.replace("_", " "))),
         thumbnail_subline=getattr(script, "thumbnail_subline", ""),
         thumbnail_visual_prompt=getattr(script, "thumbnail_visual_prompt", ""),
+        creative_headline=getattr(script, "hero_headline", ""),
+        creative_subline=getattr(script, "hero_subline", ""),
+        creative_badge=getattr(script, "creative_badge", ""),
     )
     print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
 

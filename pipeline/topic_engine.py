@@ -21,6 +21,7 @@ from typing import Any
 import requests
 
 from .seo.keyword_clusters import get_cluster_for_topic
+from .trending import _patch_urllib3_method_whitelist
 
 CACHE_PATH = Path(os.getenv("TOPIC_INTELLIGENCE_CACHE", ".topic_intelligence.json"))
 CACHE_TTL_SECONDS = int(os.getenv("TOPIC_INTELLIGENCE_TTL", str(6 * 60 * 60)))
@@ -167,6 +168,7 @@ def _trend_scores(topics: list[str]) -> dict[str, float]:
     if not topics:
         return {}
     try:
+        _patch_urllib3_method_whitelist()
         from pytrends.request import TrendReq  # type: ignore
         pt = TrendReq(hl="en-IN", tz=330, timeout=(8, 15), retries=1, backoff_factor=0.4)
         result: dict[str, float] = {t: 0.0 for t in topics}
@@ -336,13 +338,13 @@ def score_topic(
     teach_norm = (teachability / 15.0) * 100.0
     freshness_norm = (freshness / 11.0) * 100.0
     total = (
-        trend_score * 0.30 +
-        seo_score * 0.25 +
-        exam_norm * 0.17 +
-        value_norm * 0.11 +
-        visual_norm * 0.07 +
-        specificity_norm * 0.04 +
-        teach_norm * 0.03 +
+        trend_score * 0.16 +
+        seo_score * 0.24 +
+        exam_norm * 0.20 +
+        value_norm * 0.14 +
+        visual_norm * 0.13 +
+        specificity_norm * 0.03 +
+        teach_norm * 0.07 +
         freshness_norm * 0.03
         - risk_penalty - duplicate_penalty
     )
@@ -431,12 +433,13 @@ def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: di
         qs = _candidate_query_signal(item.topic)
         scored.append(score_topic(item.topic, item.niche, completed, recent_topics, trend_values.get(item.topic, 35.0), query_signal=qs))
 
-    # Discovery order is literal when a live trend signal exists. During a Trends outage,
-    # do not let a synthetic neutral 50/100 score override the actual SEO/exam/value evidence.
+    # V17: trend is an input, not the decision. This prevents a single noisy
+    # trend spike from outranking a more teachable, visually concrete exam topic.
+    # The composite score already contains trend + SEO + exam fit + value + visual.
     if trend_live:
-        scored.sort(key=lambda x: (x.trend_score, x.seo_score, x.exam_fit, x.value_density, x.visual, x.total), reverse=True)
+        scored.sort(key=lambda x: (x.total, x.visual, x.value_density, x.exam_fit, x.trend_score), reverse=True)
     else:
-        scored.sort(key=lambda x: (x.seo_score, x.exam_fit, x.value_density, x.visual, x.total), reverse=True)
+        scored.sort(key=lambda x: (x.total, x.visual, x.value_density, x.exam_fit), reverse=True)
 
     # Hard quality gates: a topic must be useful even if it is temporarily popular.
     viable = [x for x in scored if x.exam_fit >= 19.0 and x.value_density >= 9.0 and x.teachability >= 7.0 and x.seo_fit >= 4.0 and x.visual >= 6.0]

@@ -54,7 +54,7 @@ GOOGLE_CLOUD_TTS_VOICE = os.getenv("GOOGLE_CLOUD_TTS_VOICE", "en-IN-Chirp3-HD-Ac
 
 # Edge TTS voice (no key needed, highest clarity Indian English male educator voice)
 EDGE_VOICE = os.getenv("TTS_VOICE", "en-IN-PrabhatNeural").strip() or "en-IN-PrabhatNeural"
-EDGE_TTS_RATE = os.getenv("TTS_RATE", "-10%").strip() or "-10%"
+EDGE_TTS_RATE = os.getenv("TTS_RATE", "-4%").strip() or "-4%"
 
 # Caps how many scenes may hit the Edge-TTS websocket endpoint at the same
 # instant. generate.py now processes scenes concurrently (ThreadPoolExecutor),
@@ -188,6 +188,22 @@ def _probe_duration(path: Path) -> float:
 def _estimate_duration(text: str) -> float:
     words = max(1, len(_clean_text(text).split()))
     return max(1.5, words / 2.1)
+
+
+def _master_voice_file(path: Path) -> Path:
+    """Phone-first narration mastering: compression, -14 LUFS normalization and limiter."""
+    mastered = path.with_name(path.stem + "_mastered.mp3")
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return path
+    try:
+        target=float(os.getenv("VOICE_LUFS","-14")); ceiling=float(os.getenv("VOICE_TRUE_PEAK","-1.5"))
+        af=(f"highpass=f=75,acompressor=threshold=0.10:ratio=3.2:attack=8:release=120:makeup=2.5,loudnorm=I={target}:TP={ceiling}:LRA=7,alimiter=limit=0.89:attack=5:release=50")
+        subprocess.run([ffmpeg,"-y","-i",str(path),"-af",af,"-c:a","libmp3lame","-b:a","192k",str(mastered)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
+        if mastered.exists() and mastered.stat().st_size>2000: mastered.replace(path)
+    except Exception as exc:
+        print(f"[tts] voice mastering failed (non-fatal): {exc}")
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +500,7 @@ def synthesize_scene(
             word_timings = _whisper_align(audio_path, raw_spoken)
             if not word_timings:
                 word_timings = align_timings_to_script([], raw_spoken, duration)
+            audio_path=_master_voice_file(audio_path); duration=_probe_duration(audio_path) or duration
             return audio_path, word_timings, duration
         except Exception as exc:
             errors.append(f"google_cloud: {exc}")
@@ -498,6 +515,7 @@ def synthesize_scene(
             duration, word_timings = _edge_synth(spoken, audio_path)
             # Align timings to the original display script text for on-screen captions
             aligned_timings = align_timings_to_script(word_timings, raw_spoken, duration)
+            audio_path=_master_voice_file(audio_path); duration=_probe_duration(audio_path) or duration
             return audio_path, aligned_timings, duration
         except Exception as exc:
             errors.append(f"edge: {exc}")
@@ -508,6 +526,7 @@ def synthesize_scene(
         print("[tts] provider=gtts voice=Google India English")
         duration = _gtts_synth(spoken, audio_path)
         aligned = align_timings_to_script([], raw_spoken, duration)
+        audio_path=_master_voice_file(audio_path); duration=_probe_duration(audio_path) or duration
         return audio_path, aligned, duration
     except Exception as exc:
         errors.append(f"gtts: {exc}")
@@ -517,6 +536,7 @@ def synthesize_scene(
     try:
         print("[tts] provider=espeak voice=en-in")
         duration = _espeak_synth(spoken, audio_path)
+        audio_path=_master_voice_file(audio_path); duration=_probe_duration(audio_path) or duration
         return audio_path, _estimate_word_timings(spoken, duration), duration
     except Exception as exc:
         errors.append(f"espeak: {exc}")

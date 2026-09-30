@@ -52,7 +52,7 @@ def validate_script(script: Any, language: str) -> QAResult:
     if FORBIDDEN_GAME_LANGUAGE.search(all_text): issues.append("A/B/countdown/game-show language detected")
     if SENSATIONAL_UNVERIFIED.search(all_text): issues.append("unsupported sensational wording detected")
 
-    expected = ["hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock"]
+    expected = ["hook", "context", "mechanism", "example", "exam_takeaway", "difference_card"]
     actual = [getattr(s, "action_type", "") for s in scenes]
     if actual != expected: issues.append(f"scene roles must be {expected}, got {actual}")
 

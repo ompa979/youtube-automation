@@ -243,15 +243,15 @@ def _fake_bad_response() -> requests.Response:
     return r
 
 
-def test_case_091(self):
+def _case_091(self):
     im = ai.parse_cloudflare_response(_fake_cf_response())
     self.assertEqual(im.size, (64, 64))
 
-def test_case_092(self):
+def _case_092(self):
     im = ai.parse_cloudflare_response(_fake_data_uri_response())
     self.assertEqual(im.size, (32, 32))
 
-def test_case_093(self):
+def _case_093(self):
     original = ai.generate_cloudflare_background
     cfg = (ai.CLOUDFLARE_ACCOUNT_ID, ai.CLOUDFLARE_API_TOKEN)
     try:
@@ -265,7 +265,7 @@ def test_case_093(self):
         ai.CLOUDFLARE_ACCOUNT_ID, ai.CLOUDFLARE_API_TOKEN = cfg
         ai.generate_cloudflare_background = original
 
-def test_case_094(self):
+def _case_094(self):
     original = (ai.CLOUDFLARE_ACCOUNT_ID, ai.CLOUDFLARE_API_TOKEN, ai.THUMBNAIL_AI_URL)
     try:
         ai.CLOUDFLARE_ACCOUNT_ID = ""
@@ -277,25 +277,34 @@ def test_case_094(self):
     finally:
         ai.CLOUDFLARE_ACCOUNT_ID, ai.CLOUDFLARE_API_TOKEN, ai.THUMBNAIL_AI_URL = original
 
-def test_case_095(self):
+def _case_095(self):
     with self.assertRaises(RuntimeError):
         ai.parse_cloudflare_response(_fake_bad_response())
 
-for offset, fn in enumerate([test_case_091, test_case_092, test_case_093, test_case_094, test_case_095], 91):
+for offset, fn in enumerate([_case_091, _case_092, _case_093, _case_094, _case_095], 91):
     setattr(TestThumbnailEngine100, f"test_{offset:03d}_cloudflare_response", fn)
 
-# 96-100: real local compositor smoke cases (AI is disabled in this suite).
-for offset, q in enumerate([
-    "CRR OR SLR?", "M1 OR M3?", "TCP OR UDP?", "TRUE OR TRAP?", "FIND THE OUTPUT?"
-], 96):
-    def make_case(q=q):
+# 96-100: final local compositor + FLUX.2 multipart contract smoke cases.
+FINAL_CASES = [
+    ("CRR OR SLR?", 2),
+    ("M1 OR M3?", 18),
+    ("TCP OR UDP?", 77),
+    ("TRUE OR TRAP?", 101),
+    ("FIND THE OUTPUT?", 2026),
+]
+for offset, (q, seed) in enumerate(FINAL_CASES, 96):
+    def make_case(q=q, seed=seed):
         def case(self):
+            fields = ai.build_flux2_multipart_fields("premium thumbnail art", seed, 1152, 768)
+            self.assertEqual(fields["prompt"][1], "premium thumbnail art")
+            self.assertEqual(fields["width"][1], "1152")
+            self.assertEqual(fields["height"][1], "768")
+            self.assertEqual(fields["seed"][1], str(seed))
             with tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 bg = root / "bg.png"
                 out = root / "thumbnail.jpg"
                 Image.new("RGB", (1024, 1024), (20, 70, 110)).save(bg)
-                script = _script(q)
                 ev2.create_custom_thumbnail(
                     root / "unused.mp4", out, 1.0, q, "RBI GRADE B",
                     background_path=bg, topic="RBI Grade B - Test", variants=1
@@ -306,20 +315,7 @@ for offset, q in enumerate([
                 manifest = root / "thumbnail_variants" / "manifest.json"
                 self.assertTrue(manifest.exists())
         return case
-    setattr(TestThumbnailEngine100, f"test_{offset:03d}_compositor", make_case())
-
-
-# 96-100: FLUX.2 klein multipart contract
-for offset, seed in enumerate([2, 18, 77, 101, 2026], 96):
-    def make_case(seed=seed):
-        def case(self):
-            fields = ai.build_flux2_multipart_fields("premium thumbnail art", seed, 1152, 768)
-            self.assertEqual(fields["prompt"][1], "premium thumbnail art")
-            self.assertEqual(fields["width"][1], "1152")
-            self.assertEqual(fields["height"][1], "768")
-            self.assertEqual(fields["seed"][1], str(seed))
-        return case
-    setattr(TestThumbnailEngine100, f"test_{offset:03d}_flux2_multipart", make_case())
+    setattr(TestThumbnailEngine100, f"test_{offset:03d}_final_smoke", make_case())
 
 
 if __name__ == "__main__":

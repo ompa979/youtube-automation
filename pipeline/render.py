@@ -894,14 +894,14 @@ def assemble_video(
     # Build the audio graph: voice (always) + music (optional, ducked +
     # looped) + one delayed/ducked whoosh hit per scene cut (optional).
     audio_inputs = [voice]
-    parts = ["[1:a]volume=1.0,aformat=channel_layouts=stereo[voice]"]
+    parts = ["[1:a]volume=2.00,aformat=channel_layouts=stereo[voice]"]
     mix_labels = ["[voice]"]
     next_idx = 2
 
     if music:
         audio_inputs.append(music)
         parts.append(
-            f"[{next_idx}:a]volume=0.035,aloop=loop=-1:size=2e9,aformat=channel_layouts=stereo[music]"
+            f"[{next_idx}:a]volume=0.015,aloop=loop=-1:size=2e9,aformat=channel_layouts=stereo[music]"
         )
         mix_labels.append("[music]")
         next_idx += 1
@@ -914,7 +914,7 @@ def assemble_video(
             ms = max(int(off * 1000), 0)
             label = f"[wh{i}]"
             parts.append(
-                f"[{sfx_idx}:a]adelay={ms}|{ms},volume=0.22,aformat=channel_layouts=stereo{label}"
+                f"[{sfx_idx}:a]adelay={ms}|{ms},volume=0.16,aformat=channel_layouts=stereo{label}"
             )
             mix_labels.append(label)
 
@@ -928,7 +928,7 @@ def assemble_video(
         next_idx += 1
         ms = max(int(chime_offset * 1000), 0)
         parts.append(
-            f"[{chime_idx}:a]adelay={ms}|{ms},volume=0.30,aformat=channel_layouts=stereo[chime]"
+            f"[{chime_idx}:a]adelay={ms}|{ms},volume=0.24,aformat=channel_layouts=stereo[chime]"
         )
         mix_labels.append("[chime]")
 
@@ -950,10 +950,10 @@ def assemble_video(
             vol = {"boom": 0.28, "tick": 0.18, "alert": 0.22}.get(cue_name, 0.20)
             d_ms = max(int(s_off * 1000), 0)
             lbl = f"[sfx_{s_idx}_{cue_name}]"
-            parts.append(f"[{s_idx_in}:a]adelay={d_ms}|{d_ms},volume={vol},aformat=channel_layouts=stereo{lbl}")
+            parts.append(f"[{s_idx_in}:a]adelay={d_ms}|{d_ms},volume={min(vol,0.18)},aformat=channel_layouts=stereo{lbl}")
             mix_labels.append(lbl)
 
-    parts.append(f"{''.join(mix_labels)}amix=inputs={len(mix_labels)}:duration=first:dropout_transition=0[aout]")
+    parts.append(f"{''.join(mix_labels)}amix=inputs={len(mix_labels)}:duration=first:dropout_transition=0,loudnorm=I=-13:TP=-1.0:LRA=7,alimiter=limit=0.95:attack=5:release=50[aout]")
     fc = ";".join(parts)
 
     cmd = [
@@ -975,9 +975,9 @@ def assemble_video(
         print(f"[!] Full audio mix failed, retrying without SFX (non-fatal): {exc}")
         if music:
             fc_fallback = (
-                "[1:a]volume=1.0[voice];"
-                "[2:a]volume=0.035,aloop=loop=-1:size=2e9[music];"
-                "[voice][music]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+                "[1:a]volume=2.00[voice];"
+                "[2:a]volume=0.015,aloop=loop=-1:size=2e9[music];"
+                "[voice][music]amix=inputs=2:duration=first:dropout_transition=0,loudnorm=I=-13:TP=-1.0:LRA=7,alimiter=limit=0.95:attack=5:release=50[aout]"
             )
             cmd_fallback = [
                 "ffmpeg", "-y", "-i", str(silent_video), "-i", str(voice), "-i", str(music),

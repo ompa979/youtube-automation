@@ -78,16 +78,17 @@ jobs:
           print(f'PASS: {len(niches)} niches, {total_topics} topics, visual styles valid')
           PY
 
-      - name: Run creative + thumbnail sanity tests
-        run: python -m unittest tests.test_creative_v6 tests.test_thumbnail_engine_100 tests.test_cloudflare_scene_provider tests.test_topic_selection_v7 -v
+      - name: Run V8 creative + thumbnail + topic sanity suite
+        run: |
+          python -m pip install pytest
+          PYTHONPATH=. python -m pytest -q
 
-
-      - name: Verify V7 creative mode
+      - name: Verify V8 creative mode
         run: |
           python - <<'PY'
           from pipeline.engagement_v2 import V2_ACTION_SEQUENCE
-          assert V2_ACTION_SEQUENCE == ("hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock")
-          print('PASS: V7 value-first creative renderer enabled')
+          assert V2_ACTION_SEQUENCE == ("hook", "context", "mechanism", "example", "exam_takeaway", "difference_card")
+          print('PASS: V8 value-first creative renderer enabled')
           PY
 
       - name: Generate & Upload (3 videos × 45 min)

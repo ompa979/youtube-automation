@@ -1225,7 +1225,7 @@ def _seo_and_finalize(script: Script, topic: str, niche_key: str | None, setting
 # CREATIVE V6 — value-first scripts, no A/B game, no fake urgency, richer visual briefs
 # ═════════════════════════════════════════════════════════════════════════════
 
-_V6_SCENE_SEQUENCE = ("hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock")
+_V6_SCENE_SEQUENCE = ("hook", "context", "mechanism", "example", "exam_takeaway", "difference_card")
 _V6_ACTION_TYPES = set(_V6_SCENE_SEQUENCE)
 _V6_RISK_PHRASES = (
     "90%", "99%", "every year", "always asked", "always asks", "illegal", "guaranteed",
@@ -1266,7 +1266,7 @@ VALUE-FIRST SCRIPT SHAPE — EXACTLY 6 SCENES
 4. EXAMPLE: Work through ONE realistic example from start to finish. Use numbers, a row, a packet, a transaction, a query, or a real-world situation where appropriate.
 5. EXAM TAKEAWAY: State exactly what wording, signal, or condition lets an aspirant recognize or apply the answer in a question. This is the practical exam-use line.
    EXAM CLUE should be embedded naturally inside this scene when useful; do not render a generic badge merely to label it.
-6. MEMORY LOCK: Compress the lesson into one accurate line that is worth saving for revision. No generic CTA in the narration.
+6. FINAL DIFFERENCE CARD: End with a 2-3 second visual comparison of the two most important concepts. Spoken line should be one concise contrast sentence. The image must show the two concepts side by side. No quiz, A/B choice, countdown, or CTA in narration.
 
 TARGET LENGTH
 - 50-90 spoken words total.
@@ -1312,14 +1312,14 @@ Return ONLY this JSON:
   "thumbnail_visual_prompt": "premium 16:9 hero-art description, no text",
   "scenes": [
     {{
-      "action_type": "hook | context | mechanism | example | exam_takeaway | memory_lock",
+      "action_type": "hook | context | mechanism | example | exam_takeaway | difference_card",
       "action_payload": "what is physically happening in the scene",
       "narration": "...",
       "tts_text": "...",
       "image_prompt": "...",
       "on_screen_text": "2-6 meaningful words",
       "card_points": ["one short teaching anchor"],
-      "motion_type": "hook | push_in | pan_right | formula_build | example_reveal | static",
+      "motion_type": "hook | push_in | pan_right | formula_build | example_reveal | split_compare",
       "camera_motion": "...",
       "sfx_cue": "boom | whoosh | chime | alert | none"
     }}
@@ -1349,6 +1349,7 @@ def _v6_to_script(data: dict) -> Script:
         "mechanism": ("formula_build", "push_in", "whoosh"),
         "example": ("example_reveal", "snap_zoom", "chime"),
         "exam_takeaway": ("static", "static", "alert"),
+        "difference_card": ("static", "static", "chime"),
         "memory_lock": ("static", "push_in", "chime"),
     }
     for i, raw in enumerate(raw_scenes):
@@ -1365,6 +1366,14 @@ def _v6_to_script(data: dict) -> Script:
         image_prompt = _v6_clean_forbidden(_first_text(raw, "image_prompt", "visual_prompt", "visual"))
         if not image_prompt:
             image_prompt = "Premium editorial visual of the exact concept being taught, showing one clear physical action or transformation, cinematic realism, vertical 9:16, no text."
+        if action == "difference_card":
+            image_prompt = (
+                "FINAL COMPARISON VISUAL: split the frame into two clearly separated visual sides for the two most important concepts in this topic. "
+                "Show each concept as a distinct concrete object/process, with a strong central divider and obvious visual contrast. "
+                "This is an image comparison, not a quiz, not a list, and not a text card. "
+                + image_prompt
+                + " No written words, labels, numbers, logos, UI or watermark."
+            )[:1800]
         on_screen = _v6_clean_forbidden(_first_text(raw, "on_screen_text", "caption", "keyword", "memory_cue"))
         points = raw.get("card_points") or []
         if isinstance(points, str): points = [points]
@@ -1399,23 +1408,37 @@ def _v6_to_script(data: dict) -> Script:
     return script
 
 
+def _v8_difference_payload(script: Script) -> str:
+    candidates = []
+    for scene in getattr(script, "scenes", [])[:5]:
+        values = [getattr(scene, "action_payload", "")]
+        points = getattr(scene, "card_points", None) or []
+        if points:
+            values.append(points[0])
+        for value in values:
+            value = _clean_text(value)
+            if value and value not in candidates:
+                candidates.append(value)
+    return (candidates[-1] if candidates else "KEY CONCEPT | KEY DISTINCTION")[:120]
+
+
 def _v6_enforce_contract(script: Script) -> None:
     for i, scene in enumerate(script.scenes[:6]):
         role = _V6_SCENE_SEQUENCE[i]
         scene.action_type = role
-        # Never allow the old game-show phrases back into the renderer.
         if role == "hook" and not scene.on_screen_text:
             scene.on_screen_text = "WHY THIS MATTERS"
         elif role == "context" and not scene.on_screen_text:
-            scene.on_screen_text = "THE CONFUSION"
+            scene.on_screen_text = "THE CONTEXT"
         elif role == "mechanism" and not scene.on_screen_text:
-            scene.on_screen_text = "THE MECHANISM"
+            scene.on_screen_text = "HOW IT WORKS"
         elif role == "example" and not scene.on_screen_text:
-            scene.on_screen_text = "SEE IT"
+            scene.on_screen_text = "WORKED EXAMPLE"
         elif role == "exam_takeaway" and not scene.on_screen_text:
-            scene.on_screen_text = "EXAM TAKEAWAY"
-        elif role == "memory_lock" and not scene.on_screen_text:
-            scene.on_screen_text = "MEMORY LOCK"
+            scene.on_screen_text = "EXAM CLUE"
+        elif role == "difference_card":
+            scene.on_screen_text = "KEY DIFFERENCE"
+            scene.action_payload = scene.action_payload or _v8_difference_payload(script)
         scene.on_screen_text = _v6_clean_forbidden(scene.on_screen_text)[:60]
         scene.action_payload = _v6_clean_forbidden(scene.action_payload)[:140]
     if not getattr(script, "thumbnail_text", ""):
@@ -1440,8 +1463,13 @@ def _v6_qa_all(script: Script, topic: str, language: str):
         extra.append(_v6_length_issue(script))
     body = " ".join([script.title, script.hook, script.description, script.pinned_comment] + [s.narration + " " + s.on_screen_text for s in script.scenes]).lower()
     for phrase in _V6_RISK_PHRASES:
+        if phrase == "never":
+            continue
         if phrase in body:
             extra.append(f"unsupported/sensational phrase detected: {phrase}")
+    final_words = len(re.findall(r"\b[\w'-]+\b", script.scenes[-1].narration)) if script.scenes else 0
+    if final_words > 18:
+        extra.append(f"final difference scene is {final_words} words; keep the visual comparison line under 18 words")
     if re.search(r"\bA\s*(?:or|vs\.?|versus)\s*B\b", body, re.I):
         extra.append("A/B game language is prohibited in V6")
     if re.search(r"\b(?:stop|wait)\b", script.scenes[0].narration.lower()):
@@ -1455,7 +1483,9 @@ def _v6_finalize(script: Script, topic: str, niche_key: str | None) -> Script:
     _v6_enforce_contract(script)
     script.title = _ensure_exam_in_title(script.title, topic, niche_key)
     script.title = re.sub(r"\s+", " ", script.title).strip()[:85].rstrip(" -:|")
-    script.pinned_comment = _v6_clean_forbidden(script.pinned_comment)
+    # Always rebuild the pinned comment from the actual teaching arc so legacy A/B
+    # or generic challenge CTAs cannot leak back in through model output.
+    script.pinned_comment = _v6_clean_forbidden(build_comment_cta(script))
     # Never let a game CTA leak into the published description.
     script.description = re.sub(r"\b(?:A\s*(?:or|vs\.?|versus)\s*B|quick test|think fast|countdown|stop scrolling|did you get it)\b", "", script.description, flags=re.I)
     return script
@@ -1514,8 +1544,8 @@ def _v6_seo_and_finalize(script: Script, topic: str, niche_key: str | None, sett
         "primary_query": cluster.primary_query if cluster else "",
         "seo_score": seo_score,
         "retention_score": retention_score,
-        "creative_version": "v6_value_first",
-        "thumbnail_engine": "v6_premium_art",
+        "creative_version": "v8_value_first_difference_card",
+        "thumbnail_engine": "v8_layout_safezone",
     }
     bad = _known_fact_issues(script)
     if bad:

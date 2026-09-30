@@ -47,6 +47,7 @@ from .render import assemble_video
 from .script_gen import generate_script, ScriptRejected
 from .subject_area import classify_subject_area
 from .trending import get_trending_topic
+from .topic_engine import ALLOWED_EXAM_NICHES, EXAM_ONLY, choose_best_topic
 from .tts import synthesize_scene
 from .upload import upload_video
 from .visuals import fetch_scene_image
@@ -102,7 +103,7 @@ def _load_settings() -> Settings:
         pollinations_api_key=os.getenv("POLLINATIONS_API_KEY") or os.getenv("POLLINATION_KEY"),
         youtube_projects=creds,
         upload_enabled=_truthy(os.getenv("UPLOAD_ENABLED"), True),
-        niches_enabled=_csv_env("NICHES_ENABLED", ["facts"]),
+        niches_enabled=_csv_env("NICHES_ENABLED", sorted(ALLOWED_EXAM_NICHES)),
         languages_enabled=_csv_env("LANGUAGES_ENABLED", ["en"]),
     )
 
@@ -144,52 +145,32 @@ def _slug(text: str, max_len: int = 60) -> str:
 
 
 def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, Any]):
-    available_niches = [
-        n for n in settings.niches_enabled
-        if n in plan and plan[n].get("topics")
-    ]
+    available_niches=[n for n in settings.niches_enabled if n in plan and plan[n].get("topics")]
+    if EXAM_ONLY:
+        filtered=[n for n in available_niches if n in ALLOWED_EXAM_NICHES]
+        if filtered:
+            available_niches=filtered
+        else:
+            available_niches=[n for n in sorted(ALLOWED_EXAM_NICHES) if n in plan and plan[n].get("topics")]
+            print(f"[topic-v8] EXAM_ONLY=true: ignoring non-exam NICHES_ENABLED={settings.niches_enabled}; using {available_niches}")
     if not available_niches:
-        raise RuntimeError(
-            f"No enabled niches have topics. Enabled={settings.niches_enabled}; "
-            f"available={list(plan)}"
-        )
-
-    # v18: weighted rotation — each niche appears `weight` times per cycle
-    # (content_plan.json "weight", default 1). Audit: SBI PO / IT / awareness
-    # outperform RBI Grade B 2-3x, so those carry more slots.
-    rotation = [n for n in available_niches for _ in range(max(1, int(plan[n].get("weight", 1))))]
-    niche = rotation[state["niche"] % len(rotation)]
-    cfg = plan[niche]
-
-    languages = [
-        lang for lang in settings.languages_enabled
-        if lang in cfg.get("voice", {})
-    ]
-    if not languages:
-        raise RuntimeError(
-            f"No enabled languages available for niche '{niche}'. "
-            f"Enabled={settings.languages_enabled}; voices={list(cfg.get('voice', {}))}"
-        )
-
-    language = languages[state["language"] % len(languages)]
-    topics = cfg["topics"]
-    static_topic = topics[state["topic"] % len(topics)]
-
-    # Optimization #4: try Google Trends first, fall back to static topic
-    topic = get_trending_topic(niche, static_topic)
-
-    # Optimization #10: if last run failed on a topic, retry it first
-    if state.get("last_failed_topic") and state["last_failed_topic"] != state.get("last_successful_topic"):
-        retry = state["last_failed_topic"]
-        print(f"[pipeline] retrying previously failed topic: {retry!r}")
-        topic = retry
-        state["last_failed_topic"] = None
-    else:
-        state["niche"] += 1
-        state["language"] += 1
-        state["topic"] += 1
-
-    return niche, cfg, language, topic
+        raise RuntimeError(f"No enabled niches have topics. Enabled={settings.niches_enabled}; available={list(plan)}")
+    try:
+        niche,cfg,language,topic,score,board=choose_best_topic(plan,available_niches,state)
+        state["last_niche"]=niche
+        print(f"[topic-v8] 🔥 TREND SCORE={score.trend_score:.0f}/100 | 🔎 SEO SCORE={score.seo_score:.0f}/100 | 🎯 EXAM FIT={score.exam_fit:.0f}/100 | 💡 VALUE={score.value_density:.0f}/100 | 🎨 VISUAL={score.visual:.0f}/100")
+        print(f"[topic-v8] DISCOVERY ORDER: TREND → SEO → EXAM FIT → VALUE → VISUAL")
+        print(f"[topic-v8] selected={topic!r} niche={niche} total={score.total:.1f}")
+        for item in board[:5]: print(f"[topic-v8]  trend={item.trend_score:.0f} seo={item.seo_score:.0f} exam={item.exam_fit:.0f} value={item.value_density:.0f} visual={item.visual:.0f} | {item.topic}")
+        return niche,cfg,language,topic
+    except Exception as exc:
+        print(f"[topic-v8] evidence selector unavailable, deterministic fallback: {exc}")
+    rotation=[n for n in available_niches for _ in range(max(1,int(plan[n].get("weight",1))))]
+    niche=rotation[state.get("niche",0)%len(rotation)]; cfg=plan[niche]
+    language=next((lang for lang in settings.languages_enabled if lang in cfg.get("voice",{})),"en")
+    topics=cfg["topics"]; topic=get_trending_topic(niche,topics[state.get("topic",0)%len(topics)])
+    state["niche"]=state.get("niche",0)+1; state["language"]=state.get("language",0)+1; state["topic"]=state.get("topic",0)+1
+    return niche,cfg,language,topic
 
 
 def _run_one(

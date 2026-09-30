@@ -505,3 +505,25 @@ except NameError:
         if action_hud:
             parts.append(action_hud)
         return ",".join(parts)
+
+
+# V8 final comparison card
+def _v8_difference_hud(payload: str, accent: str) -> str:
+    # Final scene is an IMAGE comparison. Keep overlays minimal so the generated
+    # side-by-side artwork remains the dominant teaching element.
+    return (
+        "drawbox=x=36:y=h*0.11:w=w-72:h=h*0.70:color=black@0.10:t=3,"
+        "drawtext=font='Inter':text='KEY DIFFERENCE':fontcolor=0xFFE45B:fontsize=24:borderw=2:bordercolor=black@0.76:x=54:y=h*0.12"
+    )
+
+def build_motion_graphics_filter(duration: float, accent: str, scene_index: int = 0, total_scenes: int = 1, is_hook: bool = False, action_type: str = "explanation", action_payload: str = "") -> str:
+    act=(action_type or "explanation").lower().strip()
+    if act == "difference_card":
+        parts=[mg_progress_bar(duration,accent), _v8_difference_hud(action_payload,accent)]
+        if is_hook: parts.append(mg_hook_sweep(accent))
+        return ",".join(parts)
+    if act in {"hook","context","mechanism","example","exam_takeaway"}:
+        parts=[mg_progress_bar(duration,accent)]
+        if is_hook: parts.append(mg_hook_sweep(accent))
+        return ",".join(parts)
+    return _build_motion_graphics_filter_legacy(duration,accent,scene_index,total_scenes,is_hook,action_type,action_payload)

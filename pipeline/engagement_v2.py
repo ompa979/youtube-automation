@@ -23,14 +23,7 @@ if TYPE_CHECKING:
 
 # The renderer understands these exact beats. Keeping this centralized avoids
 # drift between prompt, QA and render layers.
-V2_ACTION_SEQUENCE = (
-    "pattern_interrupt",
-    "challenge",
-    "countdown",
-    "reveal",
-    "mechanism",
-    "trap_loop",
-)
+V2_ACTION_SEQUENCE = ("hook", "context", "mechanism", "example", "exam_takeaway", "difference_card")
 
 _EXAM_RE = re.compile(
     r"\b(IBPS\s*(?:SO(?:\s*IT)?|PO|Clerk|RRB)|SBI\s*(?:PO|Clerk|SO)|"
@@ -165,50 +158,27 @@ def build_thumbnail_text(script: "Script") -> str:
 
 
 def enforce_v2_contract(script: "Script") -> None:
-    """Normalize generated scenes to the six render-time psychological roles."""
-    if not script.scenes:
-        return
-
-    # Keep 6 scenes as the target; QA will reject fewer/more, so this function
-    # only normalizes role metadata and does not fabricate narration.
+    """V8 value-first contract with a final visual comparison scene."""
+    defaults = {
+        "hook": "WHY THIS MATTERS", "context": "THE CONTEXT", "mechanism": "HOW IT WORKS",
+        "example": "WORKED EXAMPLE", "exam_takeaway": "EXAM CLUE", "difference_card": "KEY DIFFERENCE"
+    }
     for i, scene in enumerate(script.scenes[:6]):
-        role = V2_ACTION_SEQUENCE[i] if i < len(V2_ACTION_SEQUENCE) else V2_ACTION_SEQUENCE[-1]
+        role = V2_ACTION_SEQUENCE[i]
         scene.action_type = role
-
-        if role == "pattern_interrupt":
-            scene.on_screen_text = "STOP 🚨"
-            scene.action_payload = "STOP. 🚨"
-        elif role == "challenge":
-            if not _clean_text(scene.action_payload):
-                scene.action_payload = _clean_text(scene.on_screen_text) or "A OR B?"
-            scene.on_screen_text = "A OR B?"
-        elif role == "countdown":
-            scene.action_payload = "3... 2... 1..."
-            scene.on_screen_text = "THINK FAST"
-        elif role == "reveal":
-            if not _clean_text(scene.action_payload):
-                anchor = _clean_text(scene.card_points[0]) if getattr(scene, "card_points", None) else "ANSWER REVEALED"
-                scene.action_payload = anchor
-            scene.on_screen_text = "REVEAL"
-        elif role == "mechanism":
-            if not _clean_text(scene.action_payload):
-                anchor = _clean_text(scene.card_points[0]) if getattr(scene, "card_points", None) else "THE CORE RULE"
-                scene.action_payload = anchor
-            scene.on_screen_text = "THE TRICK"
-        elif role == "trap_loop":
-            if not _clean_text(scene.action_payload):
-                scene.action_payload = _question_from_challenge(script)
-            scene.on_screen_text = "DID YOU GET IT?"
-
-    if len(script.scenes) >= 2:
-        script.thumbnail_text = build_thumbnail_text(script)
-    else:
-        script.thumbnail_text = "CAN YOU GET IT RIGHT?"
+        scene.narration = _clean_text(getattr(scene, "narration", ""))
+        scene.tts_text = _clean_text(getattr(scene, "tts_text", "")) or scene.narration
+        scene.on_screen_text = _clean_text(getattr(scene, "on_screen_text", ""))[:60] or defaults[role]
+        scene.action_payload = _clean_text(getattr(scene, "action_payload", ""))[:140]
+        if role == "difference_card":
+            scene.on_screen_text = "KEY DIFFERENCE"
+            if not scene.action_payload:
+                scene.action_payload = "KEY CONCEPT | KEY DISTINCTION"
+    script.thumbnail_text = _clean_text(getattr(script, "thumbnail_text", ""))[:52].upper() or _clean_text(script.title)[:42].upper()
 
 
 def build_comment_cta(script: "Script") -> str:
-    question = _question_from_challenge(script)
-    return f"{question} Comment below."
+    return "What part of this concept should we explain with another example? Comment below."
 
 
 def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
@@ -870,7 +840,7 @@ def create_custom_thumbnail(
 # CREATIVE V7 — natural teaching, premium packaging, NO GAME-SHOW COPY
 # ═════════════════════════════════════════════════════════════════════════════
 
-V2_ACTION_SEQUENCE = ("hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock")
+V2_ACTION_SEQUENCE = ("hook", "context", "mechanism", "example", "exam_takeaway", "difference_card")
 
 _V7_BANNED = re.compile(
     r"\b(?:A\s*(?:OR|VS\.?|VERSUS)\s*B|QUICK TEST|THINK FAST|COUNTDOWN|STOP SCROLLING|STOP|REVEAL|THE TRICK|DID YOU GET IT)\b",
@@ -974,6 +944,7 @@ def enforce_v2_contract(script: "Script") -> None:
                 "mechanism": "HOW IT WORKS",
                 "example": "WORKED EXAMPLE",
                 "exam_takeaway": "LOOK FOR THIS",
+                "difference_card": "KEY DIFFERENCE",
                 "memory_lock": "REMEMBER THE RULE",
             }
             scene.on_screen_text = defaults[role]
@@ -1106,4 +1077,121 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
               "canvas":[1280,720],"ai_provider":os.getenv("CLOUDFLARE_THUMBNAIL_MODEL", os.getenv("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"))}
     (variant_dir/"manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"[thumbnail-v7] selected={best.name} headline={headline!r} subline={secondary!r}")
+    return out_path
+
+
+# V8 thumbnail override: layout-aware AI hero art first, deterministic typography second.
+_V8_LAYOUTS = ("hero_right_text_left", "hero_left_text_right", "center_hero_top_text", "split_concepts", "giant_number", "human_reaction_right")
+_V8_ACCENTS = ((255,208,52),(43,221,255),(255,76,84),(255,145,46))
+
+def _v8_thumbnail_visual_prompt(topic: str, headline: str, subline: str, layout: str) -> str:
+    layout_map = {
+        "hero_right_text_left":"hero subject dominates the RIGHT 58 percent; LEFT 38 percent is clean cinematic negative space; no important object in the left text zone",
+        "hero_left_text_right":"hero subject dominates the LEFT 55 percent; RIGHT 40 percent is clean cinematic negative space; no important object in the right text zone",
+        "center_hero_top_text":"hero sits below center; upper third is uncluttered for headline; subject remains visually dominant",
+        "split_concepts":"two exact concept objects separated clearly left and right; strong visual contrast; no text",
+        "giant_number":"one unmistakable concept object on the RIGHT with depth; LEFT stays simple for giant typography",
+        "human_reaction_right":"expressive young Indian learner on the RIGHT beside the exact concept object; LEFT remains quiet for typography",
+    }
+    return ("Create a premium creator-grade YouTube thumbnail hero image, not a lesson slide, not a stock photo, not an infographic and not a video frame. "
+            f"Topic: {topic}. Core idea: {headline}. Supporting meaning: {subline}. Composition: {layout_map[layout]}. "
+            "Use one unforgettable focal subject, one decisive physical action, strong cinematic perspective, realistic or high-end 3D materials, crisp foreground/background separation, directional key light, rim light, rich reflections, atmospheric depth, vivid but controlled color, expensive advertising finish and a memorable silhouette. "
+            "The image must explain the concept when muted and reserve the specified text-safe area. Absolutely NO words, letters, numbers, logos, watermarks, UI, infographic panels, borders or collage. Landscape 16:9, designed for 1280x720.")
+
+def _v8_detect_text_side(img: Image.Image, preferred: str) -> str:
+    """Choose the quieter half of the AI artwork for typography using edge density."""
+    small = img.convert("L").resize((320, 180))
+    edges = small.filter(ImageFilter.FIND_EDGES)
+    import numpy as _np
+    arr = _np.asarray(edges, dtype=_np.float32)
+    mid = arr.shape[1] // 2
+    left = float(arr[:, :mid].mean())
+    right = float(arr[:, mid:].mean())
+    if abs(left - right) < 4.0:
+        return "left" if "left" in preferred else "right"
+    return "left" if left < right else "right"
+
+
+def _v8_fit_text(draw, text, max_width, max_lines=2, start=82, minimum=48):
+    for size in range(start, minimum - 1, -2):
+        font = _v6_thumb_font(size, heavy=True)
+        lines = _v6_wrap(draw, text, font, max_width, max_lines)
+        widths = [draw.textbbox((0,0), line, font=font)[2] for line in lines]
+        if len(lines) <= max_lines and (not widths or max(widths) <= max_width):
+            return font, lines
+    font = _v6_thumb_font(minimum, heavy=True)
+    return font, _v6_wrap(draw, text, font, max_width, max_lines)
+
+
+def _v8_gradient(draw, side: str):
+    if side == "left":
+        width = 690
+        for x in range(width):
+            t = x / max(1, width - 1)
+            alpha = int(170 * ((1 - t) ** 1.8))
+            draw.line((x, 0, x, THUMBNAIL_H), fill=(0, 0, 0, alpha))
+    else:
+        start = THUMBNAIL_W - 690
+        for x in range(start, THUMBNAIL_W):
+            t = (x - start) / max(1, 690 - 1)
+            alpha = int(170 * (t ** 1.8))
+            draw.line((x, 0, x, THUMBNAIL_H), fill=(0, 0, 0, alpha))
+
+
+def _v8_thumbnail_render(background, out, headline, subline, label, layout, variant_index):
+    bg=_fit_background(background).convert("RGB")
+    bg=ImageEnhance.Contrast(bg).enhance(1.18); bg=ImageEnhance.Color(bg).enhance(1.13); bg=ImageEnhance.Sharpness(bg).enhance(1.12)
+    canvas=bg.convert("RGBA"); draw=ImageDraw.Draw(canvas)
+    preferred = "right" if "right" in layout or layout == "split_concepts" else "left"
+    side = "left" if layout == "center_hero_top_text" else _v8_detect_text_side(bg, preferred)
+    accent=_V8_ACCENTS[variant_index%len(_V8_ACCENTS)]+(255,)
+    accent2=_V8_ACCENTS[(variant_index+1)%len(_V8_ACCENTS)]+(255,)
+    _v8_gradient(draw, side)
+    if side == "left":
+        text_x, max_width = 48, 575
+    else:
+        text_x, max_width = 692, 480
+    badge=_clean_text(label).upper()[:20] or "EXAMCRACKER"
+    bf=_v6_thumb_font(22,heavy=True)
+    badge_w=max(190,min(330,draw.textbbox((0,0),badge,font=bf)[2]+34))
+    draw.rounded_rectangle((text_x,28,text_x+badge_w,72),radius=13,fill=(3,8,15,225),outline=accent,width=2)
+    draw.text((text_x+16,50),badge,font=bf,fill=(255,255,255,255),anchor="lm")
+    h=re.sub(r"\s+"," ",_clean_text(headline)).upper().strip("?!:;,. ")[:40]
+    sub=re.sub(r"\s+"," ",_clean_text(subline)).upper()[:34]
+    hf, lines = _v8_fit_text(draw, h, max_width, max_lines=2, start=82, minimum=50)
+    y=118
+    line_heights=[]
+    for line in lines:
+        bbox=draw.textbbox((0,0),line,font=hf,stroke_width=3); line_heights.append(bbox[3]-bbox[1])
+    for idx,line in enumerate(lines):
+        fill=(255,255,255,255) if idx < len(lines)-1 else accent
+        draw.text((text_x,y),line,font=hf,fill=fill,stroke_width=5,stroke_fill=(0,0,0,235))
+        y += line_heights[idx] + 10
+    if sub:
+        sf=_v6_thumb_font(27,heavy=False)
+        draw.text((text_x,y+8),sub,font=sf,fill=(248,250,255,248),stroke_width=2,stroke_fill=(0,0,0,200))
+    # One graphic cue only; never a giant question mark that can collide with the hero.
+    if "?" in h:
+        qx = text_x + max_width - 8
+        draw.text((qx,128),"?",font=_v6_thumb_font(112,heavy=True),fill=accent2[:3]+(185,),anchor="ra",stroke_width=7,stroke_fill=(0,0,0,120))
+    # Small separator and brand; never encroach on the hero area.
+    draw.line((text_x,650,min(text_x+260,text_x+max_width),650),fill=accent,width=5)
+    draw.text((text_x,684),"EXAMCRACKER AI",font=_v6_thumb_font(15,heavy=False),fill=(235,240,248,165))
+    out.parent.mkdir(parents=True,exist_ok=True); canvas.convert("RGB").save(out,"JPEG",quality=97,optimize=True,progressive=True); return out
+
+def create_custom_thumbnail(video_path, out_path, challenge_time, question, label, background_path=None, topic="", variants=None, subline="", visual_prompt=""):
+    count=max(3,int(variants or int(os.getenv("THUMBNAIL_VARIANTS","3"))))
+    headline=_clean_text(question).strip("?!:;,. ").upper() or "KEY RULE"; secondary=_clean_text(subline).upper() or "KEY CONCEPT"
+    vdir=out_path.parent/"thumbnail_variants"; vdir.mkdir(parents=True,exist_ok=True)
+    seed_base=int(hashlib.sha1(f"v8|{topic}|{headline}|{secondary}|{label}".encode()).hexdigest()[:10],16)
+    clean=_load_clean_background(video_path,background_path,challenge_time); candidates=[]
+    for i in range(count):
+        layout=_V8_LAYOUTS[i%len(_V8_LAYOUTS)]; prompt=_v8_thumbnail_visual_prompt(topic or label,headline,secondary,layout)
+        try: ai=_request_ai_background(prompt,seed_base+i*7919)
+        except Exception as exc: print(f"[thumbnail-v8] AI candidate {i+1} failed: {exc}"); ai=None
+        bg=ai or clean; path=vdir/f"v8_{i+1:02d}_{layout}.jpg"; _v8_thumbnail_render(bg,path,headline,secondary,label,layout,i); candidates.append(path)
+    ranked=sorted(candidates,key=_v6_score_thumbnail,reverse=True); best=ranked[0]
+    Image.open(best).convert("RGB").save(out_path,"JPEG",quality=97,optimize=True,progressive=True)
+    (vdir/"manifest.json").write_text(json.dumps({"engine":"v8_layout_aware","selected":best.name,"variants":[p.name for p in ranked],"scores":{p.name:round(_v6_score_thumbnail(p),2) for p in candidates},"canvas":[THUMBNAIL_W,THUMBNAIL_H],"model":os.getenv("CLOUDFLARE_THUMBNAIL_MODEL","@cf/black-forest-labs/flux-2-klein-4b")},indent=2),encoding="utf-8")
+    print(f"[thumbnail-v8] selected={best.name}; variants={len(candidates)}")
     return out_path

@@ -31,7 +31,7 @@ from pipeline.seo.keyword_clusters import get_cluster_for_topic
 from pipeline.seo.seo_score import calculate_seo_score
 
 
-ROLES = ["hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock"]
+ROLES = ["hook", "context", "mechanism", "example", "exam_takeaway", "difference_card"]
 BANNED = [
     "A OR B", "A) ", "B) ", "QUICK TEST", "THINK FAST", "COUNTDOWN",
     "STOP SCROLLING", "90%", "99%", "ALWAYS ASKED", "SECRET", "GUARANTEED",
@@ -47,7 +47,7 @@ def make_scene(i: int, role: str, text: str | None = None):
             "mechanism": "Start with M1, then add the relevant term deposits to understand M3.",
             "example": "Suppose a bank has demand deposits plus term deposits; only the term deposits widen the aggregate.",
             "exam_takeaway": "When a question mentions term deposits, connect that clue with broader money.",
-            "memory_lock": "Remember: broader money adds term deposits to the narrower money measure.",
+            "difference_card": "M1 is narrower; M3 adds term deposits and is broader.",
         }[role],
         tts_text="same teaching line",
         image_prompt="Premium editorial visual showing the exact mechanism with one clear physical transformation and no text.",
@@ -82,11 +82,13 @@ class TestCreativeV6(unittest.TestCase):
         }, "en")
         self.assertIn("Every spoken sentence must add information", prompt)
         self.assertIn("MECHANISM", prompt)
+        self.assertIn("FINAL DIFFERENCE CARD", prompt)
         self.assertIn("EXAMPLE", prompt)
-        self.assertIn("MEMORY LOCK", prompt)
+        self.assertIn("memory", prompt.lower())
         self.assertNotIn("A) [OPTION 1]", prompt.upper())
         self.assertNotIn("3... 2... 1", prompt.upper())
-        self.assertIn("STOP SCROLLING", prompt.upper())
+        self.assertIn("NEVER USE", prompt.upper())
+        self.assertIn("STOP SCROLLING", prompt.upper())  # appears only inside the forbidden-list instruction
 
     def test_02_prompt_forbids_filler(self):
         prompt = sg._build_prompt("CRR vs SLR: what banks keep as reserves", {"system_prompt": "Teach clearly."}, "en")
@@ -170,6 +172,8 @@ class TestCreativeV6(unittest.TestCase):
         self.assertTrue(board)
         self.assertIn(topic, cfg["topics"])
         self.assertEqual(lang, "en")
+        self.assertTrue(hasattr(score, "trend_score"))
+        self.assertTrue(hasattr(score, "seo_score"))
 
     def test_14_dynamic_keyword_cluster(self):
         cluster = get_cluster_for_topic("M1 vs M3: why term deposits make M3 broader")
@@ -313,7 +317,7 @@ def _make_contract_case(i, topic):
         self.assertIn("MECHANISM", upper)
         self.assertIn("EXAMPLE", upper)
         self.assertIn("EXAM TAKEAWAY", upper)
-        self.assertIn("MEMORY LOCK", upper)
+        self.assertIn("FINAL DIFFERENCE CARD", upper)
         self.assertNotIn("A) [OPTION 1]", upper)
         self.assertNotIn("3... 2... 1", upper)
         self.assertNotIn("STOP. 🚨", upper)

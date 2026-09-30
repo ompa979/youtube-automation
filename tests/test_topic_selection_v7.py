@@ -14,6 +14,23 @@ class TestTopicSelectionV7(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 te.choose_best_topic(plan, ["niche_life"], state)
 
+    def test_discovery_order_fields_are_present(self):
+        score = te.score_topic("CRR vs SLR: what banks keep as reserves", "banking_awareness", query_signal=4, trend=72)
+        self.assertGreaterEqual(score.trend_score, 0)
+        self.assertGreaterEqual(score.seo_score, 0)
+        self.assertTrue(hasattr(score, "exam_fit"))
+
+    def test_exam_only_niche_fallback_never_returns_lifestyle(self):
+        plan = {
+            "everyday_life_hacks": {"voice": {"en": "en-IN"}, "topics": ["How to sleep better"]},
+            "bank_it_officer": {"voice": {"en": "en-IN"}, "topics": ["TCP 3-way handshake: what SYN, SYN-ACK and ACK actually do"]},
+        }
+        state = {"recent_topics": [], "completed_topics": [], "topic_cursors": {}}
+        with patch.object(te, "EXAM_ONLY", True), patch.object(te, "_candidate_query_signal", return_value=0), patch.object(te, "_trend_scores", return_value={}):
+            niche, _, _, topic, _, _ = te.choose_best_topic(plan, ["everyday_life_hacks"], state)
+        self.assertEqual(niche, "bank_it_officer")
+        self.assertIn("TCP 3-way handshake", topic)
+
     def test_exam_only_filters_lifestyle_topic_from_exam_niche(self):
         plan = {"bank_it_officer": {"voice": {"en": "en-IN"}, "topics": [
             "Why you wake up exhausted after eight hours of sleep",

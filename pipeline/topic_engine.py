@@ -82,6 +82,8 @@ NICHE_EXAM_FIT = {
 class TopicScore:
     topic: str
     niche: str
+    trend_score: float
+    seo_score: float
     search_intent: float
     exam_fit: float
     specificity: float
@@ -293,39 +295,45 @@ def score_topic(
     else:
         freshness += 1.0
 
-    trend_score = min(10.0, max(0.0, trend / 5.0))
+    trend_score = min(100.0, max(0.0, float(trend)))
+    seo_score = min(100.0, max(0.0, seo_fit * 8.0 + search * 2.2 + query_signal * 1.5))
     if trend_score > 0:
         reasons.append(f"trend signal={trend:.1f}")
+    reasons.append(f"SEO evidence score={seo_score:.1f}")
 
     risk_terms = [term for term in RISK_TERMS if term in text]
     risk_penalty = min(18.0, len(risk_terms) * 5.0) if risk_terms else 0.0
     if risk_terms:
         reasons.append("sensational/unsupported wording")
-
     duplicate_penalty = 10.0 if any(low == r for r in recent_topics[:5]) else 0.0
 
-    # Raw total is intentionally weighted toward search + teaching + usefulness,
-    # not trend hype. This makes a strong evergreen exam topic beat a weak trend.
-    total = search + exam_fit + specificity + teachability + visual + value_density + seo_fit + freshness + trend_score
-    total -= risk_penalty + duplicate_penalty
+    # Discovery-first weighting: Trend is the first gate, SEO the second gate.
+    # Remaining scores are normalized to the same 0-100 scale for an interpretable total.
+    exam_norm = (exam_fit / 20.0) * 100.0
+    value_norm = (value_density / 20.0) * 100.0
+    visual_norm = (visual / 20.0) * 100.0
+    specificity_norm = (specificity / 20.0) * 100.0
+    teach_norm = (teachability / 15.0) * 100.0
+    freshness_norm = (freshness / 11.0) * 100.0
+    total = (
+        trend_score * 0.30 +
+        seo_score * 0.25 +
+        exam_norm * 0.17 +
+        value_norm * 0.11 +
+        visual_norm * 0.07 +
+        specificity_norm * 0.04 +
+        teach_norm * 0.03 +
+        freshness_norm * 0.03
+        - risk_penalty - duplicate_penalty
+    )
     total = round(max(0.0, min(100.0, total)), 2)
 
     return TopicScore(
-        topic=topic,
-        niche=niche,
-        search_intent=round(search, 2),
-        exam_fit=round(exam_fit, 2),
-        specificity=round(specificity, 2),
-        teachability=round(teachability, 2),
-        visual=round(visual, 2),
-        value_density=round(value_density, 2),
-        seo_fit=round(seo_fit, 2),
-        freshness=round(freshness, 2),
-        trend=round(trend_score, 2),
-        risk_penalty=round(risk_penalty, 2),
-        duplicate_penalty=round(duplicate_penalty, 2),
-        total=total,
-        reasons=reasons,
+        topic=topic, niche=niche, trend_score=round(trend_score, 2), seo_score=round(seo_score, 2),
+        search_intent=round(search, 2), exam_fit=round(exam_fit, 2), specificity=round(specificity, 2),
+        teachability=round(teachability, 2), visual=round(visual, 2), value_density=round(value_density, 2),
+        seo_fit=round(seo_fit, 2), freshness=round(freshness, 2), trend=round(trend_score, 2),
+        risk_penalty=round(risk_penalty, 2), duplicate_penalty=round(duplicate_penalty, 2), total=total, reasons=reasons,
     )
 
 
@@ -337,6 +345,14 @@ def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: di
         n for n in enabled_niches
         if (not EXAM_ONLY or n in ALLOWED_EXAM_NICHES)
     ]
+    if EXAM_ONLY and not filtered_niches:
+        # Hard safety rail: a misconfigured environment can never force a
+        # lifestyle/non-exam topic into an exam-prep run. Fall back to all
+        # available exam lanes in the content plan.
+        filtered_niches = [
+            n for n in sorted(ALLOWED_EXAM_NICHES)
+            if n in plan and plan.get(n, {}).get("topics") and plan.get(n, {}).get("voice")
+        ]
     for niche in filtered_niches:
         cfg = plan.get(niche, {})
         voice = cfg.get("voice", {})

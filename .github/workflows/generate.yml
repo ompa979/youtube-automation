@@ -16,6 +16,12 @@ jobs:
     timeout-minutes: 45
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      YT_CREDS_1: ${{ secrets.YT_CREDS_1 }}
+      YT_CREDS_2: ${{ secrets.YT_CREDS_2 }}
+      YT_CREDS_3: ${{ secrets.YT_CREDS_3 }}
+      YT_CREDS_4: ${{ secrets.YT_CREDS_4 }}
+      YT_CREDS_5: ${{ secrets.YT_CREDS_5 }}
+      YT_CREDS_6: ${{ secrets.YT_CREDS_6 }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_IMAGE_MODEL: "@cf/black-forest-labs/flux-1-schnell"
@@ -60,6 +66,26 @@ jobs:
 
       - name: Sanity tests
         run: python -m pytest -q
+
+      - name: Verify YouTube credentials are wired
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          for i in 1 2 3 4 5 6; do
+            var="YT_CREDS_${i}"
+            if [ -n "${!var:-}" ]; then
+              echo "[youtube] ${var}=configured"
+              found=$((found+1))
+            else
+              echo "[youtube] ${var}=not-configured"
+            fi
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "[youtube] ERROR: no YT_CREDS_N repository secrets are available to this workflow."
+            echo "[youtube] Add YT_CREDS_1 (and optionally YT_CREDS_2..YT_CREDS_6) under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
 
       - name: Generate
         run: python -m pipeline.generate --count "$COUNT"

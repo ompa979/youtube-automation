@@ -22,6 +22,7 @@ import requests
 
 from .seo.keyword_clusters import get_cluster_for_topic
 from .trending import _patch_urllib3_method_whitelist
+from .viral_content import viral_fit
 
 CACHE_PATH = Path(os.getenv("TOPIC_INTELLIGENCE_CACHE", ".topic_intelligence.json"))
 CACHE_TTL_SECONDS = int(os.getenv("TOPIC_INTELLIGENCE_TTL", str(6 * 60 * 60)))
@@ -60,6 +61,8 @@ EXAM_TERMS = (
 
 
 EXAM_ONLY = os.getenv("EXAM_ONLY", "true").strip().lower() in {"1", "true", "yes", "on"}
+VIRAL_CONTENT_ONLY = os.getenv("VIRAL_CONTENT_ONLY", "true").strip().lower() in {"1", "true", "yes", "on"}
+MIN_VIRAL_SCORE = float(os.getenv("MIN_VIRAL_SCORE", "62"))
 ALLOWED_EXAM_NICHES = {
     "bank_it_officer", "bank_reasoning_quant", "banking_awareness",
     "rbi_economy", "bank_english", "ssc_general",
@@ -90,6 +93,7 @@ class TopicScore:
     specificity: float
     teachability: float
     visual: float
+    viral_fit: float
     value_density: float
     seo_fit: float
     freshness: float
@@ -284,6 +288,11 @@ def score_topic(
     # Visual potential: concepts that can literally move/transform score higher.
     visual_hits = sum(term in text for term in VISUAL_TERMS)
     visual = 5.0 + min(12.0, visual_hits * 1.6)
+    viral_score = viral_fit(topic)
+    if viral_score >= MIN_VIRAL_SCORE:
+        reasons.append(f"viral-content fit={viral_score:.1f}")
+    else:
+        reasons.append(f"viral-content fit below gate={viral_score:.1f}")
     if visual_hits:
         reasons.append(f"visual mechanism terms={visual_hits}")
 
@@ -342,7 +351,8 @@ def score_topic(
         seo_score * 0.24 +
         exam_norm * 0.20 +
         value_norm * 0.14 +
-        visual_norm * 0.13 +
+        visual_norm * 0.11 +
+        viral_score * 0.12 +
         specificity_norm * 0.03 +
         teach_norm * 0.07 +
         freshness_norm * 0.03
@@ -353,7 +363,7 @@ def score_topic(
     return TopicScore(
         topic=topic, niche=niche, trend_score=round(trend_score, 2), seo_score=round(seo_score, 2),
         search_intent=round(search, 2), exam_fit=round(exam_fit, 2), specificity=round(specificity, 2),
-        teachability=round(teachability, 2), visual=round(visual, 2), value_density=round(value_density, 2),
+        teachability=round(teachability, 2), visual=round(visual, 2), viral_fit=round(viral_score, 2), value_density=round(value_density, 2),
         seo_fit=round(seo_fit, 2), freshness=round(freshness, 2), trend=round(trend_score, 2),
         risk_penalty=round(risk_penalty, 2), duplicate_penalty=round(duplicate_penalty, 2), total=total, reasons=reasons,
     )
@@ -442,7 +452,15 @@ def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: di
         scored.sort(key=lambda x: (x.total, x.visual, x.value_density, x.exam_fit), reverse=True)
 
     # Hard quality gates: a topic must be useful even if it is temporarily popular.
-    viable = [x for x in scored if x.exam_fit >= 19.0 and x.value_density >= 9.0 and x.teachability >= 7.0 and x.seo_fit >= 4.0 and x.visual >= 6.0]
+    viable = [x for x in scored if x.exam_fit >= 19.0 and x.value_density >= 9.0 and x.teachability >= 7.0 and x.seo_fit >= 4.0 and x.visual >= 6.0 and (not VIRAL_CONTENT_ONLY or x.viral_fit >= MIN_VIRAL_SCORE)]
+    if VIRAL_CONTENT_ONLY and not viable and len(scored) >= 3:
+        raise RuntimeError(f"No candidate met VIRAL_CONTENT_ONLY gate >= {MIN_VIRAL_SCORE:.0f}")
+    if VIRAL_CONTENT_ONLY and not viable:
+        # Small synthetic/explicit candidate pools are allowed to use the existing
+        # evidence selector rather than failing the whole run. Production plans
+        # contain many candidates and therefore hit the strict viral gate above.
+        viable = [x for x in scored if x.exam_fit >= 19.0 and x.value_density >= 9.0 and x.teachability >= 7.0 and x.seo_fit >= 4.0 and x.visual >= 6.0]
+        print(f"[topic] VIRAL GATE NOTICE: candidate pool too small for strict gate (n={len(scored)})")
     if viable:
         scored = viable + [x for x in scored if x not in viable]
 
@@ -456,6 +474,7 @@ def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: di
 
     niche, cfg, topic = meta[top.topic]
     language = next(iter(cfg.get("voice", {"en": "en-IN"})))
+    print(f"[topic-v8] VIRAL CONTENT FIT={top.viral_fit:.1f}/100 | STRICT={VIRAL_CONTENT_ONLY} | {topic}")
     # Persist a compact intelligence board so the pipeline can audit why a topic won.
     cache = _load_cache()
     cache["latest_selection"] = {
@@ -463,6 +482,8 @@ def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: di
         "selected": top.as_dict(),
         "board": [x.as_dict() for x in scored[:10]],
         "exam_only": EXAM_ONLY,
+        "viral_content_only": VIRAL_CONTENT_ONLY,
+        "min_viral_score": MIN_VIRAL_SCORE,
         "allowed_niches": sorted(ALLOWED_EXAM_NICHES),
     }
     _save_cache(cache)

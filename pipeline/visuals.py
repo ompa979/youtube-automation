@@ -1,8 +1,8 @@
 """Premium visual acquisition for educational Shorts.
 
-AI imagery is preferred because it can depict the actual mechanism being taught.
-Pexels is a fallback for photographic subjects. Every prompt is upgraded with a
-cinematic editorial art direction while preserving the scene's educational idea.
+Cloudflare FLUX.1 Schnell is the active AI image generator for scene visuals.
+Pexels is a fallback for photographic subjects. Gemini image generation is retained
+only for future opt-in; script/text generation may still use Gemini separately.
 """
 from __future__ import annotations
 
@@ -20,8 +20,9 @@ from PIL import Image
 
 from .config import WORK_DIR
 from .subject_area import classify_subject_area, SUBJECT_AREA_IMAGE_SUFFIX
+from .thumbnail_ai import cloudflare_configured, generate_cloudflare_background
 
-POLLINATIONS = "https://image.pollinations.ai/prompt/{prompt}"
+POLLINATIONS = "https://image.pollinations.ai/prompt/{prompt}"  # legacy constant; not used by the active image path
 
 # ─────────────────────────────────────────────────────────────────────────────
 # VISUAL PROVIDER CIRCUIT BREAKER (V3)
@@ -29,9 +30,10 @@ POLLINATIONS = "https://image.pollinations.ai/prompt/{prompt}"
 # it is immediately tripped and skipped for all subsequent scenes.
 # ─────────────────────────────────────────────────────────────────────────────
 PROVIDER_STATE: dict[str, str] = {
-    "gemini_image": "available",  # "available" | "cooldown" | "unsupported"
-    "pollinations": "available",  # "available" | "disabled"
-    "pexels": "available",        # "available" | "disabled"
+    "cloudflare_image": "available",
+    "gemini_image": "available",  # retained for future image-provider re-enable; disabled by default
+    "pollinations": "disabled",    # retired from primary image generation
+    "pexels": "available",         # stock fallback
 }
 
 
@@ -39,8 +41,9 @@ def reset_provider_state() -> None:
     """Reset circuit breaker for a new video run if desired."""
     global PROVIDER_STATE
     PROVIDER_STATE = {
+        "cloudflare_image": "available",
         "gemini_image": "available",
-        "pollinations": "available",
+        "pollinations": "disabled",
         "pexels": "available",
     }
 
@@ -668,6 +671,111 @@ def _apply_dark_scrim(path: Path, width: int = 1080, height: int = 1920) -> bool
         return False
 
 
+
+def _cloudflare_scene_enabled() -> bool:
+    """Return True when Cloudflare FLUX.1 Schnell is the active image provider."""
+    enabled = os.getenv("CLOUDFLARE_SCENE_IMAGES_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+    return bool(os.getenv("IMAGE_PROVIDER", "cloudflare").strip().lower() == "cloudflare" and enabled and cloudflare_configured())
+
+
+def _fetch_cloudflare_scene_image(
+    prompt: str,
+    out_path: Path,
+    seed: int,
+    width: int = 768,
+    height: int = 1365,
+) -> bool:
+    """Generate a vertical scene image through Cloudflare Workers AI.
+
+    The FLUX.1 Schnell model endpoint accepts prompt/seed/steps. Cloudflare's
+    generic TextToImage API also exposes width/height, so we try the requested
+    vertical canvas first and, if the model rejects those optional dimensions,
+    retry once with the documented model-minimum payload. The image is then
+    normalized locally to the exact 1080x1920 Shorts canvas.
+    """
+    if PROVIDER_STATE.get("cloudflare_image") != "available":
+        return False
+    if not _cloudflare_scene_enabled():
+        return False
+
+    clean_prompt = " ".join((prompt or "").split()).strip()
+    if not clean_prompt:
+        return False
+    scene_prompt = clean_prompt
+    if "9:16" not in scene_prompt.lower() and "vertical" not in scene_prompt.lower():
+        scene_prompt += ", vertical 9:16 composition"
+
+    # Extend the shared Cloudflare thumbnail adapter with optional dimensions.
+    try:
+        image = _generate_cloudflare_image_with_dimensions(
+            scene_prompt, seed, width=width, height=height, steps=4
+        )
+        temp = out_path.with_suffix(".cloudflare.jpg")
+        image.save(temp, "JPEG", quality=94)
+        if _valid_image(temp) and _normalize_image(temp, 1080, 1920):
+            temp.replace(out_path)
+            print(f"[visuals] Cloudflare FLUX.1 Schnell generated scene -> {out_path.name}")
+            return True
+    except Exception as exc:
+        print(f"[visuals] Cloudflare vertical image attempt failed: {exc}")
+
+    try:
+        image = _generate_cloudflare_image_with_dimensions(
+            scene_prompt, seed, width=None, height=None, steps=4
+        )
+        temp = out_path.with_suffix(".cloudflare2.jpg")
+        image.save(temp, "JPEG", quality=94)
+        if _valid_image(temp) and _normalize_image(temp, 1080, 1920):
+            temp.replace(out_path)
+            print(f"[visuals] Cloudflare FLUX.1 Schnell fallback generated scene -> {out_path.name}")
+            return True
+    except Exception as exc:
+        print(f"[visuals] Cloudflare fallback generation failed: {exc}")
+        PROVIDER_STATE["cloudflare_image"] = "disabled"
+    return False
+
+
+def _generate_cloudflare_image_with_dimensions(
+    prompt: str,
+    seed: int,
+    width: int | None,
+    height: int | None,
+    steps: int = 4,
+) -> Image.Image:
+    """Call the shared Cloudflare REST adapter with optional width/height."""
+    import base64, io
+    account = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+    token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+    model = os.getenv("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell").strip()
+    if not account or not token:
+        raise RuntimeError("Cloudflare Workers AI credentials are not configured")
+    endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
+    payload = {"prompt": prompt[:2048], "seed": int(seed), "steps": int(steps)}
+    if width is not None:
+        payload["width"] = int(width)
+    if height is not None:
+        payload["height"] = int(height)
+    response = requests.post(
+        endpoint,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json,image/*"},
+        json=payload,
+        timeout=max(30, int(os.getenv("CLOUDFLARE_IMAGE_TIMEOUT", "180"))),
+    )
+    if response.status_code >= 400:
+        detail = response.text.replace(token, "***")[:1000]
+        raise RuntimeError(f"Cloudflare Workers AI HTTP {response.status_code}: {detail}")
+    content_type = response.headers.get("content-type", "").lower()
+    if content_type.startswith("image/"):
+        return Image.open(io.BytesIO(response.content)).convert("RGB")
+    data = response.json()
+    result = data.get("result") if isinstance(data.get("result"), dict) else data
+    b64 = result.get("image") if isinstance(result, dict) else None
+    if not b64:
+        raise RuntimeError("Cloudflare image response did not contain result.image")
+    if isinstance(b64, str) and b64.startswith("data:image/") and "," in b64:
+        b64 = b64.split(",", 1)[1]
+    return Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+
 def fetch_scene_image(
     scene_index: int, image_prompt: str, visual_style: str, settings, subject_area: str = "default",
     card_headline: str = "", card_points: list[str] | None = None, card_tag: str = "",
@@ -680,34 +788,31 @@ def fetch_scene_image(
         return out_path
 
     full_prompt = _premium_prompt(image_prompt, visual_style, subject_area)
-    short_prompt = _pollinations_prompt(image_prompt, visual_style)
-
     if _valid_image(out_path):
         return out_path
     out_path.unlink(missing_ok=True)
 
     fetched = False
 
-    # 1. Primary: Google Gemini / Imagen 3 using GEMINI_API_KEY
-    gemini_key = getattr(settings, "gemini_api_key", None) or os.getenv("GEMINI_API_KEY")
-    if gemini_key:
-        print(f"[visuals] scene {scene_index}: generating via Google Gemini / Imagen 3...")
-        if _fetch_gemini_image(full_prompt, out_path, gemini_key):
-            fetched = True
-
-    # 2. Secondary: Pollinations (Flux)
-    if not fetched:
-        pollinations_key = (
-            getattr(settings, "pollinations_api_key", None)
-            or os.getenv("POLLINATIONS_API_KEY")
-            or os.getenv("POLLINATION_KEY")
+    # 1. PRIMARY AI IMAGE PROVIDER: Cloudflare Workers AI + FLUX.1 Schnell.
+    # Gemini image generation is deliberately disabled here. Gemini remains
+    # active for text/script generation and its image code is retained for a
+    # later opt-in when a supported/affordable image endpoint is available.
+    if _cloudflare_scene_enabled():
+        scene_seed = int(hashlib.sha256(f"{scene_index}:{image_prompt}".encode("utf-8")).hexdigest()[:8], 16)
+        print(f"[visuals] scene {scene_index}: generating via Cloudflare FLUX.1 Schnell...")
+        fetched = _fetch_cloudflare_scene_image(
+            full_prompt,
+            out_path,
+            seed=scene_seed,
+            width=int(os.getenv("CLOUDFLARE_SCENE_WIDTH", "768")),
+            height=int(os.getenv("CLOUDFLARE_SCENE_HEIGHT", "1365")),
         )
-        if pollinations_key:
-            print("[visuals] pollinations: using authenticated API key")
-        print(f"[visuals] scene {scene_index}: trying pollinations ({len(short_prompt)} chars)")
-        if _fetch_pollinations(short_prompt, out_path, api_key=pollinations_key):
-            fetched = True
 
+    # 2. Gemini image generation is intentionally NOT called in production.
+    # Keep _fetch_gemini_image() above for a future explicit opt-in.
+
+    # 3. Stock fallback: Pexels, when configured.
     if not fetched and settings.pexels_api_key:
         scene_query = _extract_scene_pexels_query(image_prompt, subject_area)
         print(f"[visuals] scene {scene_index}: querying pexels with scene-specific query: {scene_query!r}")
@@ -715,7 +820,6 @@ def fetch_scene_image(
             fetched = True
 
         if not fetched:
-            # Broad category fallback
             fallback_query = _DARK_PEXELS_FALLBACK.get(subject_area, "dark abstract technology background")
             print(f"[visuals] scene {scene_index}: retrying pexels with fallback: {fallback_query!r}")
             if _fetch_pexels(fallback_query, out_path, settings.pexels_api_key, scene_index=scene_index):

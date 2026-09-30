@@ -38,6 +38,7 @@ from dataclasses import dataclass, asdict, field
 from .gemini_router import GeminiRouter, CallType
 # POLISH is the third pass — hook + pacing review after fact-check
 from .quality import validate_script
+from .engagement_v2 import enforce_v2_contract, build_click_title, build_comment_cta
 from .subject_area import classify_subject_area
 from .seo import (
     get_cluster_for_topic,
@@ -115,11 +116,13 @@ class Script:
     tags: list[str]
     scenes: list[Scene]
     pinned_comment: str = ""
+    thumbnail_text: str = ""
     seo_metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
             "pinned_comment": self.pinned_comment,
+            "thumbnail_text": self.thumbnail_text,
             "title": self.title,
             "hook": self.hook,
             "description": self.description,
@@ -203,7 +206,7 @@ TOPIC: {topic}
 Do NOT create a passive lecture or study card ("Here is an educational fact. Please watch me explain it.").
 Make the viewer actively PLAY A GAME in the video!
 
-Target: EXACTLY 5 or 6 fast scenes (45-65 total words across the entire Short, 18-24 seconds total).
+Target: EXACTLY 6 fast scenes (45-65 total spoken words across the entire Short, roughly 18-28 seconds total).
 Each scene must perform an exact psychological function:
 
 Scene 0 (0-2s) — PATTERN INTERRUPT:
@@ -244,13 +247,17 @@ Scene 4 (11-16s) — THE MECHANISM / EQUATION:
 
 Scene 5 (16-21s) — EXAM TRAP & SEAMLESS LOOP:
 - The exam trap + comment CTA: "The trap? Exams test if you confuse X with Y. Did you guess A or B? Comment below, because..."
-- `action_type`: "loop"
-- `action_payload`: "👇 A OR B?"
-- `on_screen_text`: "DID YOU WIN?"
+- `action_type`: "trap_loop"
+- `action_payload`: "A OR B?"
+- `on_screen_text`: "DID YOU GET IT?"
 - `card_points`: ["COMMENT: A OR B?"]
 - The last words must seamlessly lead back into Scene 0 ("STOP.")!
 
 VISUAL RULES:
+- The image is NOT decoration. Each scene must show a different physical/diagrammatic action tied to the concept: move, split, compare, reject, reveal, build, or transform.
+- Do not use a generic vault, server room, money, classroom, or abstract technology background unless the exact object/action is the concept itself.
+- Scene 1 must visibly contain the two choices or two competing concepts. Scene 3 must visibly show one winner and one rejected answer. Scene 4 must visibly show the mechanism/equation as an action or diagram. Scene 5 must visually combine the exam trap and the answer/comment prompt.
+- Keep decorative branding small. The concept and challenge occupy most of the visual frame.
 - `image_prompt`: Follow [object] + [action] + [destination/contrast], dark cinematic lighting, vertical 9:16, no text or labels.
 - On-screen text: 1-3 word high-curiosity headline.
 
@@ -263,7 +270,7 @@ Return EXACTLY this JSON shape (no markdown):
   "tags": ["8-12 lowercase tags"],
   "scenes": [
     {{
-      "action_type": "pattern_interrupt | challenge | countdown | reveal | mechanism | loop",
+      "action_type": "pattern_interrupt | challenge | countdown | reveal | mechanism | trap_loop",
       "action_payload": "short cue string for HUD overlay",
       "narration": "natural fast-paced spoken line",
       "tts_text": "same English spoken line optimized with commas for natural TTS breath pauses",
@@ -274,7 +281,7 @@ Return EXACTLY this JSON shape (no markdown):
   ]
 }}
 
-Use exactly 5 or 6 scenes. Total word count across all scenes must be between 45 and 65 words.
+Use exactly 6 scenes. Total spoken word count across all scenes must be between 45 and 65 words.
 {repair_text}
 """.strip()
 
@@ -444,7 +451,7 @@ def _to_script(data: dict) -> Script:
 
         action_type = _first_text(raw, "action_type", "type", "purpose", "scene_type").lower()
         if not action_type or action_type not in (
-            "pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap", "loop"
+            "pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap", "loop", "trap_loop"
         ):
             if i == 0:
                 action_type = "pattern_interrupt"
@@ -457,7 +464,7 @@ def _to_script(data: dict) -> Script:
             elif i == 4:
                 action_type = "mechanism"
             elif i >= 5:
-                action_type = "trap" if i == 5 and len(raw_scenes) > 6 else "loop"
+                action_type = "trap_loop"
 
         action_payload = _first_text(raw, "action_payload", "payload", "cue", "detail")
 
@@ -609,9 +616,8 @@ _CTA_PATTERN = re.compile(
     r"let me know (?:below|in)|write (?:your|down))\b", re.I)
 
 _DEFAULT_CTAS = [
-    "Comment your answer below.",
-    "Which option did you pick? Comment below.",
-    "Comment your exam date, I will reply.",
+    "Did you get it right? Comment your answer below.",
+    "Which option did you pick? Comment your answer below.",
 ]
 
 
@@ -641,17 +647,15 @@ def _ensure_cta(script: "Script", topic: str) -> None:
     CTA, and a content-aware pinned_comment exists."""
     last = script.scenes[-1]
     if not _has_cta(last.narration):
-        cta = _DEFAULT_CTAS[_stable_hash(topic) % len(_DEFAULT_CTAS)]
+        cta = build_comment_cta(script)
         last.narration = last.narration.rstrip() + " " + cta
         last.tts_text = last.tts_text.rstrip() + " " + cta
-        print(f"[cta] LLM omitted comment CTA — appended: {cta!r}")
+        print(f"[cta] LLM omitted comment CTA — appended content-aware challenge: {cta!r}")
 
-    # If pinned_comment is missing or contains generic/mismatched A/B when no A/B was in the video:
-    all_narr = " ".join(s.narration for s in script.scenes).lower()
-    has_ab = "option a" in all_narr or "a or b" in all_narr or "a)" in all_narr
-    if not script.pinned_comment or ("a or b" in script.pinned_comment.lower() and not has_ab):
-        script.pinned_comment = _build_content_aware_pinned_comment(topic, script)
-        print(f"[cta] generated content-aware pinned comment: {script.pinned_comment[:60]}...")
+    # V2: pin the same challenge the viewer just saw. This prevents generic
+    # topic-based comments (for example, a bank-charge question on a money-supply Short).
+    script.pinned_comment = build_comment_cta(script)
+    print(f"[cta] pinned exact challenge: {script.pinned_comment[:90]}...")
 
     if not _has_cta(script.description):
         script.description = script.description.rstrip() + "\n\n" + script.pinned_comment
@@ -747,9 +751,14 @@ def _ensure_exam_in_title(title: str, topic: str, niche_key: str | None) -> str:
 
 
 def _finalize(script: "Script", topic: str, niche_key: str | None) -> "Script":
+    enforce_v2_contract(script)
     _ensure_cta(script, topic)
     script.title = _ensure_exam_in_title(script.title, topic, niche_key)
-    print(f"[final] title={script.title!r} | pinned={script.pinned_comment!r}")
+    # Final title pass: preserve the concept/exam while turning the viewer's
+    # actual challenge into the title. This is deterministic and survives SEO
+    # model fallback, so packaging no longer regresses to generic labels.
+    script.title = build_click_title(topic, script.title, script)
+    print(f"[final] title={script.title!r} | thumbnail={script.thumbnail_text!r} | pinned={script.pinned_comment!r}")
     return script
 
 
@@ -1196,6 +1205,7 @@ def _seo_and_finalize(script: Script, topic: str, niche_key: str | None, setting
             "publish_ready": pub_s.publish_ready,
         }
 
+    enforce_v2_contract(script)
     bad = _known_fact_issues(script)
     if bad:
         raise ScriptRejected("SEO rewrite introduced factual error(s): " + "; ".join(bad))

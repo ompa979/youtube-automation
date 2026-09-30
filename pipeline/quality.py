@@ -21,21 +21,14 @@ GENERIC_FILLERS = [
     "let us understand", "as we know", "is defined as", "today we will learn",
 ]
 
-MIN_SCENES = 3
+MIN_SCENES = 6
 MAX_SCENES = 6
 
-# Rough spoken-word budget for a tight Short. At natural pace (~150 wpm /
-# 2.5 words-per-second), this keeps total narration under ~65s.
-# 65s is the practical ceiling: YouTube Shorts must be ≤60s of *video* but
-# TTS renders slightly faster than the 2.5 wps estimate, so a 65s word-count
-# target lands the rendered clip safely under 60s.  The previous 55s limit
-# was triggering unnecessary repair loops on scripts that rendered fine.
-# Calm educator pace (~130 wpm / 2.2 words-per-second).
-# YouTube Shorts must be strictly under 60s total duration.
-# 54s spoken audio gives a safe buffer for title and outro.
-WORDS_PER_SECOND = 2.2
-MAX_SPOKEN_SECONDS = 54
-MAX_WORDS = int(MAX_SPOKEN_SECONDS * WORDS_PER_SECOND)  # ~118 words
+# V2 is intentionally compact. The challenge architecture targets roughly
+# 18-28 seconds of spoken content, so the hard word ceiling is 65.
+WORDS_PER_SECOND = 2.35
+MIN_WORDS = 45
+MAX_WORDS = 65
 
 
 @dataclass
@@ -51,7 +44,8 @@ def _word_count(text: str) -> int:
 def validate_script(script: Any, language: str) -> QAResult:
     issues: list[str] = []
     all_text = " ".join([script.title, script.hook] + [s.narration for s in script.scenes]).strip()
-    words = _word_count(all_text)
+    spoken_text = " ".join(s.narration for s in script.scenes).strip()
+    words = _word_count(spoken_text)
 
     if not script.title.strip():
         issues.append("missing title")
@@ -71,8 +65,15 @@ def validate_script(script: Any, language: str) -> QAResult:
             "merge the least distinct scenes without losing the explanation"
         )
 
-    if words < 25:
-        issues.append("explanation is too thin to teach the concept; add the missing reasoning")
+    expected_actions = ["pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap_loop"]
+    actual_actions = [getattr(scene, "action_type", "") for scene in script.scenes]
+    if actual_actions != expected_actions:
+        issues.append(
+            f"invalid V2 scene contract: expected {expected_actions}, got {actual_actions}"
+        )
+
+    if words < MIN_WORDS:
+        issues.append(f"spoken narration only {words} words — needs at least {MIN_WORDS} words for the V2 challenge arc")
     if words > MAX_WORDS:
         est_seconds = round(words / WORDS_PER_SECOND)
         issues.append(

@@ -1,4 +1,4 @@
-﻿"""SEO V3 — Title Generator with 3 strategic modes."""
+"""SEO V3 — Title Generator with 3 strategic modes."""
 from __future__ import annotations
 
 import re
@@ -54,16 +54,16 @@ def pick_title_mode(topic: str, cluster: KeywordCluster) -> TitleMode:
     return TitleMode.SEARCH_FIRST
 
 def extract_problem_hook(topic: str) -> str:
+    """Return a viewer-facing curiosity phrase, not an explanatory label."""
     topic_lower = topic.lower()
     for pattern, template in [
-        (r"trap", "The Hidden Trap"),
-        (r"trick", "The Speed Trick"),
-        (r"mistake", "The Common Mistake"),
-        (r"confusion", "The Confusion Solved"),
-        (r"secret", "The Secret Rule"),
-        (r"pitfall", "The Exam Pitfall"),
-        (r"difference", "Difference Explained"),
+        (r"\btrap\b|\bwrong\b|\bmistake\b|\bpitfall\b", "Can You Spot the Trap?"),
+        (r"\btrick\b|\bshortcut\b|\bfastest\b", "Can You Solve It in 5 Seconds?"),
+        (r"\bvs\.?\b|\bversus\b|\bdifference\b", "Which One Is Correct?"),
+        (r"\bwhy\b|\bhow\b", "Do You Know Why?"),
+        (r"\brule\b|\btest\b", "Do You Know the Rule?"),
+        (r"\bsecret\b", "Would You Notice This?"),
     ]:
         if re.search(pattern, topic_lower):
             return template
-    return ""
+    return "Can You Get This Right?"

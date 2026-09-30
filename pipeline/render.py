@@ -16,25 +16,27 @@ Variety features (anti-monotone pass):
       from the topic text)                                -> subject_area.py
   #2  Caption box style rotates bar / pill / card (fallback path only)
   #3  Subtitle + keyword fade in instead of popping in -> alpha= expression
-  #4  Semantic crossfade transitions (wipe out of hook, fadeblack into the
+  #4  Semantic crossfade transitions (wipe out of hook, energetic cut into
       closing scene, zoomin for geography, radial for history) -> _semantic_transition
   #5  Background music track picked per-video by hash   -> _pick_music
   #6  Whoosh SFX on every cut + a dedicated chime on the closing-scene cut
   #7  (script_gen.py) hook style rotates per topic
   #8  (script_gen.py) prompt now asks for varied pacing
   #9  Rotating outro CTA card appended as a final "scene" -> _make_outro_clip
-  #10 Thumbnail: best-of-4 candidate frames, scored       -> extract_best_thumbnail
-      for contrast/brightness, instead of a fixed 0.5s grab
+  #10 Thumbnail: 3+ premium 16:9 variants from an optional AI background service
+      + deterministic Pillow composition + candidate scoring -> thumbnail.jpg
 """
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 import textwrap
 from pathlib import Path
 
 from .config import WORK_DIR, OUT_DIR, ASSETS_DIR
 from .captions import build_word_ass
+from .engagement_v2 import create_custom_thumbnail
 from .motion_graphics import build_motion_graphics_filter, ensure_procedural_sfx
 from .subject_area import (
     classify_subject_area,
@@ -45,6 +47,7 @@ from .subject_area import (
 
 W, H = 1080, 1920
 FPS = 30
+ENABLE_GENERIC_OUTRO = os.getenv("ENABLE_GENERIC_OUTRO", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _run(cmd: list[str]) -> None:
@@ -335,9 +338,13 @@ def _ken_burns_clip(
     # Layer 2: 4-layer on-screen text system — exam badge (top), memory
     # anchor card (≈32%), fire-tinted keyword (mid), and a word-by-word
     # bold caption (bottom).
+    interactive_beats = {"pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap_loop", "loop", "trap"}
     badge_f = _badge_filter(badge_text, accent) if badge_text and on_screen_text else ""
-    anchor_f = _memory_anchor_filter(anchor_text, accent) if anchor_text else ""
-    keyword_f = _keyword_filter(on_screen_text) if on_screen_text else ""
+    # In V2 the Action HUD is the primary visual interface. Stacking an extra
+    # keyword and memory card on every interactive scene made the frame look
+    # like a study poster and buried the actual question.
+    anchor_f = _memory_anchor_filter(anchor_text, accent) if anchor_text and action_type not in interactive_beats else ""
+    keyword_f = _keyword_filter(on_screen_text) if on_screen_text and action_type not in interactive_beats else ""
 
     if badge_f:
         vf = f"{vf},{badge_f}"
@@ -381,7 +388,7 @@ def _ken_burns_clip(
 CTA_PHRASES = [
     "Comment your answer below",
     "Got it right? Comment A or B",
-    "Comment your exam date",
+    "Comment your answer below",
     "Which exam are you preparing for? Comment",
     "Comment DONE if you learned this",
 ]
@@ -559,7 +566,7 @@ def extract_best_thumbnail(video_path: Path, out: Path, scene0_duration: float) 
 # ---------------------------------------------------------------------------
 # #4 Transitions that carry meaning, not just a round-robin rotation:
 #   - the cut OUT of the hook (scene 0 -> scene 1)              -> wiperight
-#   - the cut INTO the closing "exam tip" scene                  -> fadeblack
+#   - the cut INTO the final challenge/loop scene                -> smoothleft
 #   - every other cut in a GEOGRAPHY video                       -> zoomin
 #   - every other cut in a HISTORY video                         -> radial
 #   - everything else (science/economy/default)                  -> rotates
@@ -579,7 +586,7 @@ def _semantic_transition(cut_index: int, num_narration_scenes: int, subject_area
     # join whose result is clip index (num_narration_scenes - 1), i.e.
     # cut_index == num_narration_scenes - 2.
     if num_narration_scenes >= 2 and cut_index == num_narration_scenes - 2:
-        return "fadeblack"
+        return "smoothleft"
     if subject_area == "geography":
         return "zoomin"
     if subject_area == "history":
@@ -738,6 +745,8 @@ def assemble_video(
     scene_motion_types: list[str] | None = None,
     scene_camera_motions: list[str] | None = None,
     scene_sfx_cues: list[str] | None = None,
+    thumbnail_text: str = "",
+    thumbnail_label: str = "EXAMCRACKER AI",
 ) -> Path:
     del scene_ass
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -813,17 +822,18 @@ def assemble_video(
 
     first_scene_duration = actual_durations[0] if actual_durations else 1.0
 
-    # #9 Rotating outro CTA card, appended as a final "scene" so it also
-    # gets a (rotated) crossfade transition into it.
-    outro_clip = WORK_DIR / "clip_outro.mp4"
-    cta_text = _pick_cta(slug)
-    outro_duration = 1.3
-    try:
-        _make_outro_clip(accent, cta_text, outro_clip, duration=outro_duration)
-        clips.append(outro_clip)
-        actual_durations.append(outro_duration)
-    except Exception as exc:
-        print(f"[!] Outro card failed (non-fatal, skipping): {exc}")
+    # V2: no generic CTA card between the final challenge and the loop.
+    # It created a visible "video over" break. Legacy behavior remains opt-in.
+    if ENABLE_GENERIC_OUTRO:
+        outro_clip = WORK_DIR / "clip_outro.mp4"
+        cta_text = _pick_cta(slug)
+        outro_duration = 1.0
+        try:
+            _make_outro_clip(accent, cta_text, outro_clip, duration=outro_duration)
+            clips.append(outro_clip)
+            actual_durations.append(outro_duration)
+        except Exception as exc:
+            print(f"[!] Legacy outro card failed (non-fatal, skipping): {exc}")
 
     # #4 Loopability: close on scene 0's frame + keyword again, so the video
     # ends where it began instead of just stopping on the CTA.
@@ -831,7 +841,7 @@ def assemble_video(
         loopback_clip = WORK_DIR / "clip_loopback.mp4"
         loop_keyword = scene_texts[0] if scene_texts else ""
         try:
-            _make_loopback_clip(scene_images[0], loop_keyword, accent, loopback_clip, duration=0.6)
+            _make_loopback_clip(scene_images[0], loop_keyword, accent, loopback_clip, duration=0.35)
             clips.append(loopback_clip)
             actual_durations.append(0.6)
         except Exception as exc:
@@ -984,11 +994,32 @@ def assemble_video(
     if not final.exists() or final.stat().st_size < 50_000:
         raise RuntimeError("Final video was not produced correctly")
 
-    # #10 Best-of-N thumbnail scoring from within scene 0
+    # V2 packaging: build a true 16:9 custom thumbnail from the challenge beat.
+    # The previous implementation uploaded a 9:16 video frame, which is the wrong
+    # composition for conventional YouTube thumbnail surfaces.
     thumb = OUT_DIR / "thumbnail.jpg"
     try:
-        extract_best_thumbnail(final, thumb, first_scene_duration)
+        challenge_offset = min(
+            max(first_scene_duration + 0.55, 0.65),
+            max(total_video_duration - 0.45, 0.65),
+        )
+        thumb_text = thumbnail_text or (scene_texts[1] if scene_texts and len(scene_texts) > 1 else "CAN YOU GET IT RIGHT?")
+        clean_background = scene_images[1] if len(scene_images) > 1 else scene_images[0]
+        create_custom_thumbnail(
+            final,
+            thumb,
+            challenge_offset,
+            thumb_text,
+            thumbnail_label or badge_text,
+            background_path=clean_background,
+            topic=topic,
+        )
+        print(f"[render] V2 16:9 thumbnail created: {thumb} ({thumb.stat().st_size // 1024}KB)")
     except Exception as exc:
-        print(f"[!] Thumbnail extraction failed (non-fatal): {exc}")
+        print(f"[!] V2 thumbnail failed, falling back to best frame: {exc}")
+        try:
+            extract_best_thumbnail(final, thumb, first_scene_duration)
+        except Exception as fallback_exc:
+            print(f"[!] Thumbnail fallback also failed (non-fatal): {fallback_exc}")
 
     return final

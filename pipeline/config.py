@@ -32,10 +32,12 @@ class YouTubeCredentials:
 @dataclass
 class Settings:
     gemini_api_key: str | None = None
+    cloudflare_account_id: str | None = None
+    cloudflare_api_token: str | None = None
     openrouter_api_key: str | None = None
     pexels_api_key: str | None = None
     pixabay_api_key: str | None = None
-    pollinations_api_key: str | None = None
+    pollinations_api_key: str | None = None  # retained for legacy compatibility; image generation no longer uses it
     youtube_projects: list[YouTubeCredentials] = field(default_factory=list)
     upload_enabled: bool = True
     niches_enabled: list[str] = field(default_factory=lambda: ["facts"])

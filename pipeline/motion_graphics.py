@@ -149,7 +149,7 @@ def mg_pattern_interrupt_hud() -> str:
     """Action HUD: Red warning border + huge 'STOP. 🚨' interrupt stamp."""
     border = f"drawbox=x=0:y=0:w={W}:h={H}:color=0xFF1133@0.65:thickness=14:enable='lte(t,1.4)'"
     stamp = (
-        f"drawtext=font='Inter':text='STOP. 🚨':fontcolor=white:fontsize=76:"
+        f"drawtext=font='Inter':text='STOP.':fontcolor=white:fontsize=76:"
         f"borderw=8:bordercolor=black@0.95:box=1:boxcolor=0xCC0022@0.92:boxborderw=20|40|20|40:"
         f"x=(w-text_w)/2:y=h*0.28:enable='lte(t,1.6)'"
     )
@@ -160,7 +160,7 @@ def mg_challenge_hud(payload: str) -> str:
     """Action HUD: Quick test badge + dual comparison pill."""
     clean = (payload or "A  OR  B").replace("'", "").replace(":", "-")
     tag = (
-        f"drawtext=font='Inter':text='⚡ QUICK TEST':fontcolor=0xFFE600:fontsize=36:"
+        f"drawtext=font='Inter':text='QUICK TEST':fontcolor=0xFFE600:fontsize=36:"
         f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=black@0.75:boxborderw=12|24|12|24:"
         f"x=(w-text_w)/2:y=h*0.25"
     )
@@ -201,7 +201,7 @@ def mg_reveal_hud(payload: str) -> str:
     """Action HUD: Reveal stamped box showing correct answer and rejection."""
     clean = (payload or "ANSWER REVEALED").replace("'", "").replace(":", "-")
     tag = (
-        f"drawtext=font='Inter':text='💥 REVEAL':fontcolor=white:fontsize=38:"
+        f"drawtext=font='Inter':text='REVEAL':fontcolor=white:fontsize=38:"
         f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=0x00AA44@0.92:boxborderw=12|28|12|28:"
         f"x=(w-text_w)/2:y=h*0.25"
     )
@@ -217,7 +217,7 @@ def mg_mechanism_hud(payload: str) -> str:
     """Action HUD: Formula / visual equation box."""
     clean = (payload or "THE CORE RULE").replace("'", "").replace(":", "-")
     tag = (
-        f"drawtext=font='Inter':text='🧠 THE MECHANISM':fontcolor=0x00E5FF:fontsize=34:"
+        f"drawtext=font='Inter':text='THE MECHANISM':fontcolor=0x00E5FF:fontsize=34:"
         f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=black@0.75:boxborderw=10|24|10|24:"
         f"x=(w-text_w)/2:y=h*0.25"
     )
@@ -233,7 +233,7 @@ def mg_trap_hud(payload: str) -> str:
     """Action HUD: Exam trap warning banner."""
     clean = (payload or "WATCH FOR THIS TRAP").replace("'", "").replace(":", "-")
     banner = (
-        f"drawtext=font='Inter':text='⚠️ EXAM TRAP':fontcolor=0xFFE600:fontsize=38:"
+        f"drawtext=font='Inter':text='EXAM TRAP':fontcolor=0xFFE600:fontsize=38:"
         f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=0x880000@0.90:boxborderw=12|28|12|28:"
         f"x=(w-text_w)/2:y=h*0.25"
     )
@@ -254,6 +254,22 @@ def mg_loop_hud(payload: str) -> str:
         f"x=(w-text_w)/2:y=h*0.30"
     )
     return cta
+
+
+def mg_trap_loop_hud(payload: str) -> str:
+    """Final V2 beat: exam-trap warning + exact comment question, no generic outro card."""
+    clean = (payload or "DID YOU GET IT?").replace("'", "").replace(":", "-")
+    banner = (
+        f"drawtext=font='Inter':text='EXAM TRAP':fontcolor=0xFFE600:fontsize=38:"
+        f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=0x880000@0.92:boxborderw=12|28|12|28:"
+        f"x=(w-text_w)/2:y=h*0.23"
+    )
+    cta = (
+        f"drawtext=font='Inter':text='{clean}':fontcolor=white:fontsize=44:"
+        f"borderw=6:bordercolor=black@0.95:box=1:boxcolor=0x003366@0.92:boxborderw=18|36|18|36:"
+        f"x=(w-text_w)/2:y=h*0.32"
+    )
+    return f"{banner},{cta}"
 
 
 
@@ -288,7 +304,7 @@ def mg_warning_freeze_hud(payload: str) -> str:
     """Action HUD: High-curiosity alert banner (universal, not exam-restricted)."""
     clean = (payload or "WHAT YOU DON'T REALIZE").replace("'", "").replace(":", " - ")
     banner = (
-        f"drawtext=font='Inter':text='⚠️ WATCH OUT':fontcolor=0xFFE600:fontsize=38:"
+        f"drawtext=font='Inter':text='WATCH OUT':fontcolor=0xFFE600:fontsize=38:"
         f"borderw=4:bordercolor=black@0.9:box=1:boxcolor=0x770000@0.90:boxborderw=12|28|12|28:"
         f"x=(w-text_w)/2:y=h*0.25"
     )
@@ -317,6 +333,8 @@ def build_action_hud(action_type: str, payload: str, duration: float, accent: st
         return mg_trap_hud(payload)
     elif act == "loop":
         return mg_loop_hud(payload)
+    elif act == "trap_loop":
+        return mg_trap_loop_hud(payload)
     return ""
 
 

@@ -242,3 +242,51 @@ MIT — do whatever you want, but you're responsible for the content you publish
 ## Free Hindi/Hinglish TTS
 
 Default: Edge TTS with `hi-IN-SwaraNeural`, then `hi-IN-MadhurNeural`, then gTTS Hindi, then eSpeak Hindi. Configure `TTS_PROVIDER`, `TTS_LANGUAGE`, and `TTS_VOICE`; no Google Cloud billing or credentials are required.
+
+## Thumbnail Engine V3 — 16:9 multi-variant system
+
+The Shorts pipeline now creates **3 thumbnail candidates per video** by default.
+Each candidate uses one of 10 curiosity-first archetypes (question, trap,
+countdown, compare, mystery, number, output, true/false, boss fight, formula).
+Final copy/layout is rendered with Pillow at **1280×720** so the typography is
+crisp and consistent.
+
+### Optional AI hero backgrounds
+
+Set these GitHub Actions secrets:
+
+```text
+THUMBNAIL_AI_URL=https://<your-z-image-host>/generate
+THUMBNAIL_AI_TOKEN=<optional-bearer-token>
+```
+
+The bundled `thumbnail_service/` exposes a Z-Image-Turbo `/generate` endpoint.
+It is designed to run on a GPU host/self-hosted runner. The standard GitHub
+hosted runner remains fully functional without it: the pipeline automatically
+falls back to the clean scene image and still produces multiple premium
+thumbnail layouts.
+
+All generated candidates are retained under `thumbnail_variants/`; the selected
+candidate is copied to `/tmp/out/thumbnail.jpg`.
+
+## AI Image Generation V5 — Cloudflare FLUX.1 Schnell
+
+**Cloudflare Workers AI + `@cf/black-forest-labs/flux-1-schnell` is now the active AI image generator for BOTH video scene visuals and thumbnails.**
+
+Gemini remains used for **script/text generation**, but Gemini image generation is intentionally disabled because the image endpoint was unreliable in this pipeline. Its image-generation code remains retained for a future explicit re-enable.
+
+Required GitHub Actions secrets:
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+- `GEMINI_API_KEY` (still required for script generation)
+
+Image settings:
+- `IMAGE_PROVIDER=cloudflare`
+- `CLOUDFLARE_SCENE_IMAGES_ENABLED=true`
+- `CLOUDFLARE_SCENE_WIDTH=768`
+- `CLOUDFLARE_SCENE_HEIGHT=1365`
+- `CLOUDFLARE_IMAGE_MODEL=@cf/black-forest-labs/flux-1-schnell`
+- `CLOUDFLARE_IMAGE_STEPS=4`
+- `THUMBNAIL_VARIANTS=3`
+
+The pipeline normalizes generated scene art locally to 1080×1920 and composes thumbnails locally at 1280×720. If Cloudflare image generation is unavailable, the video still falls back to Pexels (when configured) and then a procedural backdrop rather than trying Gemini image generation.

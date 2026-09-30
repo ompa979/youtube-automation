@@ -65,7 +65,8 @@ jobs:
         run: |
           python -m py_compile pipeline/generate.py pipeline/script_gen.py \
             pipeline/tts.py pipeline/visuals.py pipeline/render.py \
-            pipeline/trending.py pipeline/upload.py
+            pipeline/trending.py pipeline/upload.py pipeline/engagement_v2.py \
+            pipeline/thumbnail_ai.py
           python - <<'PY'
           import json
           d = json.load(open('content_plan.json', encoding='utf-8'))
@@ -75,12 +76,27 @@ jobs:
           print(f'PASS: {len(niches)} niches, {total_topics} topics, visual styles valid')
           PY
 
+      - name: Run 100 thumbnail sanity tests
+        run: python -m unittest tests.test_thumbnail_engine_100 -v
+
+      - name: Run Cloudflare scene-image provider tests
+        run: python -m unittest tests.test_cloudflare_scene_provider -v
+
       - name: Generate & Upload (3 videos × 45 min)
         env:
+          # Gemini remains enabled for text/script generation only.
           GEMINI_API_KEY:         ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}
-          POLLINATIONS_API_KEY:   ${{ secrets.POLLINATION_KEY || secrets.POLLINATIONS_API_KEY || secrets.POLLINATIONS_KEY }}
-          POLLINATION_KEY:        ${{ secrets.POLLINATION_KEY || secrets.POLLINATIONS_API_KEY || secrets.POLLINATIONS_KEY }}
+          # Cloudflare Workers AI + FLUX.1 Schnell is the active AI image generator
+          CLOUDFLARE_ACCOUNT_ID:   ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN:    ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          IMAGE_PROVIDER:          'cloudflare'
+          CLOUDFLARE_SCENE_IMAGES_ENABLED: 'true'
+          CLOUDFLARE_SCENE_WIDTH:    '768'
+          CLOUDFLARE_SCENE_HEIGHT:   '1365'
+          CLOUDFLARE_IMAGE_MODEL:  '@cf/black-forest-labs/flux-1-schnell'
+          CLOUDFLARE_IMAGE_STEPS:  '4'
+          THUMBNAIL_VARIANTS:      '3'
           YT_CREDS_1:             ${{ secrets.YT_CREDS_1 }}
           UPLOAD_ENABLED:         'true'
           UPLOAD_COUNT:           ${{ inputs.count || '3' }}
@@ -103,6 +119,7 @@ jobs:
           mkdir -p out
           cp -v /tmp/out/*.mp4 out/ 2>/dev/null || true
           cp -v /tmp/out/thumbnail.jpg out/ 2>/dev/null || true
+          cp -rv /tmp/out/thumbnail_variants out/ 2>/dev/null || true
           cp -v /tmp/out/script.json out/ 2>/dev/null || true
           ls -lah out || true
 

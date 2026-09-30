@@ -95,6 +95,8 @@ def _load_settings() -> Settings:
 
     return Settings(
         gemini_api_key=os.getenv("GEMINI_API_KEY"),
+        cloudflare_account_id=os.getenv("CLOUDFLARE_ACCOUNT_ID"),
+        cloudflare_api_token=os.getenv("CLOUDFLARE_API_TOKEN"),
         openrouter_api_key=None,   # intentionally removed
         pexels_api_key=os.getenv("PEXELS_API_KEY"),
         pixabay_api_key=os.getenv("PIXABAY_API_KEY"),
@@ -331,6 +333,8 @@ def _run_one(
         scene_motion_types=scene_motion_types,
         scene_camera_motions=scene_camera_motions,
         scene_sfx_cues=scene_sfx_cues,
+        thumbnail_text=getattr(script, "thumbnail_text", ""),
+        thumbnail_label=(niche_cfg.get("card_tag", "") or (script.title.split("|")[-1].strip() if "|" in script.title else niche.replace("_", " "))),
     )
     print(f"[pipeline] rendered={video_path} size={video_path.stat().st_size / 1024 / 1024:.1f} MB")
 

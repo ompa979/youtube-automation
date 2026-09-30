@@ -38,6 +38,26 @@ THUMBNAIL_AI_URL = os.getenv("THUMBNAIL_AI_URL", "").strip()
 THUMBNAIL_AI_TOKEN = os.getenv("THUMBNAIL_AI_TOKEN", "").strip()
 THUMBNAIL_AI_TIMEOUT = max(15, int(os.getenv("THUMBNAIL_AI_TIMEOUT", "180")))
 CLOUDFLARE_IMAGE_STEPS = min(8, max(1, int(os.getenv("CLOUDFLARE_IMAGE_STEPS", "4"))))
+CLOUDFLARE_MAX_ACCOUNTS = max(1, min(8, int(os.getenv("CLOUDFLARE_MAX_ACCOUNTS", "4"))))
+
+
+def cloudflare_credential_pool() -> list[tuple[str, str, str]]:
+    """Return distinct Cloudflare account/token pairs in deterministic order.
+
+    Pair 1 is the legacy primary pair; numbered pairs 2..N are optional
+    failover accounts. This function is intentionally used only by the
+    thumbnail adapter so scene-generation behaviour remains unchanged.
+    """
+    pairs: list[tuple[str, str, str]] = []
+    primary_account, primary_token = _effective_cloudflare_credentials()
+    if primary_account and primary_token:
+        pairs.append(("1", primary_account.strip(), primary_token.strip()))
+    for idx in range(2, CLOUDFLARE_MAX_ACCOUNTS + 1):
+        account = os.getenv(f"CLOUDFLARE_ACCOUNT_ID_{idx}", "").strip()
+        token = os.getenv(f"CLOUDFLARE_API_TOKEN_{idx}", "").strip()
+        if account and token and (account, token) not in {(a, t) for _, a, t in pairs}:
+            pairs.append((str(idx), account, token))
+    return pairs
 
 
 def _effective_cloudflare_credentials() -> tuple[str, str]:
@@ -52,8 +72,7 @@ def _effective_cloudflare_credentials() -> tuple[str, str]:
 
 
 def cloudflare_configured() -> bool:
-    account, token = _effective_cloudflare_credentials()
-    return bool(account and token)
+    return bool(cloudflare_credential_pool())
 
 
 def cloudflare_endpoint(account_id: str | None = None, model: str | None = None) -> str:
@@ -135,11 +154,17 @@ def generate_cloudflare_background(
     width: int = 1280,
     height: int = 720,
     model: str | None = None,
+    account_id: str | None = None,
+    api_token: str | None = None,
 ) -> Image.Image:
-    """Generate with the requested Cloudflare model, handling model-specific REST schemas."""
+    """Generate with the requested Cloudflare model using explicit credentials when supplied."""
     model_name = (model or os.getenv("CLOUDFLARE_IMAGE_MODEL", CLOUDFLARE_MODEL)).strip()
-    endpoint = cloudflare_endpoint(model=model_name)
-    _, token = _effective_cloudflare_credentials()
+    endpoint = cloudflare_endpoint(account_id=account_id, model=model_name)
+    if api_token is None:
+        _, api_token = _effective_cloudflare_credentials()
+    token = str(api_token or "").strip()
+    if not token:
+        raise ValueError("CLOUDFLARE_API_TOKEN is required")
     timeout = max(15, int(os.getenv("CLOUDFLARE_IMAGE_TIMEOUT", str(THUMBNAIL_AI_TIMEOUT))))
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json,image/*"}
 
@@ -190,23 +215,35 @@ def generate_generic_background(prompt: str, seed: int) -> Image.Image:
 
 
 def generate_background(prompt: str, seed: int) -> tuple[Image.Image | None, str]:
-    """Use Cloudflare FLUX.2 [klein] 4B as the active image generator.
+    """Generate a thumbnail hero with account failover, then local/generic fallback."""
+    primary = os.getenv("CLOUDFLARE_THUMBNAIL_MODEL", CLOUDFLARE_THUMBNAIL_MODEL).strip()
+    fallback_model = os.getenv("CLOUDFLARE_SCENE_MODEL", "@cf/black-forest-labs/flux-1-schnell").strip()
+    last_error: Exception | None = None
 
-    The generic endpoint remains available only for compatibility; it is not
-    selected unless explicitly enabled via THUMBNAIL_ALLOW_GENERIC=true.
-    """
-    if cloudflare_configured():
-        primary = os.getenv("CLOUDFLARE_THUMBNAIL_MODEL", CLOUDFLARE_THUMBNAIL_MODEL).strip()
-        try:
-            return generate_cloudflare_background(prompt, seed, width=1152, height=768, model=primary), "cloudflare"
-        except Exception as exc:
-            print(f"[thumbnail-ai] Cloudflare thumbnail model {primary} failed; trying FLUX.1 fallback: {exc}")
-            fallback_model = os.getenv("CLOUDFLARE_SCENE_MODEL", "@cf/black-forest-labs/flux-1-schnell").strip()
-            if fallback_model and fallback_model != primary:
-                try:
-                    return generate_cloudflare_background(prompt, seed, width=1280, height=720, model=fallback_model), "cloudflare-flux1-fallback"
-                except Exception as fallback_exc:
-                    print(f"[thumbnail-ai] FLUX.1 fallback failed; falling back: {fallback_exc}")
+    for slot, account_id, api_token in cloudflare_credential_pool():
+        for model_name, provider_name, dims in (
+            (primary, "cloudflare", (1152, 768)),
+            (fallback_model, "cloudflare-flux1-fallback", (1280, 720)),
+        ):
+            if not model_name:
+                continue
+            try:
+                image = generate_cloudflare_background(
+                    prompt, seed, width=dims[0], height=dims[1], model=model_name,
+                    account_id=account_id, api_token=api_token,
+                )
+                print(f"[thumbnail-ai] Cloudflare account={slot} model={model_name} OK")
+                provider = provider_name if slot == "1" else provider_name + f"-acct{slot}"
+                return image, provider
+            except Exception as exc:
+                last_error = exc
+                message = str(exc).replace(api_token, "***") if api_token else str(exc)
+                print(f"[thumbnail-ai] Cloudflare account={slot} model={model_name} failed: {message[:900]}")
+                # Continue to the next model/account; 429 quota exhaustion is the
+                # expected failover path, but transient 5xx/transport errors also benefit.
+
+    if last_error is not None:
+        print(f"[thumbnail-ai] All Cloudflare thumbnail accounts exhausted/unavailable: {str(last_error)[:900]}")
 
     if THUMBNAIL_AI_URL and os.getenv("THUMBNAIL_ALLOW_GENERIC", "false").strip().lower() in {"1", "true", "yes", "on"}:
         try:
@@ -215,3 +252,4 @@ def generate_background(prompt: str, seed: int) -> tuple[Image.Image | None, str
             print(f"[thumbnail-ai] generic generation failed; falling back: {exc}")
 
     return None, "local"
+

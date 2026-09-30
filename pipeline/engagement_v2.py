@@ -1043,6 +1043,58 @@ def _v7_thumbnail_render(background: Image.Image, out: Path, headline: str, subl
     return out
 
 
+def _v11_procedural_hero(topic: str, variant: int) -> Image.Image:
+    """High-contrast concept art fallback when all thumbnail AI accounts are exhausted."""
+    from PIL import ImageDraw, ImageFilter
+    img = Image.new("RGB", (THUMBNAIL_W, THUMBNAIL_H), (10, 17, 32))
+    draw = ImageDraw.Draw(img, "RGBA")
+    # Soft radial-like bands give the fallback a designed, non-screenshot look.
+    for r in range(520, 20, -20):
+        alpha = int(5 + (520 - r) * 0.08)
+        draw.ellipse((850-r, 360-r, 850+r, 360+r), fill=(20, 120, 220, alpha))
+    core = _v11_core_topic(topic)
+    low = core.lower()
+
+    def node(x, y, r, fill=(40, 190, 255, 210)):
+        draw.ellipse((x-r, y-r, x+r, y+r), fill=(4, 10, 24, 230), outline=fill, width=8)
+        draw.ellipse((x-r//2, y-r//2, x+r//2, y+r//2), fill=fill)
+
+    if re.search(r"tcp.*3-way|3-way.*handshake|syn.*syn-ack", low):
+        pts = [(820, 180), (1060, 360), (820, 540)]
+        node(*pts[0], 56); node(*pts[1], 72, (255, 194, 66, 230)); node(*pts[2], 56, (88, 220, 160, 230))
+        for a,b in zip(pts, pts[1:]):
+            draw.line((*a, *b), fill=(230, 240, 255, 200), width=12)
+        draw.arc((745, 250, 980, 480), 310, 155, fill=(255, 110, 75, 230), width=10)
+        draw.polygon([(985, 332), (950, 318), (965, 350)], fill=(255, 110, 75, 230))
+    elif re.search(r"deadlock|coffman", low):
+        pts = [(850, 200), (1060, 260), (1040, 500), (800, 540)]
+        for i,(x,y) in enumerate(pts):
+            node(x,y,58, [(70,200,255,230),(255,190,65,230),(90,225,170,230),(240,95,110,230)][i])
+        for i in range(4):
+            a,b=pts[i],pts[(i+1)%4]
+            draw.line((*a,*b), fill=(245,245,255,180), width=10)
+    elif re.search(r"crr|slr|repo|npa|bank|finance", low):
+        draw.rounded_rectangle((820, 150, 1080, 570), 34, fill=(28, 42, 66, 230), outline=(100, 185, 255, 230), width=8)
+        draw.ellipse((875, 205, 1025, 355), fill=(255, 195, 64, 230))
+        for y in (410, 470, 530):
+            draw.rectangle((875, y, 1025, y+30), fill=(86, 206, 177, 210))
+        draw.line((770, 170, 770, 560), fill=(240,245,255,150), width=8)
+        draw.line((770, 365, 820, 365), fill=(240,245,255,200), width=10)
+    elif re.search(r"sql|database|normalization|query", low):
+        for y in (210, 350, 490):
+            draw.ellipse((820, y, 1040, y+70), fill=(65, 155, 240, 220), outline=(220,245,255,190), width=6)
+            draw.rectangle((820, y+35, 1040, y+105), fill=(24,55,90,230), outline=(220,245,255,120), width=6)
+        draw.polygon([(1080, 270), (1190, 270), (1150, 450), (1120, 450)], fill=(255,190,70,210))
+    else:
+        cx = 950 + (variant % 3) * 20
+        cy = 360
+        for r, fill in ((170,(35,125,255,60)), (120,(45,190,240,80)), (70,(255,190,70,150))):
+            draw.ellipse((cx-r,cy-r,cx+r,cy+r), fill=fill, outline=(230,245,255,150), width=5)
+        draw.line((800, 570, 1100, 160), fill=(95,220,190,190), width=14)
+        draw.polygon([(1100,160),(1065,180),(1080,212)], fill=(95,220,190,220))
+    return img.filter(ImageFilter.GaussianBlur(0.15))
+
+
 def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: float, question: str, label: str,
                             background_path: Path | None = None, topic: str = "", variants: int | None = None,
                             subline: str = "", visual_prompt: str = "") -> Path:
@@ -1389,6 +1441,15 @@ def _v11_compact_words(text: str, max_words: int = 4, max_chars: int = 30) -> st
     return value[:max_chars].rstrip(" -:|,;")
 
 
+def _v11_symbolic_copy(text: str, max_chars: int = 32) -> str:
+    value = _clean_text(text).upper()
+    value = re.sub(r"\s*→\s*", " → ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    if len(value) > max_chars:
+        value = value[:max_chars].rsplit(" ", 1)[0].rstrip(" -:/")
+    return value
+
+
 def _v11_thumbnail_copy(topic: str, question: str, subline: str) -> tuple[str, str]:
     """Create short creator-style copy; never a sentence/question on the thumbnail."""
     low = _clean_text(topic).lower()
@@ -1402,6 +1463,7 @@ def _v11_thumbnail_copy(topic: str, question: str, subline: str) -> tuple[str, s
         (r"letter.*shift|coding.*decoding", "LETTER SHIFT", "THE SHIFT RULE"),
         (r"feynman", "FEYNMAN TECHNIQUE", "LEARN BY EXPLAINING"),
         (r"normalization|1nf.*2nf.*3nf", "NORMALIZATION", "1NF → 2NF → 3NF"),
+        (r"tcp.*3-way|3-way.*handshake|syn.*syn-ack|syn-ack.*ack", "3-WAY HANDSHAKE", "SYN → SYN-ACK → ACK"),
         (r"tcp.*udp", "TCP VS UDP", "RELIABLE VS FAST"),
         (r"machine input.*output", "MACHINE INPUT", "FOLLOW THE PATTERN"),
         (r"goosebumps|music.*brain", "GOOSEBUMPS", "THE BRAIN REACTION"),
@@ -1423,7 +1485,9 @@ def _v11_thumbnail_copy(topic: str, question: str, subline: str) -> tuple[str, s
     if not candidate:
         candidate = "KEY CONCEPT"
 
-    sub = _v11_compact_words(subline, 4, 28)
+    sub = _v11_symbolic_copy(subline, 32)
+    if not sub:
+        sub = _v11_compact_words(subline, 4, 28)
     if not sub or _V11_BAD_HEADLINE.search(sub):
         tail = _clean_text(topic).split(":", 1)[1] if ":" in _clean_text(topic) else ""
         sub = _v11_compact_words(tail, 4, 28)
@@ -1439,6 +1503,7 @@ def _v11_visual_prompt(topic: str, headline: str, subline: str, variant: int) ->
         (r"crr.*slr", "a bank reserve vault on one side and government-security assets on the other, visibly separated by a decisive divide"),
         (r"ifsc", "a bank transfer travelling through a precise international payment-routing network, one destination clearly illuminated"),
         (r"letter|coding|decoding", "large physical letter tiles shifting through a mechanical sequence with one transformed result at the end"),
+        (r"tcp.*3-way|3-way.*handshake|syn.*syn-ack", "three realistic network endpoints connected by a clear packet path, with one luminous handshake packet travelling from the client to the server and a return acknowledgement path"),
         (r"tcp|udp|network|osi|arp", "a data packet moving through a realistic network of routers and servers, with a clear route and endpoint"),
         (r"deadlock|banker|algorithm|database|sql|normalization", "a sophisticated computer-system mechanism with connected data blocks and one clear cause-to-result transformation"),
         (r"physics|chemistry|biology|brain|goosebumps|science", "one striking scientific mechanism shown as a premium macro/cinematic physical process"),
@@ -1514,7 +1579,7 @@ def _v11_render(background: Image.Image, out: Path, headline: str, subline: str,
 
     # Main copy: 2–4 words, enormous, with only the last line accented.
     clean_head = _v11_compact_words(headline, 4, 30) or "KEY CONCEPT"
-    hf, lines = _v8_fit_text(draw, clean_head, maxw, max_lines=2, start=108, minimum=62)
+    hf, lines = _v8_fit_text(draw, clean_head, maxw, max_lines=2, start=122, minimum=58)
     heights = [draw.textbbox((0, 0), line, font=hf, stroke_width=3)[3] for line in lines]
     total = sum(heights) + 8 * max(0, len(lines) - 1)
     y = max(120, min(230, int((720 - total) * 0.48)))
@@ -1523,7 +1588,7 @@ def _v11_render(background: Image.Image, out: Path, headline: str, subline: str,
         draw.text((tx, y), line, font=hf, fill=fill, stroke_width=6, stroke_fill=(0, 0, 0, 235))
         y += heights[idx] + 8
 
-    clean_sub = _v11_compact_words(subline, 4, 28)
+    clean_sub = _v11_symbolic_copy(subline, 32) or _v11_compact_words(subline, 4, 28)
     if clean_sub:
         sf = _v6_thumb_font(25, heavy=True)
         # A single short clarifier, not a sentence.
@@ -1547,8 +1612,13 @@ def _v11_render(background: Image.Image, out: Path, headline: str, subline: str,
     }
 
 
-def _v11_thumbnail_score(path: Path, zone_meta: dict) -> float:
-    """Prefer balanced, high-contrast artwork with a genuinely quiet text side."""
+def _v11_thumbnail_score(path: Path, zone_meta: dict, headline: str = "", subline: str = "") -> float:
+    """Deterministic 25-signal-style packaging score for mobile thumbnail selection.
+
+    This is a presentation heuristic, not a prediction of YouTube CTR. It
+    rewards legibility, contrast, negative space, balanced visual weight and
+    disciplined copy while penalizing clutter-like compositions.
+    """
     from PIL import ImageStat
     with Image.open(path) as im:
         small = im.convert("RGB").resize((320, 180))
@@ -1558,11 +1628,38 @@ def _v11_thumbnail_score(path: Path, zone_meta: dict) -> float:
         brightness = max(0.0, 1.0 - abs(mean - 122.0) / 122.0)
         edges = small.convert("L").filter(ImageFilter.FIND_EDGES)
         edge_energy = ImageStat.Stat(edges).mean[0]
-        left = ImageStat.Stat(small.crop((0, 0, 155, 180))).stddev
-        right = ImageStat.Stat(small.crop((165, 0, 320, 180))).stddev
-        balance = min(sum(left) / 3.0, sum(right) / 3.0)
+        left = ImageStat.Stat(small.crop((0, 0, 150, 180)))
+        right = ImageStat.Stat(small.crop((170, 0, 320, 180)))
+        left_var = sum(left.stddev) / 3.0
+        right_var = sum(right.stddev) / 3.0
+        balance = min(left_var, right_var)
         quiet = min(zone_meta.get("left_complexity", 100), zone_meta.get("right_complexity", 100))
-        return round(contrast * 2.0 + brightness * 28.0 + edge_energy * 0.65 + balance * 0.45 + max(0.0, 72.0 - quiet) * 1.1, 2)
+        zone_gap = abs(zone_meta.get("left_complexity", 100) - zone_meta.get("right_complexity", 100))
+        headline_words = len(re.findall(r"[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*", headline or ""))
+        sub_words = len(re.findall(r"[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*", subline or ""))
+        copy_penalty = 0.0
+        if not 2 <= headline_words <= 4:
+            copy_penalty += 24.0
+        if len(_clean_text(headline)) > 30:
+            copy_penalty += 18.0
+        if sub_words > 6:
+            copy_penalty += 10.0
+        if re.search(r"[?]", headline or ""):
+            copy_penalty += 12.0
+        if re.search(r"\b(QUICK TEST|THINK FAST|REVEAL|KEY DIFFERENCE|WORKED EXAMPLE|EXAM CLUE)\b", headline or "", re.I):
+            copy_penalty += 20.0
+        text_zone_score = max(0.0, 100.0 - quiet) * 1.25
+        subject_zone_score = min(46.0, zone_gap * 0.55)
+        return round(
+            contrast * 2.0
+            + brightness * 28.0
+            + edge_energy * 0.50
+            + balance * 0.48
+            + text_zone_score
+            + subject_zone_score
+            - copy_penalty,
+            2,
+        )
 
 
 def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: float, question: str, label: str,
@@ -1587,10 +1684,19 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
         except Exception as exc:
             print(f"[thumbnail-v11] AI candidate {i + 1} failed: {exc}")
             ai_img = None
-        bg = ai_img if ai_img is not None else clean
+        if ai_img is not None:
+            bg = ai_img
+            bg_source = "cloudflare"
+        else:
+            # Do not fall back to a random video frame: use a concept-specific
+            # designed fallback so the thumbnail remains intentional during quota exhaustion.
+            bg = _v11_procedural_hero(topic or label, i)
+            bg_source = "procedural_concept"
         path = variant_dir / f"v11_{i + 1:02d}.jpg"
         meta = _v11_render(bg, path, headline, secondary, label, i)
-        score = _v11_thumbnail_score(path, meta)
+        score = _v11_thumbnail_score(path, meta, headline, secondary)
+        meta["background_source"] = bg_source
+        meta["hit_rate_score"] = score
         candidates.append((path, meta, score))
 
     ranked = sorted(candidates, key=lambda item: item[2], reverse=True)
@@ -1600,7 +1706,8 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
     Image.open(best).convert("RGB").save(out_path, "JPEG", quality=97, optimize=True, progressive=True)
     manifest = {
         "engine": "v10_creative_director",
-        "thumbnail_patch": "v11_thumbnail_only",
+        "thumbnail_patch": "v17_hit_rate_v2_thumbnail_only",
+        "hit_rate_program": "25-point-thumbnail-hit-rate-program",
         "headline": headline,
         "subline": secondary,
         "selected": best.name,
@@ -1610,7 +1717,8 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
         "creative_briefs": {p.name: {"thumbnail_patch": "v11_thumbnail_only", "variant": i + 1} for i, (p, _, _) in enumerate(candidates)},
         "canvas": [THUMBNAIL_W, THUMBNAIL_H],
         "ai_provider": os.getenv("CLOUDFLARE_THUMBNAIL_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"),
-        "copy_rule": "2-4 word creator headline + short concept clarifier",
+        "copy_rule": "2-4 word concept headline + short mechanism clarifier",
+        "api_failover": "CLOUDFLARE_ACCOUNT_ID[_2.._4] + CLOUDFLARE_API_TOKEN[_2.._4]",
     }
     (variant_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[thumbnail-v11] selected={best.name}; score={best_score}; headline={headline!r}; subline={secondary!r}")

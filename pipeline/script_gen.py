@@ -1033,6 +1033,59 @@ Return EXACTLY this JSON and nothing else:
 _DRAFTER_MODEL = "gemini-3.5-flash-lite"
 
 
+def _repair_script_shape(parsed: dict, router: GeminiRouter, topic: str) -> dict:
+    """Repair unconstrained JSON that does not satisfy the six-scene teaching contract."""
+    scenes = parsed.get("scenes") if isinstance(parsed, dict) else None
+    count = len(scenes) if isinstance(scenes, list) else 0
+    print(f"[qa] script shape repair required: got {count} scenes; normalizing to exactly 6")
+    repair_prompt = f"""
+You are a strict JSON repairer for an educational YouTube Shorts pipeline.
+TOPIC: {topic}
+
+The following JSON is structurally valid but violates the required six-scene teaching contract.
+Return ONLY corrected JSON. Preserve original facts and wording wherever possible. Do not invent facts.
+Never turn the content into a quiz, A/B challenge, countdown, or generic CTA.
+
+REQUIRED SCENES IN THIS EXACT ORDER:
+1. hook
+2. context
+3. mechanism
+4. example
+5. exam_takeaway
+6. difference_card
+
+Each scene must contain:
+action_type, action_payload, narration, tts_text, image_prompt, on_screen_text,
+card_points, motion_type, camera_motion, sfx_cue.
+
+If there are more than six scenes, merge redundant material without losing the mechanism or example.
+If there are fewer than six, split or rephrase existing material only; do not add unsupported facts.
+Keep total narration concise (50-90 words).
+
+SOURCE JSON:
+{json.dumps(parsed, ensure_ascii=False)}
+""".strip()
+    raw = router.generate(repair_prompt, call_type=CallType.JSON_REPAIR, use_schema=False)
+    repaired = _parse_json(raw)
+    repaired_scenes = repaired.get("scenes") if isinstance(repaired, dict) else None
+    repaired_count = len(repaired_scenes) if isinstance(repaired_scenes, list) else 0
+    if repaired_count != 6:
+        raise ValueError(f"scene-shape repair returned {repaired_count} scenes instead of 6")
+    print("[qa] scene-shape repair succeeded: exactly 6 scenes")
+    return repaired
+
+
+def _safe_to_script(parsed: dict, router: GeminiRouter, topic: str) -> Script:
+    """Convert JSON to Script, repairing scene-shape errors once before failing."""
+    try:
+        return _to_script(parsed)
+    except ValueError as exc:
+        msg = str(exc).lower()
+        if "scene" not in msg and "narration" not in msg:
+            raise
+        repaired = _repair_script_shape(parsed, router, topic)
+        return _to_script(repaired)
+
 
 def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_key: str | None = None) -> Script:
     """Three-pass generation: draft -> fact-check -> polish.
@@ -1086,7 +1139,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
             raise RuntimeError(f"Gemini returned invalid JSON and repair failed: {repair_exc}") from parse_exc
 
     # ── QA + topic drift + length + known-error guard ────────────────────────
-    script = _to_script(parsed)
+    script = _safe_to_script(parsed, router, topic)
     qa = _qa_all(script, topic, language)
 
     # ── Pass 2: cross-model fact-check (BLOCKING) ────────────────────────────
@@ -1113,7 +1166,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
     try:
         print("[pipeline] Script repair via router (schema-constrained)")
         raw2 = router.generate(repair_prompt, call_type=CallType.SCRIPT_GEN, use_schema=True)
-        repaired = _to_script(_parse_json(raw2))
+        repaired = _safe_to_script(_parse_json(raw2), router, topic)
         qa2 = _qa_all(repaired, topic, language)
         if qa2.ok:
             fc2 = fact_check_script(

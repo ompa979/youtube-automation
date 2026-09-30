@@ -135,3 +135,34 @@ def test_exam_settings_use_yt_creds_1(monkeypatch):
     monkeypatch.delenv("YT_CREDS_2", raising=False)
     settings = _load_settings()
     assert [x.index for x in settings.youtube_projects] == [1]
+
+
+def test_viral_script_json_parser_supports_viral_action_types():
+    from pipeline.script_gen import _v6_to_script
+
+    roles = ["pattern_interrupt", "tension", "mechanism", "transformation", "payoff", "loop"]
+    data = {
+        "title": "Why compound growth suddenly accelerates",
+        "hook": "At first, compound growth barely looks like growth.",
+        "description": "A simple visual explanation of compounding. #money #finance #shorts",
+        "pinned_comment": "When did compounding finally click for you?",
+        "tags": ["money", "finance", "compoundgrowth"],
+        "scenes": [
+            {
+                "action_type": role,
+                "narration": "A simple test line with a concrete visual change.",
+                "tts_text": "A simple test line with a concrete visual change.",
+                "image_prompt": "A cinematic vertical visual of the exact concept changing visibly, no text.",
+                "on_screen_text": "A CLEAR CUE",
+                "card_points": ["ONE MEMORY ANCHOR"],
+                "action_payload": "show the visual change",
+            }
+            for role in roles
+        ],
+    }
+    script = _v6_to_script(data)
+    assert [s.action_type for s in script.scenes] == roles
+    assert script.scenes[0].motion_type == "slam_impact"
+    assert script.scenes[1].camera_motion == "push_in"
+    assert script.scenes[3].motion_type == "transformation"
+    assert script.scenes[5].sfx_cue == "tick"

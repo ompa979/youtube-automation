@@ -1610,6 +1610,7 @@ def _v6_to_script(data: dict) -> Script:
         raise ValueError("V6 requires exactly 6 scenes")
     scenes: list[Scene] = []
     defaults = {
+        # Legacy V6/exam scene contract.
         "hook": ("push_in", "push_in", "boom"),
         "context": ("push_in", "pan_right", "whoosh"),
         "mechanism": ("formula_build", "push_in", "whoosh"),
@@ -1617,6 +1618,15 @@ def _v6_to_script(data: dict) -> Script:
         "exam_takeaway": ("static", "static", "alert"),
         "difference_card": ("static", "static", "chime"),
         "memory_lock": ("static", "push_in", "chime"),
+        # Viral V2 six-beat scene contract. This mapping is required when
+        # the model returns a valid viral action_type; previously the parser
+        # inferred the viral shape but then indexed this exam-only mapping,
+        # causing KeyError('pattern_interrupt').
+        "pattern_interrupt": ("slam_impact", "shake_and_push", "boom"),
+        "tension": ("snap_zoom", "push_in", "whoosh"),
+        "transformation": ("transformation", "push_fast", "whoosh"),
+        "payoff": ("winner_reveal", "push_in", "chime"),
+        "loop": ("loop_back", "static", "tick"),
     }
     for i, raw in enumerate(raw_scenes):
         if not isinstance(raw, dict):

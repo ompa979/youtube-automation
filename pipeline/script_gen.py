@@ -9,7 +9,7 @@ Three-pass generation per video (~4-6 Gemini calls):
   Pass 1  SCRIPT_GEN  → gemini-3.5-flash-lite, thinking=high, schema-constrained
                          (hard-enforces ≤5 scenes; eliminates most repair calls)
   Pass 2  FACT_CHECK  → gemini-3.1-flash-lite (cross-model!), thinking=high
-                         BLOCKING: issues → repair → ScriptRejected
+                         BLOCKING: issues → up to 2 targeted repairs → ScriptRejected
   Pass 3  POLISH      → gemini-3.1-flash-lite, thinking=medium (hook + pacing)
   SEO     SEO         → gemini-3.5-flash-lite, thinking=low (title/desc/tags)
 
@@ -18,7 +18,7 @@ v19 changes on top of v18:
   - Schema-constrained output: response_schema enforces ≤5 scenes, required fields
   - thinking_config per call type: 8192/8192/2048/512/0 tokens
   - POLISH pass: third Gemini call checks hook (first 3s) and pacing
-  - Word budget tightened: 55-85 words (28-34s), from 45-80 (20-30s)
+  - Word budget: 55-80 words with a 62-74 word target band
   - Prompt updated: pacing shape rule, mnemonic hint, 5-scene hard limit stated
 
 Also provides:
@@ -1225,30 +1225,63 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
         print(f"[qa] script passed all 3 passes: scenes={len(script.scenes)} words={word_count}")
         return _seo_and_finalize(script, topic, niche_key, settings)
 
-    # ── Repair pass (fixes length / facts / drift / QA failures) ─────────────
-    print("[qa] first draft needs repair: " + "; ".join(qa.issues))
-    repair_prompt = _build_prompt(topic, niche_cfg, language, "; ".join(qa.issues), hook_style=hook_style)
-    try:
-        print("[pipeline] Script repair via router (schema-constrained)")
-        raw2 = router.generate(repair_prompt, call_type=CallType.SCRIPT_GEN, use_schema=True)
-        repaired = _safe_to_script(_parse_json(raw2), router, topic)
-        qa2 = _qa_all(repaired, topic, language)
-        if qa2.ok:
-            fc2 = fact_check_script(
-                repaired, topic, settings.gemini_api_key, drafter_model=_DRAFTER_MODEL
-            )
-            if fc2:
-                qa2.issues = list(qa2.issues) + [f"FACT: {i}" for i in fc2]
-                qa2.ok = False
-        if not qa2.ok:
-            raise RuntimeError("; ".join(qa2.issues))
-        # Polish the repaired script too
-        repaired = polish_script(repaired, topic, settings.gemini_api_key)
-        print(f"[qa] repaired script passed: scenes={len(repaired.scenes)}")
-        return _seo_and_finalize(repaired, topic, niche_key, settings)
-    except Exception as exc:
-        # Nothing unverified is ever published: caller must skip this topic.
-        raise ScriptRejected(f"Script rejected after one repair attempt (not publishing): {exc}") from exc
+    # ── Repair passes (up to 2) ────────────────────────────────────────────────
+    # A single repair is too brittle for small length/hype issues: Gemini can fix one
+    # problem and accidentally introduce another. Give it one additional, tightly
+    # scoped pass before skipping a topic. Factual QA remains blocking.
+    repair_issues = list(qa.issues)
+    last_error = "; ".join(repair_issues)
+    for repair_attempt in range(1, 3):
+        print(f"[qa] repair pass {repair_attempt}/2: " + "; ".join(repair_issues))
+        repair_prompt = _build_prompt(
+            topic,
+            niche_cfg,
+            language,
+            "; ".join(repair_issues),
+            hook_style=hook_style,
+        )
+        try:
+            print("[pipeline] Script repair via router (schema-constrained)")
+            raw2 = router.generate(repair_prompt, call_type=CallType.SCRIPT_GEN, use_schema=True)
+            repaired = _safe_to_script(_parse_json(raw2), router, topic)
+            qa2 = _qa_all(repaired, topic, language)
+            if qa2.ok:
+                fc2 = fact_check_script(
+                    repaired, topic, settings.gemini_api_key, drafter_model=_DRAFTER_MODEL
+                )
+                if fc2:
+                    qa2.issues = list(qa2.issues) + [f"FACT: {i}" for i in fc2]
+                    qa2.ok = False
+
+            if qa2.ok:
+                repaired = polish_script(repaired, topic, settings.gemini_api_key)
+                # Final post-polish QA so the polish step cannot reintroduce a banned
+                # phrase or push the script back over the word cap.
+                qa3 = _qa_all(repaired, topic, language)
+                if qa3.ok:
+                    final_fc = fact_check_script(
+                        repaired, topic, settings.gemini_api_key, drafter_model=_DRAFTER_MODEL
+                    )
+                    if final_fc:
+                        qa3.issues = [f"FACT: {i}" for i in final_fc]
+                        qa3.ok = False
+                if qa3.ok:
+                    print(f"[qa] repaired script passed after repair {repair_attempt}: scenes={len(repaired.scenes)} words={sum(len(s.narration.split()) for s in repaired.scenes)}")
+                    return _seo_and_finalize(repaired, topic, niche_key, settings)
+                qa2 = qa3
+
+            repair_issues = list(qa2.issues)
+            last_error = "; ".join(repair_issues)
+            print(f"[qa] repair pass {repair_attempt} still failing: {last_error}")
+        except Exception as exc:
+            last_error = str(exc)
+            repair_issues = [last_error]
+            print(f"[qa] repair pass {repair_attempt} failed: {last_error}")
+
+    # Nothing unverified is ever published: caller must skip this topic.
+    raise ScriptRejected(
+        f"Script rejected after 2 repair attempts (not publishing): {last_error}"
+    )
 
 
 def _qa_all(script: Script, topic: str, language: str):
@@ -1346,8 +1379,9 @@ def _seo_and_finalize(script: Script, topic: str, niche_key: str | None, setting
 _V6_SCENE_SEQUENCE = ("hook", "context", "mechanism", "example", "exam_takeaway", "difference_card")
 _V6_ACTION_TYPES = set(_V6_SCENE_SEQUENCE)
 _V6_RISK_PHRASES = (
-    "90%", "99%", "every year", "always asked", "always asks", "illegal", "guaranteed",
-    "never", "secret", "hack any", "crack every", "you will be shocked", "most people don't know",
+    "90%", "99%", "every year", "always asked", "always asks", "guaranteed",
+    "secret", "hack any", "crack every", "you will be shocked", "most people don't know",
+    "most people do not know", "shocking",
 )
 
 
@@ -1387,10 +1421,10 @@ VALUE-FIRST SCRIPT SHAPE — EXACTLY 6 SCENES
 6. FINAL DIFFERENCE CARD: End with a 2-3 second visual comparison of the two most important concepts. Spoken line should be one concise contrast sentence. The image must show the two concepts side by side. No quiz, A/B choice, countdown, or CTA in narration.
 
 TARGET LENGTH
-- 50-90 spoken words total.
-- Prefer 55-80 words when the idea is simple.
-- Do not pad to hit a target. Do not exceed 90 words.
-- Aim for roughly 20-35 seconds of speech; the actual TTS duration is allowed to vary by voice.
+- 55-80 spoken words total.
+- Aim for 62-74 words for the safest delivery length.
+- Do not pad to hit a target. Never exceed 80 words.
+- Aim for roughly 20-32 seconds of speech; the actual TTS duration is allowed to vary by voice.
 
 ON-SCREEN TEXT
 - 2-6 words per scene.
@@ -1568,7 +1602,7 @@ def _v6_length_issue(script: Script) -> str | None:
     if words < 55:
         return f"script is only {words} words; add the missing mechanism or example so the viewer learns a complete idea"
     if words > 85:
-        return f"script is {words} words; cut repetition and keep one concrete example (target 55-80 words)"
+        return f"script is {words} words; compress repetition and keep one concrete example (target 62-74 words, hard cap 80)"
     return None
 
 

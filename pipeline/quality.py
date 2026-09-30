@@ -8,7 +8,7 @@ from typing import Any
 MIN_SCENES = 6
 MAX_SCENES = 6
 MIN_WORDS = 55
-MAX_WORDS = 85
+MAX_WORDS = 80
 WORDS_PER_SECOND = 2.5
 
 GENERIC_FILLERS = (
@@ -21,7 +21,7 @@ FORBIDDEN_GAME_LANGUAGE = re.compile(
     re.I,
 )
 SENSATIONAL_UNVERIFIED = re.compile(
-    r"\b(?:90%|99%|every year|always asked|always asks|illegal|guaranteed|crack every|hack any|secret that|never)\b",
+    r"(?<!\w)(?:90%|99%|every year|always asked|always asks|guaranteed|crack every|hack any|secret that|you will be shocked|most people do not know|most people don't know|shocking)(?!\w)",
     re.I,
 )
 

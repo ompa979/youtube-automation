@@ -59,6 +59,20 @@ def _run(cmd: list[str]) -> None:
         )
 
 
+def _ffmpeg_supports_filter(name: str) -> bool:
+    """Return whether the installed FFmpeg exposes a filter such as drawtext/ass."""
+    forced = os.getenv("FORCE_NO_FFMPEG_DRAWTEXT", "").strip().lower()
+    if name == "drawtext" and forced in {"1", "true", "yes", "on"}:
+        return False
+    try:
+        proc = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            return False
+        return any(line.split() and line.split()[1] == name for line in proc.stdout.splitlines() if len(line.split()) >= 2)
+    except Exception:
+        return False
+
+
 def _stable_hash(text: str) -> int:
     """Deterministic hash (unlike Python's randomized str hash) so the same
     topic/slug always rotates to the same style — reproducible renders,
@@ -323,6 +337,7 @@ def _ken_burns_clip(
 
     # Motion graphics overlay — progress bar, vignette pulse, rule line,
     # hook sweep, scene dots, and dedicated Action HUD.
+    drawtext_ok = _ffmpeg_supports_filter("drawtext")
     mg_f = build_motion_graphics_filter(
         duration=duration,
         accent=accent,
@@ -331,6 +346,7 @@ def _ken_burns_clip(
         is_hook=(role == "hook"),
         action_type=action_type,
         action_payload=action_payload,
+        allow_drawtext=drawtext_ok,
     )
     if mg_f:
         vf = f"{vf},{mg_f}"
@@ -339,12 +355,12 @@ def _ken_burns_clip(
     # anchor card (≈32%), fire-tinted keyword (mid), and a word-by-word
     # bold caption (bottom).
     interactive_beats = {"pattern_interrupt", "challenge", "countdown", "reveal", "mechanism", "trap_loop", "loop", "trap", "hook", "context", "example", "exam_takeaway", "memory_lock"}
-    badge_f = _badge_filter(badge_text, accent) if badge_text and on_screen_text else ""
+    badge_f = _badge_filter(badge_text, accent) if drawtext_ok and badge_text and on_screen_text else ""
     # In V2 the Action HUD is the primary visual interface. Stacking an extra
     # keyword and memory card on every interactive scene made the frame look
     # like a study poster and buried the actual question.
-    anchor_f = _memory_anchor_filter(anchor_text, accent) if anchor_text and action_type not in interactive_beats else ""
-    keyword_f = _keyword_filter(on_screen_text) if on_screen_text and action_type not in interactive_beats else ""
+    anchor_f = _memory_anchor_filter(anchor_text, accent) if drawtext_ok and anchor_text and action_type not in interactive_beats else ""
+    keyword_f = _keyword_filter(on_screen_text) if drawtext_ok and on_screen_text and action_type not in interactive_beats else ""
 
     if badge_f:
         vf = f"{vf},{badge_f}"
@@ -362,8 +378,11 @@ def _ken_burns_clip(
     has_words = bool(narration) and build_word_ass(word_timings, duration, ass_path)
     vf_words = f"{vf},{_ass_filter_arg(ass_path)}" if has_words else vf
 
-    fallback_subtitle_f = _subtitle_filter(narration, caption_style, accent) if narration else ""
+    fallback_subtitle_f = _subtitle_filter(narration, caption_style, accent) if drawtext_ok and narration else ""
     vf_fallback = f"{vf},{fallback_subtitle_f}" if fallback_subtitle_f else vf
+
+    if not drawtext_ok:
+        print("[render] FFmpeg drawtext unavailable; using ASS captions + drawbox-only motion graphics")
 
     cmd = [
         "ffmpeg", "-y", "-loop", "1", "-i", str(image),
@@ -433,7 +452,7 @@ def _make_loopback_clip(
         f"zoompan=z='1.00':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={total_frames}:s={W}x{H}:fps={FPS},"
         "eq=contrast=1.045:saturation=1.035:brightness=0.004,format=yuv420p"
     )
-    keyword_f = _keyword_filter(keyword_text) if keyword_text else ""
+    keyword_f = _keyword_filter(keyword_text) if _ffmpeg_supports_filter("drawtext") and keyword_text else ""
     if keyword_f:
         vf = f"{vf},{keyword_f}"
     _run([

@@ -361,8 +361,15 @@ def mg_v7_beat_hud(action_type: str, payload: str, accent: str) -> str:
     )
 
 
-def build_action_hud(action_type: str, payload: str, duration: float, accent: str) -> str:
-    """Return the dedicated Action HUD overlay for this scene's psychological role."""
+def build_action_hud(action_type: str, payload: str, duration: float, accent: str, allow_text: bool = True) -> str:
+    """Return the dedicated Action HUD overlay for this scene's psychological role.
+
+    ``drawtext`` is not available in every GitHub-hosted FFmpeg build.  Keep
+    text HUDs opt-in so the renderer can fall back to ASS captions without
+    breaking the entire scene.
+    """
+    if not allow_text:
+        return ""
     act = (action_type or "explanation").lower().strip()
     if act in {"hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock"}:
         return mg_v7_beat_hud(act, payload, accent)
@@ -393,6 +400,7 @@ def build_motion_graphics_filter(
     is_hook: bool = False,
     action_type: str = "explanation",
     action_payload: str = "",
+    allow_drawtext: bool = False,
 ) -> str:
     """Compose all MG layers for one scene. Returns a comma-joined ffmpeg filter string
     ready to be appended after the Ken Burns / color-grade chain.
@@ -417,7 +425,7 @@ def build_motion_graphics_filter(
         parts.append(mg_scene_counter(scene_index, total_scenes, accent))
 
     # Action HUD layer: dedicated interactive visual device
-    action_hud = build_action_hud(action_type, action_payload, duration, accent)
+    action_hud = build_action_hud(action_type, action_payload, duration, accent, allow_text=allow_drawtext)
     if action_hud:
         parts.append(action_hud)
 
@@ -450,9 +458,24 @@ def ensure_procedural_sfx(sfx_dir: Path) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# V6 CREATIVE OVERRIDE — keep the educational Short visual, remove legacy game HUD
+# Unified runtime motion-graphics renderer.
+# IMPORTANT: drawtext is optional because some GitHub Actions FFmpeg builds
+# do not expose the filter.  The production default is drawbox + ASS captions.
 # ─────────────────────────────────────────────────────────────────────────────
-_V6_ROLES = {"hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock"}
+_V6_ROLES = {"hook", "context", "mechanism", "example", "exam_takeaway", "memory_lock", "difference_card"}
+
+
+def _v8_difference_hud(payload: str, accent: str, allow_drawtext: bool = False) -> str:
+    """Final comparison card frame. Artwork stays dominant; text is optional."""
+    parts = [
+        "drawbox=x=36:y=0:w=iw-72:h=ih*0.70:color=black@0.10:t=3",
+    ]
+    if allow_drawtext:
+        parts.append(
+            "drawtext=font='Inter':text='KEY DIFFERENCE':fontcolor=0xFFE45B:fontsize=24:"
+            "borderw=2:bordercolor=black@0.76:x=54:y=60"
+        )
+    return ",".join(parts)
 
 
 def build_motion_graphics_filter(
@@ -463,67 +486,56 @@ def build_motion_graphics_filter(
     is_hook: bool = False,
     action_type: str = "explanation",
     action_payload: str = "",
+    allow_drawtext: bool = False,
 ) -> str:
-    """V6: cinematic, minimal overlays. No legacy challenge/reveal/counter cards."""
-    act = (action_type or "explanation").lower().strip()
-    if act not in _V6_ROLES:
-        return _build_motion_graphics_filter_legacy(
-            duration, accent, scene_index, total_scenes, is_hook, action_type, action_payload
-        )
+    """Build runtime-safe motion graphics.
 
-    parts: list[str] = []
-    # A quiet progress indicator keeps the Short's pacing visible without making
-    # the frame look like an app/game UI.
-    parts.append(mg_progress_bar(duration, accent))
+    The default path intentionally contains NO drawtext.  Word captions are
+    burned through ASS/libass in render.py, while drawbox handles non-text
+    motion.  drawtext may be enabled explicitly when the installed FFmpeg
+    exposes it.
+    """
+    act = (action_type or "explanation").lower().strip()
+    parts: list[str] = [mg_progress_bar(duration, accent)]
     if is_hook:
         parts.append(mg_hook_sweep(accent))
-    return ",".join(parts)
 
+    # Keep the final difference card visually framed without hard-coding text
+    # onto the image/video layer.  The artwork itself carries the explanation.
+    if act == "difference_card":
+        parts.append(_v8_difference_hud(action_payload, accent, allow_drawtext=allow_drawtext))
+        return ",".join(p for p in parts if p)
 
-# Snapshot the pre-V6 implementation once, after the original function has been
-# parsed, so non-V6 callers retain compatibility.
-try:
-    _build_motion_graphics_filter_legacy
-except NameError:
-    # Reconstruct a minimal legacy-compatible implementation for older action types.
-    def _build_motion_graphics_filter_legacy(
-        duration: float,
-        accent: str,
-        scene_index: int = 0,
-        total_scenes: int = 1,
-        is_hook: bool = False,
-        action_type: str = "explanation",
-        action_payload: str = "",
-    ) -> str:
-        parts = [mg_progress_bar(duration, accent), mg_rule_line(accent)]
-        if is_hook:
-            parts.append(mg_hook_sweep(accent))
-        parts.append(mg_animated_vignette_pulse(duration))
-        if total_scenes >= 2:
-            parts.append(mg_scene_counter(scene_index, total_scenes, accent))
-        action_hud = build_action_hud(action_type, action_payload, duration, accent)
+    # Legacy interactive/game HUDs are disabled in the current value-first
+    # creative contract.  Only enable text HUDs when explicitly requested.
+    if allow_drawtext and act not in _V6_ROLES:
+        action_hud = build_action_hud(act, action_payload, duration, accent, allow_text=True)
         if action_hud:
             parts.append(action_hud)
-        return ",".join(parts)
+    return ",".join(p for p in parts if p)
 
 
-# V8 final comparison card
-def _v8_difference_hud(payload: str, accent: str) -> str:
-    # Final scene is an IMAGE comparison. Keep overlays minimal so the generated
-    # side-by-side artwork remains the dominant teaching element.
-    return (
-        "drawbox=x=36:y=h*0.11:w=iw-72:h=ih*0.70:color=black@0.10:t=3,"
-        "drawtext=font='Inter':text='KEY DIFFERENCE':fontcolor=0xFFE45B:fontsize=24:borderw=2:bordercolor=black@0.76:x=54:y=h*0.12"
-    )
-
-def build_motion_graphics_filter(duration: float, accent: str, scene_index: int = 0, total_scenes: int = 1, is_hook: bool = False, action_type: str = "explanation", action_payload: str = "") -> str:
-    act=(action_type or "explanation").lower().strip()
-    if act == "difference_card":
-        parts=[mg_progress_bar(duration,accent), _v8_difference_hud(action_payload,accent)]
-        if is_hook: parts.append(mg_hook_sweep(accent))
-        return ",".join(parts)
-    if act in {"hook","context","mechanism","example","exam_takeaway"}:
-        parts=[mg_progress_bar(duration,accent)]
-        if is_hook: parts.append(mg_hook_sweep(accent))
-        return ",".join(parts)
-    return _build_motion_graphics_filter_legacy(duration,accent,scene_index,total_scenes,is_hook,action_type,action_payload)
+def ensure_procedural_sfx(sfx_dir: Path) -> None:
+    """Synthesize procedural sound effects if missing via ffmpeg lavfi."""
+    sfx_dir.mkdir(parents=True, exist_ok=True)
+    cues = {
+        "boom.wav": ["-f", "lavfi", "-i", "sine=f=60:b=4:d=0.8,afade=t=out:st=0.1:d=0.7"],
+        "tick.wav": ["-f", "lavfi", "-i", "sine=f=1200:d=0.08,afade=t=out:st=0.01:d=0.07"],
+        "chime.wav": ["-f", "lavfi", "-i", "sine=f=880:d=0.4,afade=t=out:st=0.05:d=0.35"],
+        "whoosh.wav": ["-f", "lavfi", "-i", "anoisesrc=d=0.5:c=pink,lowpass=f=1200,afade=t=in:st=0:d=0.15,afade=t=out:st=0.15:d=0.35"],
+        "alert.wav": ["-f", "lavfi", "-i", "sine=f=800:d=0.25,afade=t=out:st=0.05:d=0.20"],
+        "cash.wav": ["-f", "lavfi", "-i", "sine=f=1600:d=0.15,afade=t=out:st=0.02:d=0.13"],
+    }
+    import subprocess
+    for fname, args in cues.items():
+        dst = sfx_dir / fname
+        if not dst.exists():
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", *args, "-c:a", "pcm_s16le", str(dst)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except Exception:
+                pass

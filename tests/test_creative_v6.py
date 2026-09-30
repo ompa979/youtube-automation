@@ -206,6 +206,28 @@ class TestCreativeV6(unittest.TestCase):
         source = Path("pipeline/generate.py").read_text(encoding="utf-8")
         self.assertGreater(source.rfind('if __name__ == "__main__"'), source.find("# Runtime overrides used by main/_run_one"))
 
+
+    def test_21_v6_allows_realistic_100_word_cap(self):
+        s = make_script()
+        # Expand to a realistic ~90-word teaching script without changing structure.
+        extra = " This line adds useful context without changing the concept."
+        s.scenes[3].narration += extra + extra
+        self.assertIsNone(sg._v6_length_issue(s))
+
+    def test_22_v6_rejects_only_over_100_words(self):
+        s = make_script()
+        extra = " This adds one more useful sentence to keep the example concrete."
+        for scene in s.scenes[:3]:
+            scene.narration += extra * 5
+        issue = sg._v6_length_issue(s)
+        self.assertIsNotNone(issue)
+        self.assertIn("hard cap 100", issue)
+
+
+    def test_23_script_generation_disables_schema_path_in_runtime(self):
+        src = Path("pipeline/script_gen.py").read_text(encoding="utf-8")
+        self.assertIn("CallType.SCRIPT_GEN, use_schema=False", src)
+
     def test_20_workflow_is_cloudflare_first(self):
         source = Path(".github/workflows/generate.yml").read_text(encoding="utf-8")
         self.assertIn("CLOUDFLARE_ACCOUNT_ID", source)

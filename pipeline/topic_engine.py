@@ -195,6 +195,9 @@ def _trend_scores(topics: list[str]) -> dict[str, float]:
         return result
     except Exception as exc:
         print(f"[topic] Google Trends unavailable: {exc}")
+        # Do not invent a false trend score when the provider is rate-limited.
+        # Returning zero marks the live signal as unavailable; choose_best_topic
+        # applies a neutral fallback and does not let the outage dominate ranking.
         return {t: 0.0 for t in topics}
 
 
@@ -405,8 +408,11 @@ def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: di
     # signal rather than pretending "0" means "not trending". This prevents an
     # outage from silently dominating topic selection.
     usable = [float(v) for v in trend_values.values() if float(v) > 0]
+    trend_live = bool(usable)
     if not usable:
-        trend_values = {topic: 35.0 for topic in top_topics}
+        # Neutral fallback only; explicitly mark that this is NOT a live trend signal.
+        trend_values = {topic: 50.0 for topic in top_topics}
+        print("[topic] TREND FALLBACK=50/100 (live Trends unavailable; ranking will use SEO/exam/value next)")
     elif len(usable) > 1:
         # Make the score comparable inside this candidate board while preserving
         # the provider's absolute signal. This is why the dashboard can put Trend
@@ -425,9 +431,12 @@ def choose_best_topic(plan: dict[str, Any], enabled_niches: list[str], state: di
         qs = _candidate_query_signal(item.topic)
         scored.append(score_topic(item.topic, item.niche, completed, recent_topics, trend_values.get(item.topic, 35.0), query_signal=qs))
 
-    # Discovery order is literal: Trend first, then SEO, then exam fit/value/visual.
-    # Total remains an audit metric, never the primary selector.
-    scored.sort(key=lambda x: (x.trend_score, x.seo_score, x.exam_fit, x.value_density, x.visual, x.total), reverse=True)
+    # Discovery order is literal when a live trend signal exists. During a Trends outage,
+    # do not let a synthetic neutral 50/100 score override the actual SEO/exam/value evidence.
+    if trend_live:
+        scored.sort(key=lambda x: (x.trend_score, x.seo_score, x.exam_fit, x.value_density, x.visual, x.total), reverse=True)
+    else:
+        scored.sort(key=lambda x: (x.seo_score, x.exam_fit, x.value_density, x.visual, x.total), reverse=True)
 
     # Hard quality gates: a topic must be useful even if it is temporarily popular.
     viable = [x for x in scored if x.exam_fit >= 19.0 and x.value_density >= 9.0 and x.teachability >= 7.0 and x.seo_fit >= 4.0 and x.visual >= 6.0]

@@ -377,8 +377,9 @@ class GeminiRouter:
     ) -> str:
         # Base config — only fields universally supported by all SDK versions.
         # thinking_config was rejected by the installed SDK → removed.
-        # response_schema is attempted first; if rejected by SDK, we retry
-        # without it (QA layer enforces structure post-generation instead).
+        # Script generation can run without response_schema because some CI SDK builds
+        # reject the field before the request reaches Gemini. Structure is validated
+        # and repaired by the script QA layer instead.
         base_config: dict[str, Any] = {
             "temperature": 0.7 if call_type in (CallType.SCRIPT_GEN, CallType.POLISH) else 0.5,
             "response_mime_type": "application/json",

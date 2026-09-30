@@ -1179,7 +1179,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
     # ── Pass 1: draft (schema-constrained, high thinking) ────────────────────
     print("[pipeline] Pass 1 — draft (schema-constrained, thinking=high)")
     try:
-        raw = router.generate(prompt, call_type=CallType.SCRIPT_GEN, use_schema=True)
+        raw = router.generate(prompt, call_type=CallType.SCRIPT_GEN, use_schema=False)
     except Exception as e:
         raise RuntimeError(f"All Gemini models failed for script generation: {e}") from e
 
@@ -1242,7 +1242,7 @@ def generate_script(topic: str, niche_cfg: dict, language: str, settings, niche_
         )
         try:
             print("[pipeline] Script repair via router (schema-constrained)")
-            raw2 = router.generate(repair_prompt, call_type=CallType.SCRIPT_GEN, use_schema=True)
+            raw2 = router.generate(repair_prompt, call_type=CallType.SCRIPT_GEN, use_schema=False)
             repaired = _safe_to_script(_parse_json(raw2), router, topic)
             qa2 = _qa_all(repaired, topic, language)
             if qa2.ok:
@@ -1374,6 +1374,8 @@ def _seo_and_finalize(script: Script, topic: str, niche_key: str | None, setting
 
 # ═════════════════════════════════════════════════════════════════════════════
 # CREATIVE V6 — value-first scripts, no A/B game, no fake urgency, richer visual briefs
+# Runtime note: current Gemini SDKs may reject response_schema; JSON is requested by prompt
+# and validated/repaired deterministically after generation.
 # ═════════════════════════════════════════════════════════════════════════════
 
 _V6_SCENE_SEQUENCE = ("hook", "context", "mechanism", "example", "exam_takeaway", "difference_card")
@@ -1421,10 +1423,11 @@ VALUE-FIRST SCRIPT SHAPE — EXACTLY 6 SCENES
 6. FINAL DIFFERENCE CARD: End with a 2-3 second visual comparison of the two most important concepts. Spoken line should be one concise contrast sentence. The image must show the two concepts side by side. No quiz, A/B choice, countdown, or CTA in narration.
 
 TARGET LENGTH
-- 55-80 spoken words total.
-- Aim for 62-74 words for the safest delivery length.
-- Do not pad to hit a target. Never exceed 80 words.
-- Aim for roughly 20-32 seconds of speech; the actual TTS duration is allowed to vary by voice.
+- Aim for 65-85 spoken words total.
+- Hard cap: 100 words. Never exceed 100 words.
+- Do not pad to hit a target. Remove repetition before adding detail.
+- If a draft exceeds 85 words, rewrite it more compactly while keeping the mechanism and one concrete example; do not expand the script.
+- Aim for roughly 24-38 seconds of speech; the actual TTS duration is allowed to vary by voice.
 
 ON-SCREEN TEXT
 - 2-6 words per scene.
@@ -1601,8 +1604,8 @@ def _v6_length_issue(script: Script) -> str | None:
     words = sum(len(re.findall(r"\b[\w'-]+\b", s.narration)) for s in script.scenes)
     if words < 55:
         return f"script is only {words} words; add the missing mechanism or example so the viewer learns a complete idea"
-    if words > 85:
-        return f"script is {words} words; compress repetition and keep one concrete example (target 62-74 words, hard cap 80)"
+    if words > 100:
+        return f"script is {words} words; compress repetition and keep one concrete example (target 65-85 words, hard cap 100)"
     return None
 
 

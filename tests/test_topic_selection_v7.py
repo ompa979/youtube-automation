@@ -48,6 +48,15 @@ class TestTopicSelectionV7(unittest.TestCase):
         for key in ("search_intent", "seo_fit", "value_density", "exam_fit", "teachability", "visual", "total"):
             self.assertIn(key, data)
 
+
+    def test_trend_outage_returns_unavailable_signal(self):
+        with patch.dict(os.environ, {"TOPIC_USE_TRENDS": "true"}):
+            # Stub TrendReq import path to force provider failure without a network call.
+            fake = type("BadTrendReq", (), {"__init__": lambda self, *a, **k: (_ for _ in ()).throw(RuntimeError("429"))})
+            with patch.dict("sys.modules", {"pytrends.request": type("M", (), {"TrendReq": fake})()}):
+                vals = te._trend_scores(["CRR vs SLR"])
+        self.assertEqual(vals["CRR vs SLR"], 0.0)
+
     def test_search_signal_env_can_disable_network(self):
         with patch.dict(os.environ, {"TOPIC_USE_AUTOCOMPLETE": "false"}):
             old = te._candidate_query_signal("TCP handshake")

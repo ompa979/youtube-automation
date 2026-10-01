@@ -1852,6 +1852,245 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
     print(f"[thumbnail-v11] selected={best.name}; score={best_score}; headline={headline!r}; subline={secondary!r}")
     return out_path
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+# THUMBNAIL V18 — Indian viral explainer / high-energy creator packaging
+# Reference-driven layout: bold yellow/red brush banners, expressive hero,
+# multiple visual callouts, black information panel and a final red payoff strap.
+# Only used for CONTENT_MODE=viral. Exam thumbnails remain on V12.
+# ═════════════════════════════════════════════════════════════════════════════
+
+_V18_YELLOW = (255, 204, 0, 255)
+_V18_RED = (238, 34, 34, 255)
+_V18_BLACK = (4, 7, 13, 235)
+_V18_WHITE = (250, 250, 248, 255)
+_V18_CREAM = (255, 242, 208, 255)
+
+
+def _v18_viral_copy(topic: str, question: str, subline: str) -> dict:
+    """Turn a topic into the specific high-energy packaging style from the reference.
+
+    The copy is intentionally concrete. Generic labels such as 'MONEY CHANGES HERE'
+    are avoided because they do not tell a viewer what is surprising in the video.
+    """
+    low = _clean_text(topic or question).lower()
+    cases = (
+        (r"compound|compounding|growth|interest", {
+            "headline": "BORING → EXPLOSIVE",
+            "strap": "WHY MONEY TAKES OFF LATE",
+            "calls": ["SMALL AT FIRST", "GROWTH STACKS", "THEN IT ACCELERATES"],
+            "bottom": "THE LAST PART CHANGES EVERYTHING!",
+            "visual": "young Indian man shocked on the left; stacks of coins and cash growing dramatically on the right; one steep upward curve and a clear turning point",
+        }),
+        (r"choice|decision|options|decisions", {
+            "headline": "TOO MANY CHOICES?",
+            "strap": "WHY YOUR BRAIN FREEZES",
+            "calls": ["MORE OPTIONS", "MORE COMPARING", "HARDER TO DECIDE"],
+            "bottom": "MORE ISN'T ALWAYS BETTER!",
+            "visual": "expressive young Indian person overwhelmed on the left; many doors or paths on the right converging into one glowing decision point",
+        }),
+        (r"crowd|follow|conform|social proof", {
+            "headline": "WHY WE FOLLOW",
+            "strap": "EVEN WHEN WE DOUBT",
+            "calls": ["SEE THE CROWD", "FEEL THE PRESSURE", "COPY THE CHOICE"],
+            "bottom": "YOUR BRAIN DOES THIS FAST!",
+            "visual": "surprised young Indian person on the left; crowd moving toward one bright direction on the right; one hesitant person being pulled along",
+        }),
+        (r"motivation|discipline|productivity|procrastination|focus", {
+            "headline": "MOTIVATION FADES",
+            "strap": "SYSTEMS KEEP YOU MOVING",
+            "calls": ["START SMALL", "REMOVE FRICTION", "REPEAT DAILY"],
+            "bottom": "DON'T WAIT TO FEEL READY!",
+            "visual": "young Indian creator reacting on the left; messy scattered objects transforming into a clean repeated path, calendar and clock on the right",
+        }),
+        (r"ai|artificial intelligence|hallucinat|invent.*answer|robot", {
+            "headline": "AI CAN SOUND RIGHT",
+            "strap": "AND STILL BE WRONG",
+            "calls": ["FLUENT ANSWER", "NO GUARANTEE", "VERIFY THE FACT"],
+            "bottom": "CONFIDENT ≠ CORRECT!",
+            "visual": "shocked young Indian person on the left; friendly futuristic AI/robot on the right producing a convincing-looking but visibly cracked answer object",
+        }),
+        (r"science|physics|chemistry|biology|space|planet|experiment", {
+            "headline": "SCIENCE GETS WEIRD",
+            "strap": "THE PART YOU DON'T EXPECT",
+            "calls": ["LOOK CLOSE", "WATCH THE CHANGE", "SEE THE REASON"],
+            "bottom": "THIS IS ACTUALLY HAPPENING!",
+            "visual": "expressive young Indian face on the left; dramatic scientific phenomenon on the right with particles, energy and one unmistakable transformation",
+        }),
+        (r"career|job|work|resume|interview", {
+            "headline": "THE CAREER TRAP",
+            "strap": "MOST PEOPLE MISS THIS",
+            "calls": ["BUSY ≠ GROWTH", "SKILL > NOISE", "SHOW THE RESULT"],
+            "bottom": "THIS CHANGES HOW YOU WORK!",
+            "visual": "surprised young Indian professional on the left; forked career path, laptop and one highlighted upward route on the right",
+        }),
+    )
+    for pattern, data in cases:
+        if re.search(pattern, low, re.I):
+            return data
+    # Generic viral fallback remains concrete rather than generic motivation copy.
+    candidate = _v11_compact_words(question or topic, 4, 28).upper() or "WHY THIS HAPPENS"
+    return {
+        "headline": candidate,
+        "strap": _v11_compact_words(subline, 5, 34).upper() or "THE PART PEOPLE MISS",
+        "calls": ["LOOK CLOSER", "SEE THE MECHANISM", "REMEMBER THIS"],
+        "bottom": "NOW YOU'LL SEE IT DIFFERENTLY!",
+        "visual": "expressive young Indian creator on the left reacting to one dramatic, topic-specific hero object on the right with a clear cause-and-effect action",
+    }
+
+
+def _v18_viral_prompt(topic: str, pack: dict, variant: int) -> str:
+    layouts = (
+        "large expressive reaction person on LEFT 30%, topic objects on RIGHT 70%, diagonal action from lower-left to upper-right",
+        "reaction person on LEFT 25%, giant topic hero in CENTER-RIGHT, two supporting objects around it, strong depth",
+        "close reaction face on LEFT, oversized topic mechanism on RIGHT, one bold arrow-like physical motion cue",
+        "reaction person lower-left, topic hero upper-right, secondary object lower-right, dramatic perspective and layered depth",
+        "reaction person on LEFT, three clearly separated topic objects on RIGHT arranged like a premium editorial collage",
+    )
+    return (
+        "Create an ORIGINAL high-energy Indian YouTube Shorts thumbnail HERO IMAGE, inspired by the visual energy of popular Indian explainer thumbnails, "
+        "but do not copy any existing thumbnail, person, logo or artwork. "
+        f"Exact topic: {topic}. Main visual idea: {pack['visual']}. Composition: {layouts[variant % len(layouts)]}. "
+        "Use a photorealistic expressive young Indian creator/reaction face with genuine surprise or curiosity, dramatic eyes and strong readable pose. "
+        "Build a multi-object visual story: one dominant hero object plus 2-4 supporting objects that make the topic obvious at a glance. "
+        "Use dramatic rim lighting, deep blue-black background, saturated yellow and red accents, realistic materials, strong foreground/midground/background separation, "
+        "cinematic depth, crisp silhouettes, high contrast, premium creator-thumbnail finish. Leave enough dark/clean areas behind the planned text bands. "
+        "Do NOT render any words, letters, numbers, captions, logos, flags with writing, watermarks or UI. No poster text. No infographic text. Portrait 9:16.")
+
+
+def _v18_brush_polygon(draw, box, fill, seed=0, rough=34):
+    """Paint an irregular brush-stroke banner without SVG dependencies."""
+    import random
+    x1, y1, x2, y2 = box
+    rnd = random.Random(seed)
+    pts_top = []
+    pts_bottom = []
+    steps = max(8, int((x2 - x1) / 150))
+    for i in range(steps + 1):
+        x = x1 + (x2 - x1) * i / steps
+        pts_top.append((x, y1 + rnd.randint(-rough, rough)))
+        pts_bottom.append((x, y2 + rnd.randint(-rough, rough)))
+    points = pts_top + list(reversed(pts_bottom))
+    draw.polygon(points, fill=fill)
+    # A few dry-brush streaks give the flat rectangle a hand-painted edge.
+    for j in range(3):
+        yy = y1 + (y2-y1) * (j+1)/4 + rnd.randint(-20,20)
+        draw.line((x1-rnd.randint(10,50), yy, x2+rnd.randint(10,50), yy+rnd.randint(-12,12)),
+                  fill=fill, width=max(4, rough//5))
+
+
+def _v18_fit_text(draw, text, max_width, max_size, min_size, max_lines=2):
+    clean = _clean_text(text).upper()
+    for size in range(max_size, min_size-1, -4):
+        font = _v6_thumb_font(size, heavy=True)
+        lines = _v6_wrap(draw, clean, font, max_width, max_lines=max_lines)
+        if not lines:
+            continue
+        widths = [draw.textbbox((0,0), ln, font=font, stroke_width=8)[2] for ln in lines]
+        if len(lines) <= max_lines and max(widths) <= max_width:
+            return font, lines
+    font = _v6_thumb_font(min_size, heavy=True)
+    return font, _v6_wrap(draw, clean, font, max_width, max_lines=max_lines)
+
+
+def _v18_render(background: Image.Image, out: Path, pack: dict, variant: int) -> dict:
+    """Render the bold Indian viral explainer composition over an AI hero image."""
+    bg = _fit_background(background).convert("RGB")
+    bg = ImageEnhance.Contrast(bg).enhance(1.24)
+    bg = ImageEnhance.Color(bg).enhance(1.22)
+    bg = ImageEnhance.Sharpness(bg).enhance(1.18)
+    canvas = bg.convert("RGBA")
+    draw = ImageDraw.Draw(canvas, "RGBA")
+
+    # Dark vignette keeps the painted banners and white copy dominant.
+    vignette = Image.new("RGBA", canvas.size, (0,0,0,0))
+    vd = ImageDraw.Draw(vignette, "RGBA")
+    vd.rectangle((0,0,THUMBNAIL_W,THUMBNAIL_H), fill=(0,0,0,42))
+    canvas.alpha_composite(vignette)
+    draw = ImageDraw.Draw(canvas, "RGBA")
+
+    # Top yellow headline band.
+    _v18_brush_polygon(draw, (45, 120, 2115, 710), _V18_YELLOW, 100+variant, rough=30)
+    hf, hlines = _v18_fit_text(draw, pack["headline"], 1900, 210, 108, 2)
+    y = 205
+    for line in hlines:
+        draw.text((105, y), line, font=hf, fill=(5,5,5,255), stroke_width=5, stroke_fill=(255,236,120,255))
+        y += draw.textbbox((0,0), line, font=hf, stroke_width=5)[3] + 12
+
+    # Red strap under headline.
+    _v18_brush_polygon(draw, (180, 720, 1980, 1110), _V18_RED, 300+variant, rough=28)
+    sf, slines = _v18_fit_text(draw, pack["strap"], 1680, 145, 76, 2)
+    sy = 770
+    for line in slines:
+        draw.text((270, sy), line, font=sf, fill=_V18_WHITE, stroke_width=8, stroke_fill=(40,0,0,255))
+        sy += draw.textbbox((0,0), line, font=sf, stroke_width=8)[3] + 8
+
+    # Mid-page black information panel with 3 concrete cues.
+    panel = (95, 2380, 2065, 3155)
+    draw.rounded_rectangle(panel, radius=55, fill=_V18_BLACK, outline=(255,215,40,230), width=8)
+    call_font = _v6_thumb_font(94, heavy=True)
+    y0 = 2460
+    icon_x = 220
+    for idx, call in enumerate(pack["calls"][:3]):
+        yy = y0 + idx * 225
+        # bright circular callout marker
+        draw.ellipse((120, yy-18, 300, yy+162), fill=_V18_YELLOW, outline=(255,255,255,230), width=5)
+        marker = str(idx+1)
+        mf = _v6_thumb_font(82, heavy=True)
+        mw = draw.textbbox((0,0), marker, font=mf)[2]
+        draw.text((210-mw/2, yy+10), marker, font=mf, fill=(0,0,0,255))
+        draw.text((350, yy), call.upper(), font=call_font, fill=_V18_WHITE, stroke_width=4, stroke_fill=(0,0,0,240))
+        draw.line((350, yy+130, 1920, yy+130), fill=(255,205,20,220), width=8)
+
+    # Hand-drawn style directional arrow in the central visual area.
+    arrow_y = 1770 + (variant % 3) * 70
+    draw.line((1110, arrow_y+150, 1710, arrow_y-120), fill=(250,250,250,245), width=42)
+    draw.line((1110, arrow_y+150, 1710, arrow_y-120), fill=_V18_RED, width=25)
+    draw.polygon([(1710,arrow_y-120),(1615,arrow_y-125),(1660,arrow_y-45)], fill=_V18_RED)
+    draw.line((1090, arrow_y+180, 1685, arrow_y-90), fill=(255,205,0,255), width=8)
+
+    # Bottom red payoff strap.
+    _v18_brush_polygon(draw, (55, 3260, 2105, 3780), _V18_RED, 700+variant, rough=35)
+    bf, blines = _v18_fit_text(draw, pack["bottom"], 1900, 145, 76, 2)
+    by = 3340
+    for line in blines:
+        draw.text((125, by), line, font=bf, fill=_V18_WHITE, stroke_width=9, stroke_fill=(55,0,0,255))
+        by += draw.textbbox((0,0), line, font=bf, stroke_width=9)[3] + 8
+
+    # Yellow underline for the same visual language as the reference.
+    draw.line((170, min(3760, by+12), 1120, min(3760, by+12)), fill=_V18_YELLOW, width=28)
+
+    # Small brand mark, deliberately subordinate.
+    brand = _v6_thumb_font(32, heavy=True)
+    draw.text((THUMBNAIL_W-430, 70), "EXAMCRACKER", font=brand, fill=(255,255,255,205), stroke_width=3, stroke_fill=(0,0,0,160))
+    canvas.convert("RGB").save(out, "JPEG", quality=95, optimize=True, progressive=True)
+    return {
+        "engine": "v18_indian_viral_explainer",
+        "layout": "yellow_top_red_strap_hero_black_callouts_red_payoff",
+        "canvas": [THUMBNAIL_W, THUMBNAIL_H],
+        "headline": pack["headline"],
+        "strap": pack["strap"],
+        "callouts": pack["calls"],
+        "bottom": pack["bottom"],
+    }
+
+
+def _v18_score(path: Path, meta: dict) -> float:
+    """Presentation score: mobile contrast + visual density + copy discipline."""
+    from PIL import ImageStat
+    with Image.open(path) as im:
+        small = im.convert("RGB").resize((360,640))
+        stat = ImageStat.Stat(small)
+        contrast = sum(stat.stddev)/3.0
+        edges = ImageStat.Stat(small.convert("L").filter(ImageFilter.FIND_EDGES)).mean[0]
+        # Avoid scoring an overly dark or washed-out image as premium.
+        mean = sum(stat.mean)/3.0
+        brightness = max(0.0, 1.0-abs(mean-118.0)/118.0)
+    headline_words = len(meta.get("headline", "").split())
+    penalty = 0 if 2 <= headline_words <= 5 else 22
+    return round(contrast*2.2 + edges*0.55 + brightness*28 - penalty, 2)
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # THUMBNAIL V12 — Shorts-native 9:16, mobile-first, center-safe, thumbnail-only
 # ═════════════════════════════════════════════════════════════════════════════
@@ -2072,7 +2311,53 @@ def create_custom_thumbnail(video_path: Path, out_path: Path, challenge_time: fl
     """V12: Shorts-native 9:16 thumbnail only; all video-generation logic is untouched."""
     count = max(5, int(variants or os.getenv('THUMBNAIL_VARIANTS','5')))
     viral_mode = os.getenv('CONTENT_MODE', 'exam').strip().lower() == 'viral'
-    headline, secondary = (_viral_thumbnail_copy(topic, question, subline) if viral_mode else _v11_thumbnail_copy(topic, question, subline))
+    if viral_mode:
+        # V18 is deliberately isolated to viral mode. Existing exam thumbnails
+        # keep the proven V12 renderer unchanged.
+        pack = _v18_viral_copy(topic, question, subline)
+        variant_dir = out_path.parent / 'thumbnail_variants'; variant_dir.mkdir(parents=True, exist_ok=True)
+        seed_base = int(hashlib.sha1(f'v18|{topic}|{pack["headline"]}|{pack["strap"]}'.encode('utf-8')).hexdigest()[:10], 16)
+        ranked=[]
+        for i in range(count):
+            prompt = _v18_viral_prompt(topic or label, pack, i)
+            if visual_prompt and len(_clean_text(visual_prompt)) > 45:
+                prompt += f' Exact visual cue from the video brief: {_clean_text(visual_prompt)[:450]}.'
+            seed = seed_base + i*7919
+            try:
+                ai_img = _request_ai_background(prompt, seed)
+            except Exception as exc:
+                print(f'[thumbnail-v18] AI candidate {i+1} failed: {exc}')
+                ai_img = None
+            if ai_img is not None:
+                bg, source = ai_img, 'cloudflare'
+            else:
+                bg, source = _v12_procedural_hero(topic or label, i), 'procedural_concept'
+            path = variant_dir / f'v18_{i+1:02d}.jpg'
+            meta = _v18_render(bg, path, pack, i)
+            meta['background_source'] = source
+            score = _v18_score(path, meta)
+            meta['hit_rate_score'] = score
+            ranked.append((path, meta, score))
+        ranked.sort(key=lambda x: x[2], reverse=True)
+        if not ranked:
+            raise RuntimeError('V18 viral thumbnail engine produced no candidates')
+        best, best_meta, best_score = ranked[0]
+        Image.open(best).convert('RGB').save(out_path, 'JPEG', quality=95, optimize=True, progressive=True)
+        manifest={
+            'engine':'v18_indian_viral_explainer',
+            'thumbnail_patch':'v18_reference_style_viral_packaging',
+            'reference_style':'Indian high-energy explainer: yellow/red brush banners + reaction hero + multi-object visual + black callout panel + red payoff strap',
+            'headline':pack['headline'],'strap':pack['strap'],'callouts':pack['calls'],'bottom':pack['bottom'],
+            'selected':best.name,'variants':[p.name for p,_,_ in ranked],
+            'scores':{p.name:score for p,_,score in ranked},
+            'composition':{p.name:meta for p,meta,_ in ranked},
+            'canvas':[THUMBNAIL_W,THUMBNAIL_H],'aspect_ratio':'9:16','recommended_resolution':'2160x3840',
+            'api_failover':'CLOUDFLARE_ACCOUNT_ID[_2.._4] + CLOUDFLARE_API_TOKEN[_2.._4]',
+        }
+        (variant_dir/'manifest.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8')
+        print(f'[thumbnail-v18] selected={best.name}; score={best_score}; headline={pack["headline"]!r}; strap={pack["strap"]!r}; canvas={THUMBNAIL_W}x{THUMBNAIL_H}')
+        return out_path
+    headline, secondary = _viral_thumbnail_copy(topic, question, subline) if viral_mode else _v11_thumbnail_copy(topic, question, subline)
     variant_dir = out_path.parent/'thumbnail_variants'; variant_dir.mkdir(parents=True, exist_ok=True)
     seed_base = int(hashlib.sha1(f'v12|{topic}|{headline}|{secondary}|{label}'.encode('utf-8')).hexdigest()[:10],16)
     try:

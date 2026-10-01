@@ -215,7 +215,12 @@ def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, Any]):
 
 
 def _run_v20_one(settings: Settings, state: dict[str, Any], dry_run: bool, video_index: int) -> bool:
-    """Run one V20 feed-native video without script generation or TTS."""
+    """Run one V20 feed-native video without V19 scene generation or TTS.
+
+    Brain Traps are a hard single-canvas format: exactly one generated image is
+    allowed for the complete timeline. Other V20 formats may use their own
+    format-specific visual policy, but they never enter the legacy scene renderer.
+    """
     spec = generate_v20_spec(video_index)
     print(f"\n[v20] ── seed {video_index}/40 ── {spec['tracking_tag']} | {spec['format']} | {spec['subtype']}")
     print(f"[v20] hook={spec['hook_text']!r} duration={spec['duration_seconds']}s | evaluation=72h | thumbnail=FRAME_0")
@@ -223,15 +228,19 @@ def _run_v20_one(settings: Settings, state: dict[str, Any], dry_run: bool, video
     scene_dir = WORK_DIR / f"v20_{video_index:03d}"
     scene_dir.mkdir(parents=True, exist_ok=True)
     visual_paths: list[Path] = []
-    # Generate several distinct visual states from the same concept.  The first
-    # visual is intentionally the strongest frame and receives the hook overlay at t=0.
-    prompts = [spec["visual_prompt"]]
-    for i, detail in enumerate(spec.get("visual_parts", [])[:3], start=1):
-        prompts.append(f"{spec['visual_prompt']}; emphasize {detail}; same scene, same subject, vertical 9:16")
     try:
+        # CRITICAL V20 CONTRACT: Brain Trap = ONE CANVAS, not multiple generated scenes.
+        # The old V19 multi-scene generator is never called from this branch.
+        if spec["format"] == "BRAIN_TRAP":
+            prompts = [spec["visual_prompt"]]
+        else:
+            # Other V20 pillars may use multiple visual states because their formats
+            # explicitly support transformations/payoffs across the timeline.
+            prompts = [spec["visual_prompt"]]
+            for i, detail in enumerate(spec.get("visual_parts", [])[:3], start=1):
+                prompts.append(f"{spec['visual_prompt']}; emphasize {detail}; same scene, same subject, vertical 9:16")
+
         for idx, prompt in enumerate(prompts):
-            # fetch_scene_image writes its own deterministic scene file; copy it into
-            # the V20 run directory so multiple variants cannot overwrite each other.
             image = fetch_scene_image(
                 1000 + video_index * 10 + idx,
                 prompt,
@@ -247,12 +256,13 @@ def _run_v20_one(settings: Settings, state: dict[str, Any], dry_run: bool, video
             visual_paths.append(target)
             print(f"[v20] visual {idx + 1}/{len(prompts)} ready: {target.name}")
 
+        if spec["format"] == "BRAIN_TRAP" and len(visual_paths) != 1:
+            raise RuntimeError("V20 Brain Trap invariant violated: expected exactly one visual canvas")
+
         output = OUT_DIR / f"v20_{video_index:03d}_{_slug(spec['subtype'])}.mp4"
         render_v20_short(visual_paths, spec, output)
         print(f"[v20] rendered={output} size={output.stat().st_size / 1024 / 1024:.1f} MB")
 
-        # A lightweight Script-shaped object is used only for the existing uploader's
-        # public interface; it contains no narration and no TTS metadata.
         from .script_gen import Script
         script = Script(
             title=spec["title"],
@@ -286,7 +296,6 @@ def _run_v20_one(settings: Settings, state: dict[str, Any], dry_run: bool, video
         return True
     finally:
         shutil.rmtree(scene_dir, ignore_errors=True)
-
 
 def _run_one(
     plan: dict[str, Any],

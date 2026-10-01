@@ -9,7 +9,7 @@ from typing import Any
 
 V20_SEED = [
     # 10 BRAIN_TRAP
-    ("BRAIN_TRAP", "spot_odd_one", "DON'T BLINK 👁️", "A dense grid of identical glossy eyes with one eye subtly rotated; the odd eye is already visible in frame one.", ["grid of identical glossy eyes", "one rotated eye", "high contrast black background"]),
+    ("BRAIN_TRAP", "spot_odd_one", "DON'T BLINK 👁️", "ONE SINGLE CONTINUOUS SCENE for the entire video: a dense field of identical glossy black marbles/eyes on a dark purple surface, with exactly ONE odd marble containing a clearly visible tiny eye positioned in the center-right safe zone around x=65% of the frame and y=50%. The odd eye must be physically present in the same base scene from frame one and must not require a scene change.", ["same single marble field for entire video", "exactly one hidden eye at center-right x=65% y=50%", "high contrast black purple background"]),
     ("BRAIN_TRAP", "impossible_count", "HOW MANY?", "A fast-moving field of colorful geometric dots with one hidden duplicate shape; crisp centered composition.", ["colorful geometric dots", "hidden duplicate shape", "rapid visual motion"]),
     ("BRAIN_TRAP", "optical_illusion", "LOOK AT THE CENTER", "A high-contrast spiral optical illusion with a bright center and concentric motion lines, visually stable but hypnotic.", ["black white spiral", "bright center", "hypnotic concentric lines"]),
     ("BRAIN_TRAP", "afterimage_test", "DON'T LOOK AWAY", "A saturated neon shape centered on a dark field, designed for a clean afterimage effect.", ["neon cyan triangle", "deep black background", "strong complementary contrast"]),
@@ -60,7 +60,7 @@ V20_SEED = [
 # The prompt is deliberately visual-first: no educational framing, no text rendered
 # into the image, and a strong subject in the 9:16 center-safe region.
 _FLUX_STYLE = {
-    "BRAIN_TRAP": "photorealistic macro detail, extreme contrast, crisp focal subject, dark cinematic background, immediate visual anomaly",
+    "BRAIN_TRAP": "photorealistic macro detail, extreme contrast, crisp focal subject, dark cinematic background, immediate visual anomaly, one continuous fixed scene, no alternate scenes, no collage, no slideshow, no camera cut",
     "OPTICAL_ILLUSION": "hypnotic geometric precision, mathematically clean symmetry, high contrast, impossible depth, crisp edges",
     "SATISFYING": "extreme macro photography, tactile materials, dramatic studio lighting, visible mechanical action, ultra-detailed",
     "MICRO_LOOP": "surreal physics visualization, polished materials, precise geometry, cinematic studio lighting, seamless motion cue"

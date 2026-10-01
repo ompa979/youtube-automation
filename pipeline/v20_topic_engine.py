@@ -9,7 +9,7 @@ from typing import Any
 
 V20_SEED = [
     # 10 BRAIN_TRAP
-    ("BRAIN_TRAP", "spot_odd_one", "DON'T BLINK 👁️", "ONE SINGLE CONTINUOUS SCENE for the entire video: a dense field of identical glossy black marbles/eyes on a dark purple surface, with exactly ONE odd marble containing a clearly visible tiny eye positioned in the center-right safe zone around x=65% of the frame and y=50%. The odd eye must be physically present in the same base scene from frame one and must not require a scene change.", ["same single marble field for entire video", "exactly one hidden eye at center-right x=65% y=50%", "high contrast black purple background"]),
+    ("BRAIN_TRAP", "spot_odd_one", "DON'T BLINK 👁️", "ONE SINGLE CONTINUOUS SCENE for the entire video: a dense field of near-identical glossy black marbles on a dark purple surface, with exactly ONE tiny anomalous eye embedded in a marble in the UPPER-RIGHT quadrant at approximately x=72% and y=43%. The geometric CENTER of the composition must contain only ordinary marbles and NO eye, face, bright anomaly, or dominant object. Keep the anomalous eye small enough to be genuinely difficult to notice at frame zero but structurally visible when the camera later punches toward its coordinate. The odd eye must be physically present in the same base scene from frame one and must never require a scene change.", ["same single marble field for entire video", "exactly one hidden eye at center-right x=65% y=50%", "high contrast black purple background"]),
     ("BRAIN_TRAP", "impossible_count", "HOW MANY?", "A fast-moving field of colorful geometric dots with one hidden duplicate shape; crisp centered composition.", ["colorful geometric dots", "hidden duplicate shape", "rapid visual motion"]),
     ("BRAIN_TRAP", "optical_illusion", "LOOK AT THE CENTER", "A high-contrast spiral optical illusion with a bright center and concentric motion lines, visually stable but hypnotic.", ["black white spiral", "bright center", "hypnotic concentric lines"]),
     ("BRAIN_TRAP", "afterimage_test", "DON'T LOOK AWAY", "A saturated neon shape centered on a dark field, designed for a clean afterimage effect.", ["neon cyan triangle", "deep black background", "strong complementary contrast"]),
@@ -96,6 +96,8 @@ def generate_v20_spec(video_index: int) -> dict[str, Any]:
     visual_prompt = FLUX_PROMPT_TEMPLATES[subtype]
     variant = seed_index + 1
     tracking_tag = f"V20-{fmt}-{subtype.upper()}-{variant:03d}"
+    reveal_strategy = "PUNCH_ZOOM_TARGET" if (fmt == "BRAIN_TRAP" and subtype == "spot_odd_one") else ("FULL_FRAME_PULSE" if fmt == "BRAIN_TRAP" else "NONE")
+    target = {"x": 0.72, "y": 0.43} if reveal_strategy == "PUNCH_ZOOM_TARGET" else None
     return {
         "seed_index": seed_index,
         "tracking_tag": tracking_tag,
@@ -116,4 +118,6 @@ def generate_v20_spec(video_index: int) -> dict[str, Any]:
         "tags": ["shorts"],
         "stock_video_query": f"{subtype.replace('_', ' ')} macro satisfying destruction action" if fmt == "SATISFYING" else None,
         "source_contract": "REAL_MOTION_VIDEO" if fmt == "SATISFYING" else "SINGLE_CANVAS",
+        "reveal_strategy": reveal_strategy,
+        "target_point": target,
     }

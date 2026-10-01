@@ -51,3 +51,20 @@ def test_v20_source_contracts_are_not_slideshow_contracts():
             assert spec["stock_video_query"]
         else:
             assert spec["source_contract"] == "SINGLE_CANVAS"
+
+
+def test_brain_trap_target_is_off_center_and_renderer_uses_target_strategy():
+    spec = generate_v20_spec(1)
+    assert spec["format"] == "BRAIN_TRAP"
+    assert spec["reveal_strategy"] == "PUNCH_ZOOM_TARGET"
+    assert spec["target_point"]["x"] > 0.60
+    assert spec["target_point"]["y"] < 0.50
+    assert "FOUND IT" not in spec["hook_text"]
+
+
+def test_brain_trap_prompt_forbids_center_anomaly_and_multiscene():
+    spec = generate_v20_spec(1)
+    prompt = spec["visual_prompt"].lower()
+    assert "no eye" in prompt or "no anomaly" in prompt
+    assert "no alternate scenes" in prompt
+    assert "no slideshow" in prompt

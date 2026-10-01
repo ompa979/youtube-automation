@@ -84,34 +84,64 @@ def _render_single_canvas(visual: Path, spec: dict[str, Any], output: Path, *, c
     font = get_font_param()
     hook = sanitize_drawtext(spec["hook_text"].replace("👁️", "").replace("🔁", "").strip())
 
-    # Continuous camera movement. For a loop, the final segment reverses toward the
-    # original scale instead of cutting to another source image.
+    # V20 Brain Trap is a single perceptual event. The camera starts centered,
+    # continuously drifts, punches toward the declared anomaly only at payoff,
+    # then returns toward the original framing for the loop. No arbitrary circle
+    # or generated second image is ever introduced.
     if fmt == "BRAIN_TRAP":
-        zoom = r"if(lte(on\,209)\,1+0.00055*on\,1.115-(0.115/30)*(on-209))"
+        target = spec.get("target_point") or {"x": 0.50, "y": 0.50}
+        tx, ty = float(target["x"]), float(target["y"])
+        zoom = (
+            f"if(lte(on\\,149)\\,1+0.00055*on\\," 
+            f"if(lte(on\\,209)\\,1.08195+0.00113*(on-149)\\," 
+            f"max(1.0\\,1.15-(0.15/30)*(on-209))))"
+        )
+        x = (
+            f"if(lte(on\\,149)\\,iw/2-(iw/zoom/2)\\," 
+            f"if(lte(on\\,209)\\,max(0\\,min(iw-iw/zoom\\,iw*{tx}-iw/(2*zoom)))\\," 
+            f"iw/2-(iw/zoom/2)))"
+        )
+        y = (
+            f"if(lte(on\\,149)\\,ih/2-(ih/zoom/2)\\," 
+            f"if(lte(on\\,209)\\,max(0\\,min(ih-ih/zoom\\,ih*{ty}-ih/(2*zoom)))\\," 
+            f"ih/2-(ih/zoom/2)))"
+        )
     elif fmt == "OPTICAL_ILLUSION":
-        zoom = r"if(lte(on\,179)\,1+0.0008*on\,1.144-(0.144/90)*(on-179))"
+        zoom = r"if(lte(on\,179)\,1+0.0008*on\,1.144-(0.144/60)*(on-179))"
+        x = "iw/2-(iw/zoom/2)"
+        y = "ih/2-(ih/zoom/2)"
     elif choice:
         zoom = r"if(lte(on\,149)\,1.03+0.00035*on\,1.082-(0.052/90)*(on-149))"
+        x = "iw/2-(iw/zoom/2)"
+        y = "ih/2-(ih/zoom/2)"
     else:
         zoom = "1.06+0.00035*on"
+        x = "iw/2-(iw/zoom/2)"
+        y = "ih/2-(ih/zoom/2)"
 
     vf = (
         f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
-        f"zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=240:s={W}x{H}:fps={FPS},"
+        f"zoompan=z='{zoom}':x='{x}':y='{y}':d=240:s={W}x{H}:fps={FPS},"
         f"drawtext=text='{hook}'{font}:fontcolor=white:fontsize=84:x=(w-text_w)/2:y=150:box=1:boxcolor=black@0.72:boxborderw=20:enable='between(t\\,0\\,2)',"
-        f"drawtext=text='3...'{font}:fontcolor=white:fontsize=110:x=(w-text_w)/2:y=790:box=1:boxcolor=black@0.55:boxborderw=18:enable='between(t\\,2\\,3)',"
-        f"drawtext=text='2...'{font}:fontcolor=white:fontsize=110:x=(w-text_w)/2:y=790:box=1:boxcolor=black@0.55:boxborderw=18:enable='between(t\\,3\\,4)',"
-        f"drawtext=text='1...'{font}:fontcolor=white:fontsize=110:x=(w-text_w)/2:y=790:box=1:boxcolor=black@0.55:boxborderw=18:enable='between(t\\,4\\,5)',"
     )
     if fmt == "BRAIN_TRAP":
+        # Countdown lives in the lower HUD and never occludes the puzzle.
         vf += (
-            f"drawtext=text='◯'{font}:fontcolor=red:fontsize=270:x=w*0.535:y=h*0.39:enable='between(t\\,5\\,7)',"
-            f"drawtext=text='FOUND IT'{font}:fontcolor=white:fontsize=76:x=(w-text_w)/2:y=1110:box=1:boxcolor=red@0.72:boxborderw=18:enable='between(t\\,5\\,7)'"
+            f"drawtext=text='3...'{font}:fontcolor=white:fontsize=110:x=(w-text_w)/2:y=1510:box=1:boxcolor=black@0.55:boxborderw=18:enable='between(t\\,2\\,3)',"
+            f"drawtext=text='2...'{font}:fontcolor=white:fontsize=110:x=(w-text_w)/2:y=1510:box=1:boxcolor=black@0.55:boxborderw=18:enable='between(t\\,3\\,4)',"
+            f"drawtext=text='1...'{font}:fontcolor=red:fontsize=120:x=(w-text_w)/2:y=1510:box=1:boxcolor=black@0.55:boxborderw=18:enable='between(t\\,4\\,5)',"
         )
+        if spec.get("reveal_strategy") == "PUNCH_ZOOM_TARGET":
+            # The camera itself reveals the declared target; no arbitrary marker.
+            vf += (
+                f"drawbox=x=0:y=0:w=iw:h=ih:color=white@0.16:t=fill:enable='between(t\\,5\\,5.16)',"
+                f"drawtext=text='DID YOU SEE IT?'{font}:fontcolor=white:fontsize=78:x=(w-text_w)/2:y=1510:box=1:boxcolor=black@0.68:boxborderw=18:enable='between(t\\,5.45\\,6.7)'"
+            )
+        else:
+            vf += f"drawbox=x=0:y=0:w=iw:h=ih:color=white@0.16:t=fill:enable='between(t\\,5\\,5.16)',"
     elif fmt == "OPTICAL_ILLUSION":
         vf += f"drawtext=text='LOOK AGAIN'{font}:fontcolor=white:fontsize=72:x=(w-text_w)/2:y=1100:box=1:boxcolor=black@0.6:boxborderw=18:enable='between(t\\,5\\,7)'"
     elif choice:
-        # Unified four-quadrant HUD; the generated canvas is the four-choice artwork.
         vf += (
             f"drawbox=x=40:y=400:w=1000:h=580:color=white@0.12:t=3:enable='between(t\\,0\\,8)',"
             f"drawbox=x=40:y=1000:w=1000:h=580:color=white@0.12:t=3:enable='between(t\\,0\\,8)',"
@@ -119,13 +149,13 @@ def _render_single_canvas(visual: Path, spec: dict[str, Any], output: Path, *, c
             f"drawtext=text='WHAT’S YOUR #1?'{font}:fontcolor=white:fontsize=68:x=(w-text_w)/2:y=1660:enable='between(t\\,6.5\\,8)'"
         )
 
-    cues = [
-        ("whoosh", 0.05, 0.75),
-        ("tick", 0.55, 0.65),
-        ("alert", 4.5, 0.55),
-        ("boom", 5.5, 1.20),
-        ("chime", 5.65, 0.75),
-    ]
+    # Brain Trap gets an accelerating tick cadence rather than one isolated tick.
+    if fmt == "BRAIN_TRAP":
+        cues = [("whoosh", 0.05, 0.75)] + [("tick", t, 0.28 + i * 0.025) for i, t in enumerate((0.55, 1.15, 1.75, 2.35, 2.95, 3.45, 3.9, 4.25), start=1)] + [
+            ("alert", 4.5, 0.55), ("boom", 5.5, 1.20), ("chime", 5.65, 0.75)
+        ]
+    else:
+        cues = [("whoosh", 0.05, 0.75), ("tick", 0.55, 0.65), ("alert", 4.5, 0.55), ("boom", 5.5, 1.20), ("chime", 5.65, 0.75)]
     audio_paths, af = _audio_mix(total, cues)
     cmd = ["ffmpeg", "-y", "-loop", "1", "-i", str(visual)]
     for path in audio_paths:

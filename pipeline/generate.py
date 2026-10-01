@@ -217,6 +217,10 @@ def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, Any]):
 def _run_v20_one(settings: Settings, state: dict[str, Any], dry_run: bool, video_index: int) -> bool:
     """Run one V20 feed-native video with format-specific source invariants."""
     spec = generate_v20_spec(video_index)
+    from .quality import verify_v20_spec
+    contract_issues = verify_v20_spec(spec)
+    if contract_issues:
+        raise RuntimeError("V20 CREATIVE CONTRACT REJECTED: " + " | ".join(contract_issues))
     print(f"\n[v20] ── seed {video_index}/40 ── {spec['tracking_tag']} | {spec['format']} | {spec['subtype']}")
     print(f"[v20] hook={spec['hook_text']!r} duration={spec['duration_seconds']}s | evaluation=72h | thumbnail=FRAME_0")
 

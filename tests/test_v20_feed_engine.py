@@ -68,3 +68,34 @@ def test_brain_trap_prompt_forbids_center_anomaly_and_multiscene():
     assert "no eye" in prompt or "no anomaly" in prompt
     assert "no alternate scenes" in prompt
     assert "no slideshow" in prompt
+
+
+def test_v20_renderer_keeps_single_canvas_motion_and_lower_hud():
+    from pathlib import Path
+    renderer = Path(__file__).resolve().parents[1] / "pipeline" / "v20_renderer.py"
+    source = renderer.read_text()
+    assert "zoompan=" in source
+    assert "y=1510" in source
+    assert "PUNCH_ZOOM_TARGET" in source
+    # No arbitrary reveal circle is allowed in the Brain Trap renderer.
+    assert "drawellipse" not in source
+    assert "drawcircle" not in source
+
+
+def test_v20_quality_rejects_static_canvas(tmp_path):
+    import subprocess
+    from PIL import Image
+    from pipeline.quality import verify_v20_quality
+
+    image = tmp_path / "static.jpg"
+    Image.new("RGB", (1080, 1920), (35, 20, 45)).save(image, quality=95)
+    video = tmp_path / "static.mp4"
+    subprocess.run([
+        "ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-i", str(image),
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=8",
+        "-t", "8", "-r", "30", "-s", "1080x1920",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(video)
+    ], check=True)
+    result = verify_v20_quality(video, "BRAIN_TRAP")
+    assert not result.ok
+    assert any("effectively static" in issue for issue in result.issues)

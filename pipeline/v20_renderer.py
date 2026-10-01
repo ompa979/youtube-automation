@@ -89,7 +89,11 @@ def _render_single_canvas(visual: Path, spec: dict[str, Any], output: Path, *, c
     # then returns toward the original framing for the loop. No arbitrary circle
     # or generated second image is ever introduced.
     if fmt == "BRAIN_TRAP":
-        target = spec.get("target_point") or {"x": 0.50, "y": 0.50}
+        target = spec.get("target_point")
+        if spec.get("reveal_strategy") == "PUNCH_ZOOM_TARGET" and not isinstance(target, dict):
+            raise ValueError("BRAIN_TRAP PUNCH_ZOOM_TARGET requires an explicit target_point")
+        if not isinstance(target, dict):
+            target = {"x": 0.50, "y": 0.50}
         tx, ty = float(target["x"]), float(target["y"])
         zoom = (
             f"if(lte(on\\,149)\\,1+0.00055*on\\," 

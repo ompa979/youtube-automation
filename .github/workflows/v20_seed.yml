@@ -1,0 +1,80 @@
+name: V20 Shorts Feed Seed
+
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: V20 seed videos to generate
+        required: false
+        default: "1"
+      dry_run:
+        description: Render only; never upload
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "0 */6 * * *"
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CONTENT_MODE: v20
+      COUNT: ${{ github.event.inputs.count || '1' }}
+      V20_SEED_START_UTC: "2026-10-01T00:00:00Z"
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+      UPLOAD_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '0' || '1' }}
+      YOUTUBE_CREDENTIAL_PREFIX: YT_CREDS
+      YOUTUBE_CREDENTIAL_INDICES: "2"
+      YT_CREDS_2: ${{ secrets.YT_CREDS_2 }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID_2: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_2 }}
+      CLOUDFLARE_API_TOKEN_2: ${{ secrets.CLOUDFLARE_API_TOKEN_2 }}
+      CLOUDFLARE_ACCOUNT_ID_3: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_3 }}
+      CLOUDFLARE_API_TOKEN_3: ${{ secrets.CLOUDFLARE_API_TOKEN_3 }}
+      CLOUDFLARE_ACCOUNT_ID_4: ${{ secrets.CLOUDFLARE_ACCOUNT_ID_4 }}
+      CLOUDFLARE_API_TOKEN_4: ${{ secrets.CLOUDFLARE_API_TOKEN_4 }}
+      CLOUDFLARE_MAX_ACCOUNTS: "4"
+      CLOUDFLARE_SCENE_MODEL: "@cf/black-forest-labs/flux-1-schnell"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install FFmpeg and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Resolve V20 six-hour seed slot
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$(date -u -d "$V20_SEED_START_UTC" +%s)
+          now=$(date -u +%s)
+          index=$(( (now - start) / 21600 + 1 ))
+          if [ "$index" -lt 1 ] || [ "$index" -gt 40 ]; then
+            echo "[v20] 40-video seed window is closed (slot=$index)."
+            exit 0
+          fi
+          echo "V20_SEED_INDEX=$index" >> "$GITHUB_ENV"
+          echo "[v20] seed slot=$index/40"
+      - name: Generate V20
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pipeline.generate --count "$COUNT" $([ "$DRY_RUN" = "true" ] && echo --dry-run || true)
+      - name: Upload dry-run artifacts
+        if: always() && env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: v20-dry-run-${{ github.run_number }}
+          path: /tmp/out/*.mp4
+          if-no-files-found: warn
+          retention-days: 7

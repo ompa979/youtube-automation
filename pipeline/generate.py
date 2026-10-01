@@ -50,6 +50,10 @@ from .trending import get_trending_topic
 from .topic_engine import ALLOWED_EXAM_NICHES, EXAM_ONLY, choose_best_topic
 from .tts import synthesize_scene
 from .upload import upload_video
+from .v20_topic_engine import generate_v20_spec
+from .v20_renderer import render_v20_short
+from .v20_upload import create_v20_upload_body
+from .v20_telemetry import record_v20_upload
 from .visuals import fetch_scene_image
 from .creative_v17 import apply_v17_creative_contract
 
@@ -209,6 +213,81 @@ def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, Any]):
     return niche,cfg,language,topic
 
 
+
+def _run_v20_one(settings: Settings, state: dict[str, Any], dry_run: bool, video_index: int) -> bool:
+    """Run one V20 feed-native video without script generation or TTS."""
+    spec = generate_v20_spec(video_index)
+    print(f"\n[v20] ── seed {video_index}/40 ── {spec['tracking_tag']} | {spec['format']} | {spec['subtype']}")
+    print(f"[v20] hook={spec['hook_text']!r} duration={spec['duration_seconds']}s | evaluation=72h | thumbnail=FRAME_0")
+
+    scene_dir = WORK_DIR / f"v20_{video_index:03d}"
+    scene_dir.mkdir(parents=True, exist_ok=True)
+    visual_paths: list[Path] = []
+    # Generate several distinct visual states from the same concept.  The first
+    # visual is intentionally the strongest frame and receives the hook overlay at t=0.
+    prompts = [spec["visual_prompt"]]
+    for i, detail in enumerate(spec.get("visual_parts", [])[:3], start=1):
+        prompts.append(f"{spec['visual_prompt']}; emphasize {detail}; same scene, same subject, vertical 9:16")
+    try:
+        for idx, prompt in enumerate(prompts):
+            # fetch_scene_image writes its own deterministic scene file; copy it into
+            # the V20 run directory so multiple variants cannot overwrite each other.
+            image = fetch_scene_image(
+                1000 + video_index * 10 + idx,
+                prompt,
+                "ai_cinematic",
+                settings,
+                subject_area="science",
+                card_headline="",
+                card_points=[],
+                card_tag="",
+            )
+            target = scene_dir / f"visual_{idx:02d}.jpg"
+            shutil.copy2(image, target)
+            visual_paths.append(target)
+            print(f"[v20] visual {idx + 1}/{len(prompts)} ready: {target.name}")
+
+        output = OUT_DIR / f"v20_{video_index:03d}_{_slug(spec['subtype'])}.mp4"
+        render_v20_short(visual_paths, spec, output)
+        print(f"[v20] rendered={output} size={output.stat().st_size / 1024 / 1024:.1f} MB")
+
+        # A lightweight Script-shaped object is used only for the existing uploader's
+        # public interface; it contains no narration and no TTS metadata.
+        from .script_gen import Script
+        script = Script(
+            title=spec["title"],
+            hook=spec["hook_text"],
+            description=spec["description"],
+            tags=spec["tags"],
+            scenes=[],
+            pinned_comment="",
+            content_mode="v20",
+        )
+        if dry_run or not settings.upload_enabled:
+            print("[v20] dry-run/upload-disabled: YouTube mutation skipped")
+            return True
+        if not settings.youtube_projects:
+            raise RuntimeError("V20 upload requested but no YT_CREDS_N secrets are configured")
+
+        result = upload_video(
+            output,
+            script,
+            settings.youtube_projects,
+            category_id="24",
+            scene_durations=None,
+            v20_spec=spec,
+        )
+        record_v20_upload(result["video_id"], spec)
+        print(f"[v20] uploaded={result['url']} | thumbnail=SKIPPED_NATIVE_FRAME_0")
+        state.setdefault("v20_completed", []).append(spec["tracking_tag"])
+        state["v20_index"] = video_index
+        if not dry_run:
+            _save_state(state)
+        return True
+    finally:
+        shutil.rmtree(scene_dir, ignore_errors=True)
+
+
 def _run_one(
     plan: dict[str, Any],
     settings: Settings,
@@ -217,6 +296,9 @@ def _run_one(
     video_index: int,
 ) -> bool:
     """Generate, render, and upload one video. Returns True on success."""
+
+    if settings.content_mode == "v20":
+        return _run_v20_one(settings, state, dry_run, video_index)
 
     niche, niche_cfg, language, topic = _choose(plan, settings, state)
     print(f"\n[pipeline] ── video {video_index} ── niche={niche} language={language} topic={topic}")
@@ -430,8 +512,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true",
                         help="render videos and thumbnails but never upload or mutate YouTube")
-    parser.add_argument("--count", type=int, default=int(os.getenv("UPLOAD_COUNT", "3")),
-                        help="number of videos to generate and upload (default: 15)")
+    default_count = 40 if os.getenv("CONTENT_MODE", "exam").strip().lower() == "v20" else int(os.getenv("UPLOAD_COUNT", "3"))
+    parser.add_argument("--count", type=int, default=default_count,
+                        help="number of videos to generate and upload (V20 default: 40)")
     parser.add_argument("--interval", type=int, default=UPLOAD_INTERVAL_SECONDS,
                         help="seconds between uploads (default: 2700 = 45 min)")
     args = parser.parse_args()
@@ -441,7 +524,7 @@ def main() -> int:
     plan = _load_plan()
     state = _load_state()
 
-    if not settings.gemini_api_key:
+    if settings.content_mode not in {"v20"} and not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is required")
 
     dry_run = args.dry_run or _truthy(os.getenv("DRY_RUN"), False)
@@ -454,12 +537,17 @@ def main() -> int:
     print(f"[scheduler] Mode: {mode}")
     print(f"[scheduler] Starting: {total} videos, {interval // 60} min apart")
 
+    v20_base_index = int(os.getenv("V20_SEED_INDEX", "1")) if settings.content_mode == "v20" else 1
+    if settings.content_mode == "v20" and v20_base_index > 40:
+        print(f"[v20] 40-video seed complete; ignoring scheduled slot {v20_base_index}.")
+        return 0
     for i in range(1, total + 1):
         t_start = time.monotonic()
         print(f"\n[scheduler] ── [{i}/{total}] starting at {time.strftime('%H:%M:%S')} IST ──")
 
         try:
-            _run_one(plan, settings, state, dry_run=dry_run, video_index=i)
+            run_index = v20_base_index + i - 1 if settings.content_mode == "v20" else i
+            _run_one(plan, settings, state, dry_run=dry_run, video_index=run_index)
             succeeded += 1
         except Exception as exc:
             failed += 1

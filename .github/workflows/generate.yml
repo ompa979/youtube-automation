@@ -28,6 +28,7 @@ on:
         options:
           - exam
           - viral
+          - v20
   schedule:
     - cron: "*/30 * * * *"
 
@@ -73,9 +74,9 @@ jobs:
       NICHES_ENABLED: "" # mode-specific niche plan is selected by Python when empty
       CONTENT_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.content_mode || 'exam' }}
       YOUTUBE_CREDENTIAL_PREFIX: "YT_CREDS"
-      YOUTUBE_CREDENTIAL_INDICES: ${{ github.event_name == 'workflow_dispatch' && inputs.content_mode == 'viral' && '2' || '1' }}
-      EXAM_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.content_mode == 'viral' && 'false' || 'true' }}
-      VIRAL_CONTENT_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.content_mode == 'viral' && 'true' || 'false' }}
+      YOUTUBE_CREDENTIAL_INDICES: ${{ github.event_name == 'workflow_dispatch' && (inputs.content_mode == 'viral' || inputs.content_mode == 'v20') && '2' || '1' }}
+      EXAM_ONLY: ${{ github.event_name == 'workflow_dispatch' && (inputs.content_mode == 'viral' || inputs.content_mode == 'v20') && 'false' || 'true' }}
+      VIRAL_CONTENT_ONLY: ${{ github.event_name == 'workflow_dispatch' && (inputs.content_mode == 'viral' || inputs.content_mode == 'v20') && 'true' || 'false' }}
       MIN_VIRAL_SCORE: "62"
       TOPIC_USE_TRENDS: "true"
       TOPIC_USE_AUTOCOMPLETE: "true"

@@ -226,6 +226,7 @@ def upload_video(
     privacy: str = "public",
     category_id: str = "27",
     scene_durations: list[float] | None = None,
+    v20_spec: dict | None = None,
 ) -> dict:
     """Upload with automatic per-channel fallback.
 
@@ -243,18 +244,22 @@ def upload_video(
             "no quota-eligible credential remains."
         )
 
-    body = {
-        "snippet": {
-            "title": script.title[:100],
-            "description": script.description[:4900],
-            "tags": script.tags[:15],
-            "categoryId": category_id,
-        },
-        "status": {
-            "privacyStatus": privacy,
-            "selfDeclaredMadeForKids": False,
-        },
-    }
+    if v20_spec is not None:
+        from .v20_upload import create_v20_upload_body
+        body = create_v20_upload_body(v20_spec)
+    else:
+        body = {
+            "snippet": {
+                "title": script.title[:100],
+                "description": script.description[:4900],
+                "tags": script.tags[:15],
+                "categoryId": category_id,
+            },
+            "status": {
+                "privacyStatus": privacy,
+                "selfDeclaredMadeForKids": False,
+            },
+        }
 
     failures: list[str] = []
     for chosen in ordered:
@@ -281,6 +286,16 @@ def upload_video(
             # Once YouTube returned a video ID, do not switch channels: the video
             # already exists on this channel. Metadata/thumbnail/comment failures
             # remain non-fatal.
+            if v20_spec is not None:
+                print("[upload] V20: skipping custom thumbnail API; frame 0 is the native Shorts hook")
+                return {
+                    "video_id": video_id,
+                    "url": url,
+                    "project": chosen.name,
+                    "thumbnail_status": "SKIPPED_NATIVE_FRAME_0",
+                    "thumbnail_error": "",
+                }
+
             time.sleep(6)
             thumb_path = OUT_DIR / "thumbnail.jpg"
             thumbnail_result = _set_thumbnail(yt, video_id, thumb_path)

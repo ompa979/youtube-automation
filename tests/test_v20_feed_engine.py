@@ -25,8 +25,18 @@ def test_v20_upload_is_minimal_entertainment_metadata():
     body = create_v20_upload_body(generate_v20_spec(1))
     assert body["snippet"]["categoryId"] == "24"
     assert body["snippet"]["tags"] == ["shorts"]
-    assert body["snippet"]["description"] == "#shorts"
+    assert body["snippet"]["description"].startswith("#shorts")
+    assert generate_v20_spec(1)["tracking_tag"] in body["snippet"]["description"]
+    assert "V20-" not in body["snippet"]["title"]
 
 
 def test_v20_evaluation_gate_is_72_hours():
     assert OBSERVATION_HOURS == 72
+
+
+def test_v20_flux_prompt_is_subtype_specific():
+    a = generate_v20_spec(1)
+    b = generate_v20_spec(31)
+    assert a["visual_prompt"] != b["visual_prompt"]
+    assert "9:16" in a["visual_prompt"]
+    assert "frame zero" in a["visual_prompt"]

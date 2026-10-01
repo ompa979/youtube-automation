@@ -792,8 +792,10 @@ def fetch_scene_image(
     # 2. Gemini image generation is intentionally NOT called in production.
     # Keep _fetch_gemini_image() above for a future explicit opt-in.
 
-    # 3. Stock fallback: Pexels, when configured.
-    if not fetched and settings.pexels_api_key:
+    # 3. Stock fallback: Pexels, when configured. V20 can disable this because
+    # feed-native creative must stay faithful to the explicit FLUX concept.
+    v20_no_stock = os.getenv("V20_DISABLE_STOCK_FALLBACK", "false").strip().lower() in {"1", "true", "yes", "on"}
+    if not fetched and settings.pexels_api_key and not v20_no_stock:
         scene_query = _extract_scene_pexels_query(image_prompt, subject_area)
         print(f"[visuals] scene {scene_index}: querying pexels with scene-specific query: {scene_query!r}")
         if _fetch_pexels(scene_query, out_path, settings.pexels_api_key, scene_index=scene_index):

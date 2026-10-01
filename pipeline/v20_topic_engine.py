@@ -54,6 +54,27 @@ V20_SEED = [
     ("MICRO_LOOP", "screen_shatter", "IT FIXED ITSELF", "A glass-like digital panel shatters outward and instantly reconstructs into an untouched panel.", ["glass digital panel", "shattering fragments", "instant reconstruction"]),
 ]
 
+
+
+# Every V20 subtype gets an explicit FLUX recipe derived from its seed concept.
+# The prompt is deliberately visual-first: no educational framing, no text rendered
+# into the image, and a strong subject in the 9:16 center-safe region.
+_FLUX_STYLE = {
+    "BRAIN_TRAP": "photorealistic macro detail, extreme contrast, crisp focal subject, dark cinematic background, immediate visual anomaly",
+    "OPTICAL_ILLUSION": "hypnotic geometric precision, mathematically clean symmetry, high contrast, impossible depth, crisp edges",
+    "SATISFYING": "extreme macro photography, tactile materials, dramatic studio lighting, visible mechanical action, ultra-detailed",
+    "MICRO_LOOP": "surreal physics visualization, polished materials, precise geometry, cinematic studio lighting, seamless motion cue"
+}
+
+FLUX_PROMPT_TEMPLATES: dict[str, str] = {
+    subtype: (
+        f"{visual_prompt} { _FLUX_STYLE[fmt] }. "
+        "Vertical 9:16 composition, hero subject large in frame, action already underway at frame zero, "
+        "center-safe composition, no text, no letters, no watermark, no logo, high visual clarity."
+    )
+    for fmt, subtype, _hook, visual_prompt, _parts in V20_SEED
+}
+
 PROFILES: dict[str, dict[str, Any]] = {
     "BRAIN_TRAP": {"duration": 8.0, "timeline": {"hook": 0.0, "tension": 2.0, "reveal": 4.5, "payoff": 6.5, "loop": 8.0}, "sfx": ["tick", "alert", "boom"]},
     "OPTICAL_ILLUSION": {"duration": 8.0, "timeline": {"hook": 0.0, "build": 2.0, "peak": 5.0, "reset": 8.0}, "sfx": ["tick", "alert", "whoosh"]},
@@ -72,6 +93,7 @@ def generate_v20_spec(video_index: int) -> dict[str, Any]:
     seed_index = (video_index - 1) % len(V20_SEED)
     fmt, subtype, hook, visual_prompt, visual_parts = V20_SEED[seed_index]
     profile = PROFILES[fmt]
+    visual_prompt = FLUX_PROMPT_TEMPLATES[subtype]
     variant = seed_index + 1
     tracking_tag = f"V20-{fmt}-{subtype.upper()}-{variant:03d}"
     return {

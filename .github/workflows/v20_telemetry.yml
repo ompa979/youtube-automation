@@ -13,6 +13,13 @@ jobs:
       YT_CREDS_2: ${{ secrets.YT_CREDS_2 }}
     steps:
       - uses: actions/checkout@v4
+      - name: Restore latest V20 telemetry state
+        uses: actions/cache/restore@v4
+        with:
+          path: v20_telemetry.db
+          key: v20-db-telemetry-${{ github.run_id }}
+          restore-keys: |
+            v20-db-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"

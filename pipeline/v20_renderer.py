@@ -17,8 +17,28 @@ def _run(cmd: list[str]) -> None:
         raise RuntimeError(f"FFmpeg failed: {' '.join(cmd)}\n{p.stderr[-4000:]}")
 
 
+def sanitize_drawtext(text: str) -> str:
+    """Escape text for FFmpeg drawtext filter syntax."""
+    return (text or "").replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:").replace("%", "\\%")
+
+
+def get_font_param() -> str:
+    """Resolve a deterministic bold font on GitHub-hosted Ubuntu runners."""
+    candidates = [
+        os.getenv("V20_FONT_FILE", ""),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+    ]
+    for font in candidates:
+        if font and Path(font).exists():
+            return f":fontfile='{font.replace(chr(39), chr(92)+chr(39))}'"
+    return ""
+
+
 def _esc(text: str) -> str:
-    return (text or "").replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'").replace("%", "\\%")
+    # Backward-compatible alias used by the renderer.
+    return sanitize_drawtext(text)
 
 
 def _sfx(name: str) -> Path | None:
@@ -43,6 +63,25 @@ def _concat(clips: list[Path], output: Path) -> None:
     manifest = WORK_DIR / "v20_concat.txt"
     manifest.write_text("".join(f"file '{p.as_posix().replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))}'\n" for p in clips), encoding="utf-8")
     _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(manifest), "-c", "copy", str(output)])
+
+
+def _render_micro_loop(visual: Path, duration: float, output: Path) -> None:
+    """Render a forward/reverse ping-pong visual with an explicit split branch."""
+    half = max(0.05, duration / 2.0)
+    frames = max(2, int(half * FPS))
+    filtergraph = (
+        f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+        f"zoompan=z='min(zoom+0.002,1.15)':d={frames}:s={W}x{H}:fps={FPS},"
+        "split=2[v_base][v_for_rev];"
+        "[v_for_rev]reverse[v_rev];"
+        "[v_base][v_rev]concat=n=2:v=1:a=0[v]"
+    )
+    _run([
+        "ffmpeg", "-y", "-loop", "1", "-i", str(visual),
+        "-filter_complex", filtergraph, "-map", "[v]",
+        "-t", f"{duration:.3f}", "-an", "-c:v", "libx264", "-preset", "fast",
+        "-crf", "20", "-pix_fmt", "yuv420p", str(output),
+    ])
 
 
 def render_v20_short(visual_paths: list[Path], spec: dict[str, Any], output_path: Path) -> Path:
@@ -75,7 +114,10 @@ def render_v20_short(visual_paths: list[Path], spec: dict[str, Any], output_path
         dur = max(0.05, cuts[i + 1] - cuts[i])
         img = visual_paths[min(i, len(visual_paths) - 1)]
         clip = WORK_DIR / f"v20_{spec['variant']:03d}_{i:02d}.mp4"
-        _visual_clip(img, dur, clip, modes[i % len(modes)])
+        if fmt == "MICRO_LOOP" and i == len(cuts) - 2:
+            _render_micro_loop(img, dur, clip)
+        else:
+            _visual_clip(img, dur, clip, modes[i % len(modes)])
         work_clips.append(clip)
 
     base = WORK_DIR / f"v20_{spec['variant']:03d}_base.mp4"
@@ -83,23 +125,27 @@ def render_v20_short(visual_paths: list[Path], spec: dict[str, Any], output_path
 
     # Frame 0 carries both visual and bold hook. No separate thumbnail is needed.
     font_size = 86 if len(spec["hook_text"]) < 20 else 70
+    font_param = get_font_param()
     vf = (
-        f"drawtext=text='{hook}':font='DejaVu Sans':fontcolor=white:fontsize={font_size}:"
+        f"drawtext=text='{hook}'{font_param}:fontcolor=white:fontsize={font_size}:"
         "x=(w-text_w)/2:y=170:box=1:boxcolor=black@0.72:boxborderw=22:"
         "enable='between(t\\,0\\,2.8)'"
     )
     captioned = WORK_DIR / f"v20_{spec['variant']:03d}_captioned.mp4"
     _run(["ffmpeg", "-y", "-i", str(base), "-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p", "-an", str(captioned)])
 
-    # Native SFX timeline. Silence is the base; no narration track.
+    # Native SFX timeline. A subtle synthetic bed starts at frame 0 so the feed never
+    # begins with dead air; timed SFX remain the payoff layer.
     sfx_files = []
     for name in spec.get("sfx", []):
         p = _sfx(name)
         if p:
             sfx_files.append(p)
     inputs = [str(captioned)] + [str(p) for p in sfx_files]
-    filters = ["anullsrc=r=44100:cl=stereo,atrim=duration={:.3f}[silence]".format(total)]
-    labels = ["[silence]"]
+    filters = [
+        f"sine=frequency=55:sample_rate=44100:duration={total:.3f},volume=0.035,aresample=async=1[bed]"
+    ]
+    labels = ["[bed]"]
     for idx, p in enumerate(sfx_files, start=1):
         # Deterministic cue positions by format.
         cue = [0.15, float(t.get("tension", t.get("escalation", 2.0))), float(t.get("impact", t.get("impossible", 5.5))), max(0.2, total - 0.35)][min(idx - 1, 3)]

@@ -6,10 +6,12 @@ from typing import Any
 
 def create_v20_upload_body(spec: dict[str, Any]) -> dict[str, Any]:
     title = str(spec["title"]).strip()[:90]
+    tag = str(spec.get("tracking_tag", "")).strip()
+    description = "#shorts" + (f"\n\n---\nRef: {tag}" if tag else "")
     return {
         "snippet": {
             "title": f"{title} #shorts",
-            "description": "#shorts",
+            "description": description[:4900],
             "tags": ["shorts"],
             "categoryId": "24",
         },

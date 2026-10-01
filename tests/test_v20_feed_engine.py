@@ -40,3 +40,14 @@ def test_v20_flux_prompt_is_subtype_specific():
     assert a["visual_prompt"] != b["visual_prompt"]
     assert "9:16" in a["visual_prompt"]
     assert "frame zero" in a["visual_prompt"]
+
+
+
+def test_v20_source_contracts_are_not_slideshow_contracts():
+    for i in range(1, 41):
+        spec = generate_v20_spec(i)
+        if spec["format"] == "SATISFYING":
+            assert spec["source_contract"] == "REAL_MOTION_VIDEO"
+            assert spec["stock_video_query"]
+        else:
+            assert spec["source_contract"] == "SINGLE_CANVAS"

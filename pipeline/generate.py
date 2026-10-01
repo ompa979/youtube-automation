@@ -54,7 +54,7 @@ from .v20_topic_engine import generate_v20_spec
 from .v20_renderer import render_v20_short
 from .v20_upload import create_v20_upload_body
 from .v20_telemetry import record_v20_upload
-from .visuals import fetch_scene_image
+from .visuals import fetch_scene_image, fetch_v20_motion_video
 from .creative_v17 import apply_v17_creative_contract
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -215,12 +215,7 @@ def _choose(plan: dict[str, Any], settings: Settings, state: dict[str, Any]):
 
 
 def _run_v20_one(settings: Settings, state: dict[str, Any], dry_run: bool, video_index: int) -> bool:
-    """Run one V20 feed-native video without V19 scene generation or TTS.
-
-    Brain Traps are a hard single-canvas format: exactly one generated image is
-    allowed for the complete timeline. Other V20 formats may use their own
-    format-specific visual policy, but they never enter the legacy scene renderer.
-    """
+    """Run one V20 feed-native video with format-specific source invariants."""
     spec = generate_v20_spec(video_index)
     print(f"\n[v20] ── seed {video_index}/40 ── {spec['tracking_tag']} | {spec['format']} | {spec['subtype']}")
     print(f"[v20] hook={spec['hook_text']!r} duration={spec['duration_seconds']}s | evaluation=72h | thumbnail=FRAME_0")
@@ -229,21 +224,17 @@ def _run_v20_one(settings: Settings, state: dict[str, Any], dry_run: bool, video
     scene_dir.mkdir(parents=True, exist_ok=True)
     visual_paths: list[Path] = []
     try:
-        # CRITICAL V20 CONTRACT: Brain Trap = ONE CANVAS, not multiple generated scenes.
-        # The old V19 multi-scene generator is never called from this branch.
-        if spec["format"] == "BRAIN_TRAP":
-            prompts = [spec["visual_prompt"]]
+        if spec["format"] == "SATISFYING":
+            query = spec.get("stock_video_query") or spec["subtype"].replace("_", " ")
+            motion = scene_dir / "motion_00.mp4"
+            fetch_v20_motion_video(query, motion, settings, scene_index=video_index)
+            visual_paths = [motion]
         else:
-            # Other V20 pillars may use multiple visual states because their formats
-            # explicitly support transformations/payoffs across the timeline.
-            prompts = [spec["visual_prompt"]]
-            for i, detail in enumerate(spec.get("visual_parts", [])[:3], start=1):
-                prompts.append(f"{spec['visual_prompt']}; emphasize {detail}; same scene, same subject, vertical 9:16")
-
-        for idx, prompt in enumerate(prompts):
+            # Single-canvas invariant for every non-satisfying pillar. The previous
+            # V19 multi-scene generator is never called from V20.
             image = fetch_scene_image(
-                1000 + video_index * 10 + idx,
-                prompt,
+                1000 + video_index * 10,
+                spec["visual_prompt"],
                 "ai_cinematic",
                 settings,
                 subject_area="science",
@@ -251,42 +242,28 @@ def _run_v20_one(settings: Settings, state: dict[str, Any], dry_run: bool, video
                 card_points=[],
                 card_tag="",
             )
-            target = scene_dir / f"visual_{idx:02d}.jpg"
+            target = scene_dir / "visual_00.jpg"
             shutil.copy2(image, target)
-            visual_paths.append(target)
-            print(f"[v20] visual {idx + 1}/{len(prompts)} ready: {target.name}")
-
-        if spec["format"] == "BRAIN_TRAP" and len(visual_paths) != 1:
-            raise RuntimeError("V20 Brain Trap invariant violated: expected exactly one visual canvas")
+            visual_paths = [target]
+            print(f"[v20] single canvas ready: {target.name}")
 
         output = OUT_DIR / f"v20_{video_index:03d}_{_slug(spec['subtype'])}.mp4"
         render_v20_short(visual_paths, spec, output)
         print(f"[v20] rendered={output} size={output.stat().st_size / 1024 / 1024:.1f} MB")
 
+        # HARD GATE: no video reaches YouTube until format-specific visual/audio QA passes.
+        from .quality import assert_v20_quality
+        assert_v20_quality(output, spec["format"])
+
         from .script_gen import Script
-        script = Script(
-            title=spec["title"],
-            hook=spec["hook_text"],
-            description=spec["description"],
-            tags=spec["tags"],
-            scenes=[],
-            pinned_comment="",
-            content_mode="v20",
-        )
+        script = Script(title=spec["title"], hook=spec["hook_text"], description=spec["description"], tags=spec["tags"], scenes=[], pinned_comment="", content_mode="v20")
         if dry_run or not settings.upload_enabled:
             print("[v20] dry-run/upload-disabled: YouTube mutation skipped")
             return True
         if not settings.youtube_projects:
             raise RuntimeError("V20 upload requested but no YT_CREDS_N secrets are configured")
 
-        result = upload_video(
-            output,
-            script,
-            settings.youtube_projects,
-            category_id="24",
-            scene_durations=None,
-            v20_spec=spec,
-        )
+        result = upload_video(output, script, settings.youtube_projects, category_id="24", scene_durations=None, v20_spec=spec)
         record_v20_upload(result["video_id"], spec)
         print(f"[v20] uploaded={result['url']} | thumbnail=SKIPPED_NATIVE_FRAME_0")
         state.setdefault("v20_completed", []).append(spec["tracking_tag"])

@@ -25,3 +25,7 @@ urllib3<2.0  # pytrends 4.9.2 still passes legacy Retry(method_whitelist=...)
 
 # CI/test runner
 pytest==8.4.2
+
+# V20 pre-upload visual QA
+opencv-python-headless==4.10.0.84
+numpy==2.1.3

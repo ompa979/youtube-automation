@@ -39,6 +39,7 @@ jobs:
       CLOUDFLARE_MAX_ACCOUNTS: "4"
       CLOUDFLARE_SCENE_MODEL: "@cf/black-forest-labs/flux-1-schnell"
       V20_DISABLE_STOCK_FALLBACK: "true"
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - name: Restore V20 telemetry state

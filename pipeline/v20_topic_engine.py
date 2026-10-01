@@ -1,7 +1,7 @@
 """V20 feed-native 40-video creative seed.
 
 No syllabus, no LLM narrative, no SEO topic selection.  The seed is deterministic:
-10 Brain Traps + 10 Optical/Satisfying + 10 Satisfying/Destruction + 10 Micro-Loops.
+10 Brain Traps + 10 Optical Illusions + 10 Satisfying/Destruction + 10 Micro-Loops.
 """
 from __future__ import annotations
 
@@ -114,4 +114,6 @@ def generate_v20_spec(video_index: int) -> dict[str, Any]:
         "title": hook.replace(" 👁️", "").replace(" 💥", "").replace(" 🔁", ""),
         "description": "#shorts",
         "tags": ["shorts"],
+        "stock_video_query": f"{subtype.replace('_', ' ')} macro satisfying destruction action" if fmt == "SATISFYING" else None,
+        "source_contract": "REAL_MOTION_VIDEO" if fmt == "SATISFYING" else "SINGLE_CANVAS",
     }

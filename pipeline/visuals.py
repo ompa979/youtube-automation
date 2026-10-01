@@ -362,6 +362,70 @@ def _fetch_pexels(
         return False
 
 
+_USED_PEXELS_VIDEO_IDS: set[int] = set()
+
+
+def _fetch_pexels_video(query: str, out_path: Path, api_key: str, scene_index: int = 0, min_duration: int = 5) -> bool:
+    """Fetch a portrait stock video for V20 satisfying/destruction scenes.
+
+    This is deliberately separate from the image fallback path. V20 satisfying
+    videos must contain real photographed motion; a still image is never silently
+    substituted for a motion source.
+    """
+    try:
+        r = requests.get(
+            "https://api.pexels.com/videos/search",
+            headers={"Authorization": api_key},
+            params={"query": query, "orientation": "portrait", "size": "large", "per_page": 20},
+            timeout=45,
+        )
+        r.raise_for_status()
+        videos = r.json().get("videos", [])
+        candidates = [v for v in videos if float(v.get("duration") or 0) >= min_duration]
+        if not candidates:
+            print(f"[visuals] pexels video returned no usable clips for {query!r}")
+            return False
+        chosen = next((v for v in candidates if v.get("id") not in _USED_PEXELS_VIDEO_IDS), candidates[scene_index % len(candidates)])
+        if chosen.get("id"):
+            _USED_PEXELS_VIDEO_IDS.add(int(chosen["id"]))
+        files = chosen.get("video_files", [])
+        portrait = [f for f in files if (f.get("width") or 0) < (f.get("height") or 1)]
+        files = portrait or files
+        files = sorted(files, key=lambda f: ((f.get("width") or 0) * (f.get("height") or 0), f.get("fps") or 0), reverse=True)
+        src = next((f.get("link") for f in files if f.get("link")), None)
+        if not src:
+            return False
+        data = requests.get(src, timeout=120)
+        data.raise_for_status()
+        out_path.write_bytes(data.content)
+        if out_path.exists() and out_path.stat().st_size > 100_000:
+            return True
+        out_path.unlink(missing_ok=True)
+        return False
+    except Exception as exc:
+        out_path.unlink(missing_ok=True)
+        print(f"[visuals] pexels video failed for query {query!r}: {exc}")
+        return False
+
+
+def fetch_v20_motion_video(
+    query: str,
+    out_path: Path,
+    settings,
+    scene_index: int = 0,
+) -> Path:
+    """Acquire a genuine motion clip for V20 satisfying/destruction.
+
+    V20 intentionally fails instead of falling back to a still image. This keeps
+    the satisfying pillar from becoming a slideshow with artificial camera shake.
+    """
+    if not settings.pexels_api_key:
+        raise RuntimeError("V20 SATISFYING requires PEXELS_API_KEY for a real motion source")
+    if not _fetch_pexels_video(query, out_path, settings.pexels_api_key, scene_index=scene_index):
+        raise RuntimeError(f"V20 SATISFYING could not acquire real motion footage for {query!r}")
+    return out_path
+
+
 def _premium_prompt(image_prompt: str, visual_style: str, subject_area: str = "default") -> str:
     base = " ".join((image_prompt or "").split())
     # Very long prompts can make free image APIs time out or silently reject

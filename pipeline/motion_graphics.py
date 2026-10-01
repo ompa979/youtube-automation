@@ -361,6 +361,19 @@ def mg_v7_beat_hud(action_type: str, payload: str, accent: str) -> str:
     )
 
 
+
+
+def mg_exam_question_hud(payload: str, accent: str) -> str:
+    """Large final exam-question card; payload is the actual question."""
+    safe = str(payload or "What is the correct answer?").replace("\\", "").replace("'", "\\'")
+    return ",".join([
+        f"drawbox=x=70:y=560:w={W-140}:h=470:color=black@0.80:t=fill",
+        f"drawbox=x=70:y=560:w={W-140}:h=470:color={_hex_to_ffmpeg(accent)}@0.95:t=5",
+        f"drawtext=font='Inter':text='EXAM QUESTION':fontcolor={_hex_to_ffmpeg(accent)}:fontsize=42:x=(w-text_w)/2:y=615",
+        f"drawtext=font='Inter':text='{safe}':fontcolor=white:fontsize=48:x=120:y=710:w=840:h=220:line_spacing=16",
+        "drawtext=font='Inter':text='DROP YOUR ANSWER BELOW':fontcolor=white:fontsize=30:x=(w-text_w)/2:y=930",
+    ])
+
 def build_action_hud(action_type: str, payload: str, duration: float, accent: str, allow_text: bool = True) -> str:
     """Return the dedicated Action HUD overlay for this scene's psychological role.
 
@@ -387,10 +400,50 @@ def build_action_hud(action_type: str, payload: str, duration: float, accent: st
         return mg_trap_hud(payload)
     elif act == "loop":
         return mg_loop_hud(payload)
+    elif act == "exam_question":
+        return mg_exam_question_hud(payload, accent)
     elif act == "trap_loop":
         return mg_trap_loop_hud(payload)
     return ""
 
+
+
+
+def mg_tcp_packet_flow(duration: float, accent: str, action_payload: str = "") -> str:
+    """Animated TCP 3-way-handshake diagram for muted viewers.
+
+    The overlay deliberately uses deterministic labels/arithmetic so an image
+    model cannot omit or corrupt the exam-critical packet sequence.
+    """
+    color = _hex_to_ffmpeg(accent)
+    # A packet travels right, then a SYN-ACK returns left, then ACK travels right.
+    # The timing is normalized to the scene so it works for different TTS lengths.
+    p1x = f"240+min(430,max(0,(t/{max(duration,0.5):.3f})*430))"
+    p2x = f"670-max(430,max(0,((t/{max(duration,0.5):.3f})-0.34)*430))"
+    p3x = f"240+min(430,max(0,((t/{max(duration,0.5):.3f})-0.67)*430))"
+    return ",".join([
+        # Client / server rails
+        "drawbox=x=70:y=430:w=240:h=115:color=black@0.58:t=5",
+        "drawbox=x=770:y=430:w=240:h=115:color=black@0.58:t=5",
+        "drawtext=font='Inter':text='CLIENT':fontcolor=white:fontsize=34:x=120:y=465:borderw=2:bordercolor=black@0.7",
+        "drawtext=font='Inter':text='SERVER':fontcolor=white:fontsize=34:x=815:y=465:borderw=2:bordercolor=black@0.7",
+        # Direction rails
+        "drawbox=x=300:y=482:w=470:h=7:color=white@0.32:t=fill",
+        "drawbox=x=300:y=520:w=470:h=7:color=white@0.32:t=fill",
+        # Animated packet blocks
+        f"drawbox=x='{p1x}':y=462:w=120:h=58:color={color}:t=fill",
+        f"drawbox=x='{p2x}':y=500:w=120:h=58:color={color}:t=fill",
+        f"drawbox=x='{p3x}':y=462:w=120:h=58:color={color}:t=fill",
+        f"drawtext=font='Inter':text='SYN':fontcolor=black:fontsize=28:x='{p1x}+24':y=478",
+        f"drawtext=font='Inter':text='SYN-ACK':fontcolor=black:fontsize=24:x='{p2x}+8':y=515",
+        f"drawtext=font='Inter':text='ACK':fontcolor=black:fontsize=28:x='{p3x}+24':y=478",
+        # Exam arithmetic — always visible in the mechanism/example scenes.
+        "drawbox=x=95:y=650:w=890:h=250:color=black@0.72:t=fill",
+        "drawtext=font='Inter':text='SYN\\:       Seq = x':fontcolor=white:fontsize=36:x=130:y=690",
+        "drawtext=font='Inter':text='SYN-ACK\\: Seq = y,  Ack = x + 1':fontcolor=white:fontsize=32:x=130:y=755",
+        "drawtext=font='Inter':text='ACK\\:      Ack = y + 1':fontcolor=white:fontsize=36:x=130:y=820",
+        f"drawtext=font='Inter':text='3-WAY HANDSHAKE':fontcolor={color}:fontsize=28:x=130:y=865",
+    ])
 
 def build_motion_graphics_filter(
     duration: float,
@@ -401,6 +454,7 @@ def build_motion_graphics_filter(
     action_type: str = "explanation",
     action_payload: str = "",
     allow_drawtext: bool = False,
+    motion_type: str = "",
 ) -> str:
     """Compose all MG layers for one scene. Returns a comma-joined ffmpeg filter string
     ready to be appended after the Ken Burns / color-grade chain.
@@ -487,6 +541,7 @@ def build_motion_graphics_filter(
     action_type: str = "explanation",
     action_payload: str = "",
     allow_drawtext: bool = False,
+    motion_type: str = "",
 ) -> str:
     """Build runtime-safe motion graphics.
 
@@ -499,6 +554,12 @@ def build_motion_graphics_filter(
     parts: list[str] = [mg_progress_bar(duration, accent)]
     if is_hook:
         parts.append(mg_hook_sweep(accent))
+
+    if (motion_type or "").strip().lower() == "tcp_packet_flow":
+        # Packet labels/arithmetic are intentionally drawtext-based and are
+        # only enabled when FFmpeg exposes drawtext.
+        if allow_drawtext:
+            parts.append(mg_tcp_packet_flow(duration, accent, action_payload))
 
     # Keep the final difference card visually framed without hard-coding text
     # onto the image/video layer.  The artwork itself carries the explanation.

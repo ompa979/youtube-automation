@@ -1,6 +1,6 @@
-"""Two-word ASS karaoke captions.
+"""Word-by-word ASS karaoke captions.
 
-Shows TWO words at a time, synced to real (edge-tts / faster-whisper) or
+Shows ONE word at a time, synced to real (edge-tts / faster-whisper) or
 estimated per-word timing.  Design rules:
 
   - Pairs never cross a sentence boundary (split before "." "!" "?").
@@ -61,18 +61,10 @@ def _escape_text(text: str) -> str:
 
 
 def _words_to_pairs(words: list[dict]) -> list[list[dict]]:
-    """Group word-timing dicts into two-word pairs.
-
-    Rules:
-    1. If two consecutive words form a protected term, they stay together.
-    2. A pair never crosses a sentence end (word ending in .!?).
-    3. Default: two words per pair.
-    """
+    """Return one caption unit per word, preserving protected technical terms."""
     pairs: list[list[dict]] = []
     i = 0
     n = len(words)
-
-    # Build a lower-case set of protected bigrams for fast lookup.
     protected_lower: set[str] = set()
     for term in _PROTECTED_TERMS:
         parts = term.lower().split()
@@ -83,30 +75,18 @@ def _words_to_pairs(words: list[dict]) -> list[list[dict]]:
         w0 = words[i]
         word0 = str(w0.get("word", "")).strip()
 
-        # Check if i and i+1 form a protected bigram.
+        # Keep a small set of genuinely inseparable two-word exam terms intact.
         if i + 1 < n:
             word1 = str(words[i + 1].get("word", "")).strip()
             bigram = (word0 + " " + word1).lower()
-            # Strip trailing punctuation for matching.
             bigram_clean = re.sub(r"[.!?,;:]+$", "", bigram).strip()
             if bigram_clean in protected_lower:
                 pairs.append([w0, words[i + 1]])
                 i += 2
                 continue
 
-        # Never let a pair cross a sentence end.
-        if _SENTENCE_END_RE.search(word0):
-            pairs.append([w0])
-            i += 1
-            continue
-
-        # Default: pair two words.
-        if i + 1 < n:
-            pairs.append([w0, words[i + 1]])
-            i += 2
-        else:
-            pairs.append([w0])
-            i += 1
+        pairs.append([w0])
+        i += 1
 
     return pairs
 
@@ -117,10 +97,10 @@ def build_word_ass(
     out_path: Path,
     fontname: str = "Inter",
 ) -> bool:
-    """Writes an .ass file with one Dialogue line per two-word pair.
+    """Writes an .ass file with one Dialogue line per word (or protected term).
 
-    Each pair is shown from its first word's start time until the next pair
-    starts — no gaps between captions.  Returns False (and writes nothing)
+    Each caption unit is shown from its first word's start time until the next
+    unit starts — no gaps between captions. Returns False (and writes nothing)
     when there's no usable timing data.
     """
     words = [w for w in (word_timings or []) if (w.get("word") or "").strip()]
@@ -141,7 +121,7 @@ def build_word_ass(
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Word,{fontname},92,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+        f"Style: Word,{fontname},100,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
         "-1,0,0,0,100,100,0,0,1,7,2,5,60,60,0,1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"

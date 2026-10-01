@@ -113,6 +113,18 @@ def normalize_for_speech(text: str) -> str:
     s = re.sub(r"\bSSC\s+CGL\b", "S S C, C G L", s, flags=re.I)
     s = re.sub(r"\bSSC\b", "S S C", s)
 
+    # Networking terms — phonetic spellings prevent Edge/gTTS from collapsing
+    # SYN and SYN-ACK into an unclear syllable. Keep the original display text
+    # untouched; this function is only the hidden speech string.
+    s = re.sub(r"\bSYN\s*-\s*ACK\b", "Sin Ack", s, flags=re.I)
+    s = re.sub(r"\bSYNACK\b", "Sin Ack", s, flags=re.I)
+    s = re.sub(r"\bSYN\b", "Sin", s, flags=re.I)
+    s = re.sub(r"\bACK\b", "Ack", s, flags=re.I)
+    s = re.sub(r"\bUDP\b", "U D P", s, flags=re.I)
+    s = re.sub(r"\bTCP\b", "T C P", s, flags=re.I)
+    s = re.sub(r"\bSeq\b", "sequence", s, flags=re.I)
+    s = re.sub(r"\bAck\b", "Ack", s, flags=re.I)
+
     # Technical acronyms
     s = re.sub(r"\bDBMS\b", "D B M S", s)
     s = re.sub(r"\bRDBMS\b", "R D B M S", s)

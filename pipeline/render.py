@@ -395,6 +395,7 @@ def _ken_burns_clip(
     anchor_text: str = "",
     action_type: str = "explanation",
     action_payload: str = "",
+    motion_type: str = "",
     visual_mode: str = "concept",
     creative_headline: str = "",
     creative_subline: str = "",
@@ -416,6 +417,7 @@ def _ken_burns_clip(
         action_type=action_type,
         action_payload=action_payload,
         allow_drawtext=drawtext_ok,
+        motion_type=motion_type,
     )
     if mg_f:
         vf = f"{vf},{mg_f}"
@@ -944,6 +946,7 @@ def assemble_video(
             anchor_text=anchor_text,
             action_type=act_type,
             action_payload=act_payload,
+            motion_type=(scene_motion_types[i] if scene_motion_types and i < len(scene_motion_types) else ""),
             visual_mode=(scene_visual_modes[i] if scene_visual_modes and i < len(scene_visual_modes) else "concept"),
             creative_headline=creative_headline,
             creative_subline=creative_subline,

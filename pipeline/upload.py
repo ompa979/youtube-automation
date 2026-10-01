@@ -41,25 +41,73 @@ def _creds_from_payload(payload: dict) -> Credentials:
     )
 
 
-def _set_thumbnail(yt, video_id: str, thumb_path: Path, attempts: int = 4) -> None:
-    """Upload thumbnail JPEG. Requires channel verification for custom thumbnails.
+def _verify_thumbnail(yt, video_id: str, expected_url: str | None = None, attempts: int = 3) -> tuple[bool, str]:
+    """Verify that *our* custom thumbnail is visible on YouTube.
 
-    Retries on transient failures: thumbnails.set is sometimes rejected with a
-    generic 403 in the first few seconds after videos.insert() returns, before
-    YouTube has fully registered the new video server-side — not because of a
-    real permission problem. The previous version gave up after one try, so
-    every video that hit this narrow window silently shipped with no
-    thumbnail. Permission errors that will never resolve by waiting (missing
-    scope, channel not allowed to set custom thumbnails, bad image) are
-    detected and NOT retried, so this doesn't waste time on a hopeless case.
+    A ``videos.list(part=snippet)`` response always contains a thumbnail for a
+    video, even when YouTube is still using an automatically generated frame.
+    Therefore merely finding a thumbnail URL is NOT proof that ``thumbnails.set``
+    succeeded.  When ``thumbnails.set`` returns a thumbnail resource, this check
+    requires the same remote URL to be exposed by ``videos.list``.
+
+    We intentionally do not compare image bytes because YouTube may resize or
+    re-encode the uploaded JPEG.
+    """
+    last_error = ""
+    for attempt in range(1, attempts + 1):
+        try:
+            response = yt.videos().list(part="snippet", id=video_id).execute()
+            items = response.get("items") or []
+            if not items:
+                last_error = "video not visible yet via videos.list"
+            else:
+                thumbs = (items[0].get("snippet") or {}).get("thumbnails") or {}
+                urls = [str(v.get("url")) for v in thumbs.values() if v.get("url")]
+                if expected_url:
+                    if expected_url in urls:
+                        return True, "remote thumbnail URL matches thumbnails.set response"
+                    last_error = "videos.list thumbnail URLs do not match thumbnails.set response"
+                elif urls:
+                    # The set call succeeded but returned no usable thumbnail
+                    # resource, so do not falsely claim that the custom image is live.
+                    last_error = "thumbnails.set returned no thumbnail URL to verify"
+                else:
+                    last_error = "videos.list returned no thumbnail URL"
+        except Exception as exc:
+            last_error = str(exc).replace("\n", " ")[:500]
+
+        if attempt < attempts:
+            delay = 3 * attempt
+            print(f"[upload] thumbnail verification {attempt}/{attempts} not ready; retrying in {delay}s: {last_error}")
+            time.sleep(delay)
+
+    return False, last_error or "thumbnail verification failed"
+
+
+def _set_thumbnail(yt, video_id: str, thumb_path: Path, attempts: int = 4) -> dict:
+    """Upload and verify the custom thumbnail.
+
+    Returns a machine-readable status instead of silently swallowing the result:
+      VERIFIED             = thumbnails.set succeeded and videos.list sees it
+      UPLOADED_UNVERIFIED  = thumbnails.set succeeded but follow-up verification failed
+      FAILED_PERMISSION    = YouTube rejected the credential/channel permission
+      FAILED               = transient/other failure after retries
+      SKIPPED_NO_FILE      = no valid thumbnail was produced locally
+
+    The operation remains non-fatal to the video upload itself, but the final
+    upload summary now makes the thumbnail state explicit.
     """
     if not thumb_path.exists() or thumb_path.stat().st_size < 5000:
-        print("[upload] no thumbnail file — skipping")
-        return
+        print("[upload] THUMBNAIL: SKIPPED_NO_FILE — thumbnail.jpg missing or too small")
+        return {"status": "SKIPPED_NO_FILE", "attempts": 0, "error": "missing_or_too_small"}
 
-    _PERMANENT_MARKERS = (
+    _PERMISSION_MARKERS = (
         "doesn't have permissions to upload and set custom video thumbnails",
+        "does not have permissions to upload and set custom video thumbnails",
         "insufficientpermissions",
+        "insufficient permissions",
+    )
+    _PERMANENT_MARKERS = _PERMISSION_MARKERS + (
         "invalidimage",
         "mediabodyrequired",
     )
@@ -68,26 +116,49 @@ def _set_thumbnail(yt, video_id: str, thumb_path: Path, attempts: int = 4) -> No
     for attempt in range(1, attempts + 1):
         try:
             media = MediaFileUpload(str(thumb_path), mimetype="image/jpeg")
-            yt.thumbnails().set(videoId=video_id, media_body=media).execute()
-            print(f"[upload] thumbnail uploaded: {thumb_path.name} (attempt {attempt})")
-            return
+            response = yt.thumbnails().set(videoId=video_id, media_body=media).execute()
+            items = response.get("items") or [] if isinstance(response, dict) else []
+            expected_url = None
+            if items:
+                thumbnail_resource = items[0] or {}
+                # The set response contains the thumbnail resource accepted by YouTube.
+                for key in ("maxres", "standard", "high", "medium", "default"):
+                    candidate = thumbnail_resource.get(key) or {}
+                    if candidate.get("url"):
+                        expected_url = candidate["url"]
+                        break
+
+            print(f"[upload] thumbnail set accepted: {thumb_path.name} (attempt {attempt})")
+            verified, detail = _verify_thumbnail(yt, video_id, expected_url=expected_url)
+            if verified:
+                print(f"[upload] THUMBNAIL: VERIFIED — {detail}")
+                return {"status": "VERIFIED", "attempts": attempt, "error": ""}
+
+            print(f"[!] THUMBNAIL: UPLOADED_UNVERIFIED — {detail}")
+            return {"status": "UPLOADED_UNVERIFIED", "attempts": attempt, "error": detail}
         except Exception as exc:
             last_exc = exc
-            msg = str(exc)
-            if any(marker in msg.lower() for marker in _PERMANENT_MARKERS):
+            msg = str(exc).replace("\n", " ")
+            lower = msg.lower()
+            if any(marker in lower for marker in _PERMISSION_MARKERS):
                 print(
-                    "[!] Thumbnail upload REJECTED — this channel is very likely not "
-                    "phone-verified, or doesn't otherwise have permission to set custom "
-                    "thumbnails. Verify at https://www.youtube.com/verify . "
+                    "[!] THUMBNAIL: FAILED_PERMISSION — YouTube rejected the authenticated "
+                    "channel/credential for custom thumbnails. Channel verification/eligibility "
+                    "must be fixed in YouTube; retrying the same API call cannot grant permission. "
                     f"Original error: {msg}"
                 )
-                return
+                return {"status": "FAILED_PERMISSION", "attempts": attempt, "error": msg[:1000]}
+            if any(marker in lower for marker in _PERMANENT_MARKERS):
+                print(f"[!] THUMBNAIL: FAILED — permanent API rejection: {msg}")
+                return {"status": "FAILED", "attempts": attempt, "error": msg[:1000]}
             if attempt < attempts:
-                delay = 5 * attempt  # 5s, 10s, 15s
+                delay = 5 * attempt
                 print(f"[!] Thumbnail upload attempt {attempt}/{attempts} failed, retrying in {delay}s: {msg}")
                 time.sleep(delay)
 
-    print(f"[!] Thumbnail upload failed after {attempts} attempts (non-fatal): {last_exc}")
+    msg = str(last_exc).replace("\n", " ")[:1000] if last_exc else "unknown error"
+    print(f"[!] THUMBNAIL: FAILED after {attempts} attempts (non-fatal): {msg}")
+    return {"status": "FAILED", "attempts": attempts, "error": msg}
 
 
 def _build_timestamp_comment(script: Script, durations: list[float]) -> str:
@@ -212,7 +283,8 @@ def upload_video(
             # remain non-fatal.
             time.sleep(6)
             thumb_path = OUT_DIR / "thumbnail.jpg"
-            _set_thumbnail(yt, video_id, thumb_path)
+            thumbnail_result = _set_thumbnail(yt, video_id, thumb_path)
+            thumbnail_status = thumbnail_result["status"]
 
             can_post_comment = any("force-ssl" in s for s in (creds.scopes or []))
             comment_text = (script.pinned_comment or "").strip()
@@ -225,11 +297,13 @@ def upload_video(
             else:
                 print("[upload] Pinned comment skipped: OAuth credentials only have 'youtube.upload' scope. (Re-authorize token with force-ssl scope if you want automated comments).")
 
-            print(f"[upload summary] UPLOAD: SUCCESS | VIDEO: {url} | CHANNEL_CRED: {chosen.name} | COMMENT: {comment_status}")
+            print(f"[upload summary] UPLOAD: SUCCESS | VIDEO: {url} | THUMBNAIL: {thumbnail_status} | CHANNEL_CRED: {chosen.name} | COMMENT: {comment_status}")
             return {
                 "video_id": video_id,
                 "url": url,
                 "project": chosen.name,
+                "thumbnail_status": thumbnail_status,
+                "thumbnail_error": thumbnail_result.get("error", ""),
             }
         except Exception as exc:
             msg = str(exc).replace("\n", " ")[:1000]

@@ -1476,7 +1476,7 @@ def _seo_and_finalize(script: Script, topic: str, niche_key: str | None, setting
 # ═════════════════════════════════════════════════════════════════════════════
 
 _V6_SCENE_SEQUENCE = ("hook", "context", "mechanism", "example", "exam_takeaway", "difference_card")
-_V6_ACTION_TYPES = set(_V6_SCENE_SEQUENCE)
+_V6_ACTION_TYPES = set(_V6_SCENE_SEQUENCE) | {"difference_card"}
 _V6_RISK_PHRASES = (
     "90%", "99%", "every year", "always asked", "always asks", "guaranteed",
     "secret", "hack any", "crack every", "you will be shocked", "most people don't know",
@@ -1519,7 +1519,7 @@ V17 INFORMATION-DESIGN CONTRACT (MANDATORY)
 - On-screen headlines must be meaningful information (concept, rule, example, or exam clue), not narration fragments. Avoid fragments that look like "requiring immediate", "branch totals", "designed" or similar sentence continuations.
 - card_points is an information card: one short rule/anchor, maximum 8 words.
 - action_payload should describe the physical/diagrammatic change in one short phrase, maximum 12 words.
-- Scene 3-4 should make the mechanism visually legible even with audio muted.
+- Scene 3-4 should make the mechanism visually legible even with audio muted. For networking topics, show the packet/arrow movement directly, not just a generic background.
 - Use three visual modes across the Short: concept (hook/context/mechanism), worked_example (example), exam_card (exam_takeaway/difference_card).
 - Thumbnail/header copy should be a searchable concept plus a specific mechanism, never "REVEAL", "A OR B?", "STOP", or a sentence fragment.
 
@@ -1530,7 +1530,7 @@ VALUE-FIRST SCRIPT SHAPE — EXACTLY 6 SCENES
 4. EXAMPLE: Work through ONE realistic example from start to finish. Use numbers, a row, a packet, a transaction, a query, or a real-world situation where appropriate.
 5. EXAM TAKEAWAY: State exactly what wording, signal, or condition lets an aspirant recognize or apply the answer in a question. This is the practical exam-use line.
    EXAM CLUE should be embedded naturally inside this scene when useful; do not render a generic badge merely to label it.
-6. FINAL DIFFERENCE CARD: End with a 2-3 second visual comparison of the two most important concepts. Spoken line should be one concise contrast sentence. The image must show the two concepts side by side. No quiz, A/B choice, countdown, or CTA in narration.
+6. EXAM QUESTION CTA (replaces the legacy FINAL DIFFERENCE CARD): End with a 2-3 second exam-style question after the teaching is complete. Ask ONE concrete question whose answer is directly supported by the Short. The question must be spoken and shown on screen, and the narration must end with a natural prompt such as "Drop your answer in the comments." Never ask for an answer before the concept has been taught.
 
 TARGET LENGTH
 - Aim for 62-80 spoken words total.
@@ -1543,7 +1543,8 @@ TARGET LENGTH
 ON-SCREEN TEXT
 - 2-6 words per scene.
 - The words must add meaning, not label the scene with generic UI.
-- Good examples: 'TERM DEPOSITS WIDEN M3', 'WHERE THE PACKET GOES', 'GROUP BY FIRST', 'ONE BANK EXAMPLE', 'EXAM CLUE', 'REMEMBER THIS RULE'.
+- Good examples: 'TERM DEPOSITS WIDEN M3', 'WHERE THE PACKET GOES', 'GROUP BY FIRST', 'ONE BANK EXAMPLE', 'EXAM CLUE', 'REMEMBER THIS RULE', 'WHAT STATE COMES NEXT?'.
+- Final scene must be a genuine exam question, not a generic subscribe CTA.
 - Never use game labels or empty phrases.
 
 VISUAL STORYBOARD
@@ -1566,6 +1567,12 @@ SEO/PACKAGING
 - Description should explain what the viewer learns and why it matters for the relevant exam/search intent.
 - Tags should include the exact concept, exam where relevant, domain and two useful long-tail variants.
 
+TOPIC-SPECIFIC CONTRACTS
+- If TOPIC is TCP, TCP handshake, three-way handshake, SYN, SYN-ACK, or ACK: pronounce and display the terms distinctly; use "SYN", "SYN-ACK", and "ACK" as exact on-screen text.
+- For TCP three-way handshake, the mechanism/example scenes MUST visibly show: Packet 1 SYN: Seq = x; Packet 2 SYN-ACK: Seq = y, Ack = x + 1; Packet 3 ACK: Ack = y + 1.
+- For that TCP topic, use motion_type "tcp_packet_flow" on the mechanism and example scenes. The visual must show Client → Server packet movement and the return packet, with the sequence-number arithmetic readable without audio.
+- The final exam question for TCP handshake should be: "What state does the server enter after receiving the first SYN?" The expected answer is "SYN-RECEIVED"; do not reveal the answer in the question scene.
+
 Return ONLY this JSON:
 {{
   "title": "...",
@@ -1578,14 +1585,14 @@ Return ONLY this JSON:
   "thumbnail_visual_prompt": "premium portrait 9:16 hero-art description, no text",
   "scenes": [
     {{
-      "action_type": "hook | context | mechanism | example | exam_takeaway | difference_card",
+      "action_type": "hook | context | mechanism | example | exam_takeaway | exam_question",
       "action_payload": "what is physically happening in the scene",
       "narration": "...",
       "tts_text": "...",
       "image_prompt": "...",
       "on_screen_text": "2-6 meaningful words",
       "card_points": ["one short teaching anchor"],
-      "motion_type": "hook | push_in | pan_right | formula_build | example_reveal | split_compare",
+      "motion_type": "hook | push_in | pan_right | formula_build | example_reveal | tcp_packet_flow | exam_question",
       "camera_motion": "...",
       "sfx_cue": "boom | whoosh | chime | alert | none"
     }}
@@ -1617,6 +1624,7 @@ def _v6_to_script(data: dict) -> Script:
         "example": ("example_reveal", "snap_zoom", "chime"),
         "exam_takeaway": ("static", "static", "alert"),
         "difference_card": ("static", "static", "chime"),
+        "exam_question": ("static", "static", "tick"),
         "memory_lock": ("static", "push_in", "chime"),
         # Viral V2 six-beat scene contract. This mapping is required when
         # the model returns a valid viral action_type; previously the parser
@@ -1632,7 +1640,7 @@ def _v6_to_script(data: dict) -> Script:
         if not isinstance(raw, dict):
             raise ValueError(f"scene {i+1} is not an object")
         raw_action = _clean_text(str(raw.get("action_type", ""))).lower()
-        viral_actions = {"pattern_interrupt", "tension", "mechanism", "transformation", "payoff", "loop"}
+        viral_actions = {"pattern_interrupt", "tension", "transformation", "payoff", "loop"}
         is_viral_shape = any(_clean_text(str(item.get("action_type", ""))).lower() in viral_actions for item in raw_scenes if isinstance(item, dict))
         allowed_actions = viral_actions if is_viral_shape else _V6_ACTION_TYPES
         fallback_sequence = ("pattern_interrupt", "tension", "mechanism", "transformation", "payoff", "loop") if is_viral_shape else _V6_SCENE_SEQUENCE
@@ -1661,7 +1669,7 @@ def _v6_to_script(data: dict) -> Script:
         payload = _v6_clean_forbidden(_first_text(raw, "action_payload", "payload", "cue", "detail"))
         motion, camera, sfx = defaults[action]
         visual_mode = _first_text(raw, "visual_mode", "visualMode", "mode") or (
-            "worked_example" if action == "example" else "exam_card" if action in {"exam_takeaway", "difference_card"} else "concept"
+            "worked_example" if action == "example" else "exam_card" if action in {"exam_takeaway", "difference_card", "exam_question"} else "concept"
         )
         scenes.append(Scene(
             index=i, narration=narration, tts_text=tts, image_prompt=image_prompt,
@@ -1725,9 +1733,12 @@ def _v6_enforce_contract(script: Script) -> None:
             scene.on_screen_text = "WORKED EXAMPLE"
         elif role == "exam_takeaway" and not scene.on_screen_text:
             scene.on_screen_text = "EXAM CLUE"
-        elif role == "difference_card":
-            scene.on_screen_text = "KEY DIFFERENCE"
-            scene.action_payload = scene.action_payload or _v8_difference_payload(script)
+        elif role == "exam_question":
+            if not scene.on_screen_text:
+                scene.on_screen_text = "WHAT STATE COMES NEXT?"
+            if not scene.action_payload:
+                scene.action_payload = "Answer in the comments"
+            scene.motion_type = scene.motion_type or "exam_question"
         elif role == "pattern_interrupt" and not scene.on_screen_text:
             scene.on_screen_text = "LOOK CLOSER"
         elif role == "tension" and not scene.on_screen_text:
@@ -1743,6 +1754,44 @@ def _v6_enforce_contract(script: Script) -> None:
     if not getattr(script, "thumbnail_text", ""):
         script.thumbnail_text = _v6_clean_forbidden(script.title)[:42].upper()
 
+
+def _apply_topic_visual_contract(script: Script, topic: str) -> None:
+    """Deterministic exam-critical overlays for high-risk networking concepts."""
+    low = (topic or "").lower()
+    if not any(k in low for k in ("tcp", "three-way handshake", "3-way handshake", "syn-ack")):
+        return
+
+    # TCP handshake: force the exact exam arithmetic into the scenes so a
+    # creative rewrite cannot accidentally omit the values that get tested.
+    if len(script.scenes) >= 6:
+        hook = script.scenes[0]
+        hook.on_screen_text = "TCP HANDSHAKE IN 30 SECONDS"
+        hook.action_payload = "Three packets establish a TCP connection"
+        if not hook.narration:
+            hook.narration = "How does TCP establish a connection in just three packets?"
+            hook.tts_text = hook.narration
+
+        mechanism = script.scenes[2]
+        mechanism.on_screen_text = "SYN → SYN-ACK → ACK"
+        mechanism.action_payload = "Packet 1 SYN: Seq=x; Packet 2 SYN-ACK: Seq=y, Ack=x+1; Packet 3 ACK: Ack=y+1"
+        mechanism.motion_type = "tcp_packet_flow"
+        mechanism.card_points = ["Ack numbers advance each received SYN"]
+
+        example = script.scenes[3]
+        example.on_screen_text = "SEQUENCE NUMBERS MATTER"
+        example.action_payload = "SYN Seq=x → SYN-ACK Ack=x+1 → ACK Ack=y+1"
+        example.motion_type = "tcp_packet_flow"
+        example.card_points = ["Every SYN consumes one sequence number"]
+
+        final = script.scenes[5]
+        final.action_type = "exam_question"
+        final.on_screen_text = "SERVER STATE AFTER SYN?"
+        final.action_payload = "What state does the server enter after receiving the first SYN?"
+        final.narration = "Exam question: after the first SYN, what state does the server enter? Drop your answer below."
+        final.tts_text = final.narration
+        final.visual_mode = "exam_card"
+        final.motion_type = "exam_question"
+        final.card_points = ["Name the server state"]
 
 def _v6_length_issue(script: Script) -> str | None:
     words = sum(len(re.findall(r"\b[\w'-]+\b", s.narration)) for s in script.scenes)
@@ -1768,8 +1817,8 @@ def _v6_qa_all(script: Script, topic: str, language: str, content_mode: str = "e
             extra.append(f"unsupported/sensational phrase detected: {phrase}")
     if content_mode != "viral":
         final_words = len(re.findall(r"\b[\w'-]+\b", script.scenes[-1].narration)) if script.scenes else 0
-        if final_words > 18:
-            extra.append(f"final difference scene is {final_words} words; keep the visual comparison line under 18 words")
+        if final_words > 24:
+            extra.append(f"final exam-question scene is {final_words} words; keep the visual comparison line under 18 words")
         if re.search(r"\bA\s*(?:or|vs\.?|versus)\s*B\b", body, re.I):
             extra.append("A/B game language is prohibited in V6")
         if re.search(r"\b(?:stop|wait)\b", script.scenes[0].narration.lower()):
@@ -1786,6 +1835,7 @@ def _v6_qa_all(script: Script, topic: str, language: str, content_mode: str = "e
 
 def _v6_finalize(script: Script, topic: str, niche_key: str | None) -> Script:
     _v6_enforce_contract(script)
+    _apply_topic_visual_contract(script, topic)
     if getattr(script, "content_mode", "exam") != "viral":
         script.title = _ensure_exam_in_title(script.title, topic, niche_key)
     script.title = re.sub(r"\s+", " ", script.title).strip()[:85].rstrip(" -:|")
